@@ -502,11 +502,17 @@ function renderSessions(sessionRows) {
     }));
 }
 
-async function loadProgressFilterOptions() {
+async function unionFilterOptions() {
   const all = await Promise.all(
     state.players.map((p) => getJSON(`/api/filters?puuid=${encodeURIComponent(p.puuid)}`)));
-  const champions = [...new Set(all.flatMap((o) => o.champions))].sort();
-  const queues = [...new Set(all.flatMap((o) => o.queues))].sort();
+  return {
+    champions: [...new Set(all.flatMap((o) => o.champions))].sort(),
+    queues: [...new Set(all.flatMap((o) => o.queues))].sort(),
+  };
+}
+
+async function loadProgressFilterOptions() {
+  const { champions, queues } = await unionFilterOptions();
   if (state.progressChampion === null) {
     state.progressChampion = champions.includes("Gwen") ? "Gwen" : "";
   }
@@ -534,19 +540,24 @@ async function loadProgress() {
 function setMainView(view) {
   state.mainView = view;
   if (history.replaceState) {
-    history.replaceState(null, "", view === "progress" ? "#progress" : "#");
+    const hash = view === "progress" ? "#progress" : view === "trends" ? "#trends" : "#";
+    history.replaceState(null, "", hash);
   }
   $("#nav-overview").classList.toggle("active", view === "overview");
   $("#nav-progress").classList.toggle("active", view === "progress");
+  $("#nav-trends").classList.toggle("active", view === "trends");
   $("#overview-view").classList.toggle("hidden", view !== "overview");
   $("#progress-view").classList.toggle("hidden", view !== "progress");
-  $("#account-tabs").classList.toggle("hidden", view === "progress");
+  $("#trends-view").classList.toggle("hidden", view !== "trends");
+  $("#account-tabs").classList.toggle("hidden", view !== "overview");
   if (view === "progress") loadProgressFilterOptions().then(loadProgress);
+  if (view === "trends") initTrends();
 }
 
 function wireProgress() {
   $("#nav-overview").addEventListener("click", () => setMainView("overview"));
   $("#nav-progress").addEventListener("click", () => setMainView("progress"));
+  $("#nav-trends").addEventListener("click", () => setMainView("trends"));
   $("#progress-champion").addEventListener("change", (e) => {
     state.progressChampion = e.target.value; loadProgress();
   });
@@ -667,6 +678,7 @@ async function init(firstLoad = true) {
   await loadFilterOptions();
   await refresh();
   if (firstLoad && location.hash === "#progress") setMainView("progress");
+  if (firstLoad && location.hash === "#trends") setMainView("trends");
 }
 
 init();

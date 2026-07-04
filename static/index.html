@@ -12,6 +12,7 @@
   <div class="view-toggle" id="main-view-toggle" role="tablist">
     <button id="nav-overview" class="active" role="tab">Overview</button>
     <button id="nav-progress" role="tab">Coaching progress</button>
+    <button id="nav-trends" role="tab">Trends</button>
   </div>
   <nav id="account-tabs" aria-label="Accounts"></nav>
   <div class="crawl-box">
@@ -59,6 +60,34 @@
     <p class="muted">Add full notes by expanding a session and clicking edit — Markdown supported.</p>
   </section>
 </div>
+
+<div id="trends-view" class="hidden">
+  <section class="filter-row" aria-label="Trend filters">
+    <div class="filter-group" id="bucket-toggle">
+      <span class="filter-label">Bucket</span>
+      <button data-bucket="day" class="preset">Day</button>
+      <button data-bucket="week" class="preset">Week</button>
+      <button data-bucket="month" class="preset active">Month</button>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label" for="trend-champion">Champion</label>
+      <select id="trend-champion"><option value="">All</option></select>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label" for="trend-queue">Queue</label>
+      <select id="trend-queue"><option value="">All</option></select>
+    </div>
+    <span class="muted">Both accounts combined · top lane only</span>
+  </section>
+
+  <div id="trend-charts"></div>
+
+  <section>
+    <h2>Breakdown</h2>
+    <div id="trend-table"></div>
+  </section>
+</div>
+<div id="chart-tip" class="hidden"></div>
 
 <div id="overview-view">
 <section id="filters" class="filter-row" aria-label="Filters">
@@ -127,5 +156,6 @@
 
 <script src="vendor/marked.min.js"></script>
 <script src="app.js"></script>
+<script src="trends.js"></script>
 </body>
 </html>

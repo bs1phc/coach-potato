@@ -340,6 +340,47 @@ tr.muted td { color: var(--muted); }
 #session-list table td { text-align: left; }
 #main-view-toggle { margin-left: 4px; }
 
+/* ---------- trends ---------- */
+.trend-group { font-size: 14px; margin: 20px 0 8px; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.04em; }
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 12px;
+}
+.trend-chart {
+  margin: 0;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 10px 4px;
+}
+.trend-chart figcaption { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.trend-chart svg { width: 100%; height: auto; display: block; }
+.tl-line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; }
+.tl-dot { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 1.5; }
+.tl-hit { fill: transparent; cursor: pointer; }
+.tl-axis { stroke: var(--baseline); stroke-width: 1; }
+.tl-ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.tl-ylab, .tl-xlab { font-size: 9px; fill: var(--muted); }
+#chart-tip {
+  position: absolute;
+  z-index: 10;
+  background: var(--text-primary);
+  color: var(--page);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.trend-breakdown th.group-head {
+  text-align: center;
+  border-bottom: 1px solid var(--grid);
+  color: var(--text-primary);
+}
+.trend-breakdown th { font-weight: 500; }
+
 .empty {
   padding: 22px;
   color: var(--muted);
