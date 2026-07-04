@@ -149,7 +149,7 @@ select, input[type="date"], input[type="number"] {
 }
 table { border-collapse: collapse; width: 100%; }
 th, td {
-  text-align: right;
+  text-align: center;
   padding: 8px 10px;
   border-top: 1px solid var(--grid);
   font-variant-numeric: tabular-nums;
@@ -171,7 +171,7 @@ tbody tr:hover td { background: var(--accent-wash); }
 
 th.wr-col, td.wr-col { text-align: center; }
 .wr-cell { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle; }
-.delta-slot { display: inline-block; min-width: 52px; text-align: left; margin-left: 6px; vertical-align: middle; }
+.delta-slot { display: inline-block; text-align: left; margin-left: 6px; vertical-align: middle; }
 .delta-slot:empty { margin-left: 0; }
 
 td.period-cell { white-space: normal; min-width: 220px; max-width: 360px; }
