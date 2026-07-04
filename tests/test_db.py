@@ -163,6 +163,34 @@ def test_delete_session(conn):
     assert db.delete_session(conn, session_id) is False
 
 
+def test_participant_metrics_round_trip(conn):
+    from server.metrics import metric_keys
+    values = {k: None for k in metric_keys()}
+    values.update({"has_challenges": 1, "cs_at_10": 87, "time_dead": 259})
+    db.insert_participant_metrics(conn, "EUW1_1", "p1", values)
+    row = conn.execute(
+        "SELECT * FROM participant_metrics WHERE match_id='EUW1_1' AND puuid='p1'"
+    ).fetchone()
+    assert row["cs_at_10"] == 87
+    assert row["time_dead"] == 259
+    assert row["max_cs_lead"] is None
+    # replace on re-insert
+    values["cs_at_10"] = 90
+    db.insert_participant_metrics(conn, "EUW1_1", "p1", values)
+    row = conn.execute("SELECT cs_at_10 FROM participant_metrics").fetchone()
+    assert row["cs_at_10"] == 90
+
+
+def test_participant_metrics_table_added_to_existing_db(tmp_path):
+    # connect twice: second connect must not fail and table must exist
+    c1 = db.connect(tmp_path / "x.sqlite")
+    c1.close()
+    c2 = db.connect(tmp_path / "x.sqlite")
+    assert c2.execute(
+        "SELECT name FROM sqlite_master WHERE name='participant_metrics'").fetchone()
+    c2.close()
+
+
 def test_crawl_watermark_round_trip(conn):
     assert db.get_crawl_watermark(conn, "pu1", 420) == (None, False)
     db.set_crawl_watermark(conn, "pu1", 420, newest_ms=123, complete=False)

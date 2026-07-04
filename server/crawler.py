@@ -2,6 +2,7 @@
 import time
 
 from . import db
+from .metrics import parse_metrics
 from .parsing import parse_match
 
 RANK_TTL_MS = 7 * 86_400_000  # re-fetch a player's rank after 7 days
@@ -50,8 +51,10 @@ class Crawler:
                     if limit is not None and new_matches >= limit:
                         reached_limit = True
                         break
-                    match_row, participant_rows = parse_match(self.client.get_match(match_id))
+                    match_json = self.client.get_match(match_id)
+                    match_row, participant_rows = parse_match(match_json)
                     if db.insert_match(self.conn, match_row, participant_rows):
+                        self._store_metrics(match_json)
                         new_matches += 1
                         self.status_cb(
                             f"{game_name}#{tag_line} queue {queue}: stored {match_id} "
@@ -69,6 +72,38 @@ class Crawler:
             db.set_crawl_watermark(self.conn, puuid, queue,
                                    newest_ms=newest_stored, complete=not reached_limit)
         return {"puuid": puuid, "new_matches": new_matches}
+
+    def _tracked_puuids(self):
+        return {r["puuid"] for r in
+                self.conn.execute("SELECT puuid FROM players WHERE is_tracked=1")}
+
+    def _store_metrics(self, match_json):
+        tracked = self._tracked_puuids()
+        match_id = match_json["metadata"]["matchId"]
+        for participant in match_json["info"]["participants"]:
+            if participant["puuid"] in tracked:
+                values = parse_metrics(match_json, participant["puuid"])
+                db.insert_participant_metrics(self.conn, match_id,
+                                              participant["puuid"], values)
+
+    def backfill_metrics(self, limit=None):
+        """Re-fetch details for stored matches whose tracked participants
+        lack a participant_metrics row. Returns matches fetched."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT p.match_id FROM participants p
+               JOIN players pl ON pl.puuid = p.puuid AND pl.is_tracked = 1
+               LEFT JOIN participant_metrics pm
+                 ON pm.match_id = p.match_id AND pm.puuid = p.puuid
+               WHERE pm.match_id IS NULL"""
+        ).fetchall()
+        count = 0
+        for row in rows:
+            if limit is not None and count >= limit:
+                break
+            self._store_metrics(self.client.get_match(row["match_id"]))
+            count += 1
+            self.status_cb(f"metrics backfill: {count}/{len(rows)} matches")
+        return count
 
     def _stale_before(self):
         return self.now_ms() - RANK_TTL_MS

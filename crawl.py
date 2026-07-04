@@ -27,6 +27,8 @@ def main():
                         help='accounts as "Name#TAG" (default: from config)')
     parser.add_argument("--skip-ranks", action="store_true",
                         help="skip opponent rank enrichment")
+    parser.add_argument("--backfill-metrics", action="store_true",
+                        help="only backfill coaching metrics for stored matches, no crawl")
     args = parser.parse_args()
 
     config = load_config()
@@ -43,6 +45,11 @@ def main():
     crawler = Crawler(client, conn, status_cb=lambda msg: print(f"  {msg}", flush=True))
 
     try:
+        if args.backfill_metrics:
+            print("Backfilling coaching metrics for stored matches ...")
+            n = crawler.backfill_metrics(limit=args.limit)
+            print(f"  -> {n} matches re-fetched")
+            return
         for game_name, tag_line in accounts:
             print(f"Crawling {game_name}#{tag_line} (queues {args.queues}"
                   f"{', limit ' + str(args.limit) if args.limit else ''}) ...")

@@ -2,6 +2,8 @@
 import sqlite3
 from pathlib import Path
 
+from .metrics import metric_keys
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS players (
     puuid TEXT PRIMARY KEY,
@@ -57,6 +59,14 @@ CREATE TABLE IF NOT EXISTS coaching_sessions (
     created_at_ms INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS participant_metrics (
+    match_id TEXT NOT NULL,
+    puuid TEXT NOT NULL,
+    has_challenges INTEGER NOT NULL DEFAULT 0,
+    {metric_columns},
+    PRIMARY KEY (match_id, puuid)
+);
+
 CREATE TABLE IF NOT EXISTS crawl_state (
     puuid TEXT NOT NULL,
     queue_id INTEGER NOT NULL,
@@ -75,7 +85,8 @@ def connect(db_path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     _migrate(conn)
-    conn.executescript(SCHEMA)
+    metric_columns = ",\n    ".join(f"{k} REAL" for k in metric_keys())
+    conn.executescript(SCHEMA.format(metric_columns=metric_columns))
     return conn
 
 
@@ -150,6 +161,18 @@ def set_player_rank(conn, puuid, tier, division, lp, fetched_at_ms):
 
 def get_player_rank(conn, puuid):
     return conn.execute("SELECT * FROM player_ranks WHERE puuid=?", (puuid,)).fetchone()
+
+
+def insert_participant_metrics(conn, match_id, puuid, values):
+    """values: has_challenges + one entry per metric key (None allowed)."""
+    columns = ["match_id", "puuid", "has_challenges", *metric_keys()]
+    placeholders = ", ".join(f":{c}" for c in columns)
+    with conn:
+        conn.execute(
+            f"INSERT OR REPLACE INTO participant_metrics ({', '.join(columns)}) "
+            f"VALUES ({placeholders})",
+            {**values, "match_id": match_id, "puuid": puuid},
+        )
 
 
 def add_session(conn, session_date, title="", notes=""):

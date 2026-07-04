@@ -158,6 +158,52 @@ def test_enrich_ranks_skips_fresh_entries(conn):
     assert crawler.enrich_ranks() == 1
 
 
+def test_crawl_stores_metrics_for_tracked_participant(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    tracked = next(p for p in match["info"]["participants"]
+                   if p["puuid"] == TRACKED_PUUID)
+    tracked["challenges"] = {"laneMinionsFirst10Minutes": 81, "soloKills": 1}
+    tracked["totalTimeSpentDead"] = 120
+    client = FakeClient([match])
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        "SELECT * FROM participant_metrics WHERE match_id='EUW1_1' AND puuid=?",
+        (TRACKED_PUUID,)).fetchone()
+    assert row["cs_at_10"] == 81
+    assert row["time_dead"] == 120
+    # opponents don't get metric rows
+    assert conn.execute("SELECT COUNT(*) c FROM participant_metrics").fetchone()["c"] == 1
+
+
+def test_backfill_metrics_fetches_missing_only(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)
+    m2 = match_json("EUW1_2", 1_700_000_100_000)
+    for m in (m1, m2):
+        p = next(q for q in m["info"]["participants"] if q["puuid"] == TRACKED_PUUID)
+        p["challenges"] = {"laneMinionsFirst10Minutes": 70}
+    client = FakeClient([m1, m2])
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))  # metrics stored inline
+    client.detail_calls = 0
+    assert crawler.backfill_metrics() == 0          # nothing missing
+    assert client.detail_calls == 0
+    conn.execute("DELETE FROM participant_metrics WHERE match_id='EUW1_1'")
+    conn.commit()
+    assert crawler.backfill_metrics() == 1          # only the missing one refetched
+    assert client.detail_calls == 1
+    assert conn.execute("SELECT COUNT(*) c FROM participant_metrics").fetchone()["c"] == 2
+
+
+def test_backfill_metrics_respects_limit(conn):
+    matches = [match_json(f"EUW1_{i}", 1_700_000_000_000 + i) for i in range(3)]
+    client = FakeClient(matches)
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    conn.execute("DELETE FROM participant_metrics")
+    conn.commit()
+    assert crawler.backfill_metrics(limit=2) == 2
+
+
 def test_refresh_tracked_ranks_updates_players_table(conn):
     client = FakeClient([match_json("EUW1_1", 1_700_000_000_000)])
     client.ranks[TRACKED_PUUID] = [
