@@ -191,6 +191,72 @@ def test_participant_metrics_table_added_to_existing_db(tmp_path):
     c2.close()
 
 
+def test_pool_default_empty(conn):
+    assert db.get_pool(conn) == {"main_blind": None, "core": [], "counter": []}
+
+
+def test_pool_round_trip_and_wholesale_replace(conn):
+    db.set_pool(conn, "Gwen", ["Kled", "Garen"], ["Malphite"])
+    assert db.get_pool(conn) == {
+        "main_blind": "Gwen", "core": ["Kled", "Garen"], "counter": ["Malphite"]}
+    db.set_pool(conn, "Kled", [], ["Teemo", "Quinn"])
+    assert db.get_pool(conn) == {
+        "main_blind": "Kled", "core": [], "counter": ["Teemo", "Quinn"]}
+
+
+def _seed_block_matches(conn, n):
+    ids = []
+    for i in range(n):
+        match_id = f"EUW1_B{i}"
+        db.insert_match(
+            conn,
+            {"match_id": match_id, "queue_id": 420, "game_creation_ms": 1000 + i,
+             "game_duration_s": 1800, "game_version": "x"},
+            [make_participant("me", champion_name="Gwen")],
+        )
+        ids.append(match_id)
+    return ids
+
+
+def test_add_game_auto_advances_blocks(conn):
+    ids = _seed_block_matches(conn, 4)
+    assert db.add_game_to_block(conn, ids[0], "me") == 1
+    assert db.add_game_to_block(conn, ids[1], "me") == 1
+    assert db.add_game_to_block(conn, ids[2], "me") == 1
+    assert db.add_game_to_block(conn, ids[3], "me") == 2  # 4th game opens block 2
+    blocks = db.list_blocks(conn)
+    assert [b["id"] for b in blocks] == [2, 1]  # newest first
+
+
+def test_add_duplicate_game_raises_and_is_findable(conn):
+    import sqlite3
+    ids = _seed_block_matches(conn, 1)
+    db.add_game_to_block(conn, ids[0], "me")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.add_game_to_block(conn, ids[0], "me")
+    assert db.find_block_for_game(conn, ids[0], "me") == 1
+    assert db.find_block_for_game(conn, "EUW1_none", "me") is None
+
+
+def test_block_update_and_game_notes_and_deletes(conn):
+    ids = _seed_block_matches(conn, 2)
+    block_id = db.add_game_to_block(conn, ids[0], "me")
+    db.add_game_to_block(conn, ids[1], "me")
+    assert db.update_block(conn, block_id, title="Kled block", learnings="## Learned") is True
+    assert db.update_block(conn, 999, title="x") is False
+    block = db.list_blocks(conn)[0]
+    assert block["title"] == "Kled block"
+    entry_id = conn.execute("SELECT id FROM block_games LIMIT 1").fetchone()["id"]
+    assert db.update_block_game(conn, entry_id, "froze wave well") is True
+    assert conn.execute("SELECT notes FROM block_games WHERE id=?", (entry_id,)
+                        ).fetchone()["notes"] == "froze wave well"
+    assert db.delete_block_game(conn, entry_id) is True
+    assert db.delete_block_game(conn, entry_id) is False
+    # cascade delete
+    assert db.delete_block(conn, block_id) is True
+    assert conn.execute("SELECT COUNT(*) c FROM block_games").fetchone()["c"] == 0
+
+
 def test_crawl_watermark_round_trip(conn):
     assert db.get_crawl_watermark(conn, "pu1", 420) == (None, False)
     db.set_crawl_watermark(conn, "pu1", 420, newest_ms=123, complete=False)

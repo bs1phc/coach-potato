@@ -67,6 +67,29 @@ CREATE TABLE IF NOT EXISTS participant_metrics (
     PRIMARY KEY (match_id, puuid)
 );
 
+CREATE TABLE IF NOT EXISTS champion_pool (
+    role TEXT NOT NULL CHECK (role IN ('main_blind','core','counter')),
+    champion TEXT NOT NULL,
+    sort INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS blocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL DEFAULT '',
+    learnings TEXT NOT NULL DEFAULT '',
+    created_at_ms INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS block_games (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    block_id INTEGER NOT NULL,
+    match_id TEXT NOT NULL,
+    puuid TEXT NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    added_at_ms INTEGER,
+    UNIQUE (match_id, puuid)
+);
+
 CREATE TABLE IF NOT EXISTS crawl_state (
     puuid TEXT NOT NULL,
     queue_id INTEGER NOT NULL,
@@ -213,6 +236,110 @@ def list_sessions(conn):
 def delete_session(conn, session_id):
     with conn:
         cursor = conn.execute("DELETE FROM coaching_sessions WHERE id=?", (session_id,))
+    return cursor.rowcount > 0
+
+
+BLOCK_SIZE = 3
+
+
+def get_pool(conn):
+    rows = conn.execute("SELECT role, champion FROM champion_pool ORDER BY sort").fetchall()
+    main = next((r["champion"] for r in rows if r["role"] == "main_blind"), None)
+    return {
+        "main_blind": main,
+        "core": [r["champion"] for r in rows if r["role"] == "core"],
+        "counter": [r["champion"] for r in rows if r["role"] == "counter"],
+    }
+
+
+def set_pool(conn, main_blind, core, counter):
+    with conn:
+        conn.execute("DELETE FROM champion_pool")
+        rows = []
+        if main_blind:
+            rows.append(("main_blind", main_blind, 0))
+        rows += [("core", c, i) for i, c in enumerate(core)]
+        rows += [("counter", c, i) for i, c in enumerate(counter)]
+        conn.executemany(
+            "INSERT INTO champion_pool (role, champion, sort) VALUES (?, ?, ?)", rows)
+
+
+def _now_expr():
+    return "CAST(strftime('%s','now') AS INTEGER) * 1000"
+
+
+def create_block(conn):
+    with conn:
+        cursor = conn.execute(
+            f"INSERT INTO blocks (created_at_ms) VALUES ({_now_expr()})")
+    return cursor.lastrowid
+
+
+def add_game_to_block(conn, match_id, puuid):
+    """Add a game to the current (newest) block, opening a new block when the
+    current one is full or absent. Raises sqlite3.IntegrityError on duplicates."""
+    current = conn.execute("SELECT MAX(id) AS id FROM blocks").fetchone()["id"]
+    if current is not None:
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM block_games WHERE block_id=?", (current,)
+        ).fetchone()["c"]
+        if count >= BLOCK_SIZE:
+            current = None
+    if current is None:
+        current = create_block(conn)
+    with conn:
+        conn.execute(
+            f"""INSERT INTO block_games (block_id, match_id, puuid, added_at_ms)
+                VALUES (?, ?, ?, {_now_expr()})""",
+            (current, match_id, puuid),
+        )
+    return current
+
+
+def find_block_for_game(conn, match_id, puuid):
+    row = conn.execute(
+        "SELECT block_id FROM block_games WHERE match_id=? AND puuid=?",
+        (match_id, puuid)).fetchone()
+    return row["block_id"] if row else None
+
+
+def list_blocks(conn):
+    return conn.execute("SELECT * FROM blocks ORDER BY id DESC").fetchall()
+
+
+def update_block(conn, block_id, title=None, learnings=None):
+    sets, params = [], []
+    if title is not None:
+        sets.append("title=?")
+        params.append(title)
+    if learnings is not None:
+        sets.append("learnings=?")
+        params.append(learnings)
+    if not sets:
+        return False
+    with conn:
+        cursor = conn.execute(
+            f"UPDATE blocks SET {', '.join(sets)} WHERE id=?", (*params, block_id))
+    return cursor.rowcount > 0
+
+
+def update_block_game(conn, entry_id, notes):
+    with conn:
+        cursor = conn.execute(
+            "UPDATE block_games SET notes=? WHERE id=?", (notes, entry_id))
+    return cursor.rowcount > 0
+
+
+def delete_block_game(conn, entry_id):
+    with conn:
+        cursor = conn.execute("DELETE FROM block_games WHERE id=?", (entry_id,))
+    return cursor.rowcount > 0
+
+
+def delete_block(conn, block_id):
+    with conn:
+        conn.execute("DELETE FROM block_games WHERE block_id=?", (block_id,))
+        cursor = conn.execute("DELETE FROM blocks WHERE id=?", (block_id,))
     return cursor.rowcount > 0
 
 
