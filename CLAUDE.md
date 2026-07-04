@@ -62,7 +62,16 @@ serves top-lane matchup stats via FastAPI + vanilla-JS frontend.
   midnight. `_filtered_base` accepts a puuid list for multi-account queries.
   Frontend defaults the progress champion filter to Gwen; `#progress` hash
   deep-links the view.
-- `static/` — no build step; state + fetch + innerHTML render in `app.js`.
+- Coaching metrics: `server/metrics.py` is the single-source registry
+  (labels/groups/agg kinds/directions) driving the `participant_metrics`
+  DDL, payload parsing, SQL aggregation and frontend meta. Stored for
+  tracked players only; crawler captures on insert;
+  `crawler.backfill_metrics()` / `./crawl.sh --backfill-metrics` re-fetches
+  older matches. `stats.segment_metrics` (per period) and
+  `stats.trend_buckets` (day/week/month; week = Monday date) feed
+  `/api/stats/metrics` and `/api/stats/trends` (both include `meta`).
+- `static/` — no build step; state + fetch + innerHTML render in `app.js`;
+  trends view (SVG small-multiple charts + breakdown table) in `trends.js`.
 
 ## Schema (data/lol.sqlite)
 
@@ -71,6 +80,9 @@ serves top-lane matchup stats via FastAPI + vanilla-JS frontend.
 `participants(match_id+puuid PK, champion_name, team_id, team_position, win, k/d/a, cs, gold_earned, damage_to_champions, riot_id_name)`
 `player_ranks(puuid PK, solo_tier/division/lp, fetched_at_ms)` — opponent rank cache
 `crawl_state(puuid+queue_id PK, newest_ms, complete)` — resume watermarks
+`participant_metrics(match_id+puuid PK, has_challenges, one REAL col per
+metric key)` — coaching metrics, tracked players only, columns generated
+from `server/metrics.py`
 
 ## Testing conventions
 

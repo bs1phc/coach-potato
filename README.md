@@ -69,9 +69,17 @@ each with games, winrate, KDA, CS/min, gold/min, DMG/min and ▲/▼ deltas
 against the previous segment. Add sessions (date + optional title) and delete
 them in the same view.
 
-Each segment row expands (▸) to list the individual games played in that
-span — date, account, champion, lane opponent and their rank, result, K/D/A,
-CS/min, game length.
+Each segment row expands (▸) into **~22 detailed coaching metrics** pulled
+from Riot's per-match `challenges` data, grouped as *Laning* (CS@10, lane
+advantage @7/@14 min, max CS/level leads, plates, solo kills), *Damage &
+fighting* (team damage share, kill participation, skillshots dodged...),
+*Objectives & map* and *Vision & survival* — each with the same ▲/▼ delta vs
+the previous segment (color-aware: less time dead = green). A nested
+**Games (N)** expander lists the individual games — date, account, champion,
+lane opponent and their rank, result, K/D/A, CS/min, game length.
+
+Metrics for matches crawled before this feature exist need a one-time
+backfill: `./crawl.sh --backfill-metrics` (~2 min per 100 matches).
 
 Each session has a **title** and full **notes in Markdown** — expand a session
 (▸) to read the rendered notes, click *edit* to change title/notes, and use
@@ -84,6 +92,15 @@ Notes:
 - The champion filter defaults to **Gwen**; queue filter available.
 - A session's date boundary is midnight UTC — games played on the session day
   count toward the *after* segment.
+
+## Trends view
+
+The **Trends** tab (`#trends`) tracks every stat over time: small
+line charts for each Core stat (games, winrate, KDA, CS/min, gold/min,
+DMG/min) and every coaching metric, grouped like the coaching view, plus a
+**breakdown table** of all values per period at the bottom. Bucket by
+**month** (default), week (Monday-start), or day; filter by champion and
+queue. Both accounts combined, top lane only.
 
 ## Design decisions & known limitations
 
