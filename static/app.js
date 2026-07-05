@@ -571,6 +571,16 @@ function setMainView(view) {
 
 const settingsUi = { wired: false, accounts: [] };
 
+// canonical Riot platform id -> human-readable server name
+const PLATFORM_LABELS = {
+  euw1: "EUW", eun1: "EUNE", tr1: "TR", ru: "RU",
+  na1: "NA", br1: "BR", la1: "LAN", la2: "LAS",
+  kr: "KR", jp1: "JP",
+  oc1: "OCE", ph2: "PH", sg2: "SG", th2: "TH", tw2: "TW", vn2: "VN",
+};
+const PLATFORM_ORDER = ["euw1", "eun1", "na1", "kr", "br1", "la1", "la2",
+                        "jp1", "ru", "tr1", "oc1", "ph2", "sg2", "th2", "tw2", "vn2"];
+
 function renderAccountChips() {
   const box = $("#settings-accounts");
   box.querySelectorAll(".chip").forEach((chip) => chip.remove());
@@ -589,8 +599,10 @@ function renderAccountChips() {
 async function initSettings() {
   const data = await getJSON("/api/settings");
   $("#setting-key").value = data.riot_api_key;
-  $("#setting-platform").innerHTML = data.platforms.map((p) =>
-    `<option value="${p}" ${p === data.platform ? "selected" : ""}>${p}</option>`).join("");
+  const platforms = [...data.platforms].sort((a, b) =>
+    PLATFORM_ORDER.indexOf(a) - PLATFORM_ORDER.indexOf(b));
+  $("#setting-platform").innerHTML = platforms.map((p) =>
+    `<option value="${p}" ${p === data.platform ? "selected" : ""}>${PLATFORM_LABELS[p] || p.toUpperCase()}</option>`).join("");
   settingsUi.accounts = data.accounts;
   renderAccountChips();
   $("#settings-banner").classList.toggle("hidden", data.configured);
