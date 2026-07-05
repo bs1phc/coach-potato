@@ -32,10 +32,13 @@ jobs:
           pip install -r requirements.txt pyinstaller
           pip install pywebview || true
       - name: Build
-        run: >
-          pyinstaller --onefile --noconfirm --name coach-potato
-          --add-data "static:static" --add-data "VERSION:." desktop.py
         shell: bash
+        run: |
+          ICON=""
+          [[ "${{ matrix.os }}" == windows-latest ]] && ICON="--icon assets/icon.ico"
+          [[ "${{ matrix.os }}" == macos-latest ]] && ICON="--icon assets/icon.icns"
+          pyinstaller --onefile --noconfirm --name coach-potato \
+            --add-data "static:static" --add-data "VERSION:." $ICON desktop.py
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
