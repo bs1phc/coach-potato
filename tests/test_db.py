@@ -240,20 +240,20 @@ def test_add_duplicate_game_raises_and_is_findable(conn):
 
 def test_session_captures_tracked_ranks_at_creation(conn):
     import json
-    db.upsert_player(conn, "p1", "Muhwu", "EUW", is_tracked=True)
+    db.upsert_player(conn, "p1", "PlayerOne", "EUW", is_tracked=True)
     conn.execute("UPDATE players SET solo_tier='PLATINUM', solo_division='II', solo_lp=45"
                  " WHERE puuid='p1'")
     conn.commit()
     db.add_session(conn, "2026-07-05", "t")
     row = db.list_sessions(conn)[0]
     ranks = json.loads(row["start_ranks"])
-    assert ranks == [{"account": "Muhwu#EUW", "tier": "PLATINUM",
+    assert ranks == [{"account": "PlayerOne#EUW", "tier": "PLATINUM",
                       "division": "II", "lp": 45}]
 
 
 def test_block_captures_start_and_end_ranks(conn):
     import json
-    db.upsert_player(conn, "me", "Muhwu", "EUW", is_tracked=True)
+    db.upsert_player(conn, "me", "PlayerOne", "EUW", is_tracked=True)
     conn.execute("UPDATE players SET solo_tier='PLATINUM', solo_division='II', solo_lp=40"
                  " WHERE puuid='me'")
     conn.commit()
