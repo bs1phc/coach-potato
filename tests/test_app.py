@@ -79,6 +79,7 @@ def test_crawl_status_shape(client):
     status = client.get("/api/crawl/status").json()
     assert status["running"] is False
     assert "message" in status
+    assert status["rate_limited"] is False
 
 
 def test_crawl_conflict_when_already_running(client):
@@ -382,6 +383,46 @@ def test_version_endpoint(client):
     data = client.get("/api/version").json()
     assert data["version"].count(".") == 2  # semver from the VERSION file
     assert data["repo"] == "Muhwu/coach-potato"
+
+
+def seed_block(client):
+    games = client.get("/api/stats/games").json()[:2]
+    for game in games:
+        client.post("/api/blocks/games",
+                    json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    blocks = client.get("/api/blocks").json()["blocks"]
+    block = blocks[0]
+    client.patch(f"/api/blocks/{block['id']}",
+                 json={"title": "Fundamentals", "learnings": "- freeze more"})
+    client.patch(f"/api/blocks/games/{block['games'][0]['entry_id']}",
+                 json={"notes": "good tempo"})
+    return block["id"]
+
+
+def test_blocks_export_markdown(client):
+    seed_block(client)
+    response = client.get("/api/blocks/export.md")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    assert "block-learnings.md" in response.headers["content-disposition"]
+    body = response.text
+    assert body.startswith("# Block Learnings")
+    assert "## Block #1 — Fundamentals" in body
+    assert "- freeze more" in body
+    assert "good tempo" in body
+    assert "Garen" in body or "Kled" in body  # hydrated matchup line
+
+
+def test_blocks_export_csv(client):
+    seed_block(client)
+    response = client.get("/api/blocks/export.csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    lines = response.text.strip().splitlines()
+    assert lines[0].startswith("block,title,date,account,champion,opponent,result")
+    assert len(lines) == 3  # header + 2 games
+    assert "Fundamentals" in lines[1]
+    assert "good tempo" in response.text
 
 
 def test_index_served(client):

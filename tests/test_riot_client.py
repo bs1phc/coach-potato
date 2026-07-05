@@ -65,6 +65,36 @@ def test_limiter_window_expires():
     assert clock.slept == []
 
 
+def test_limiter_reports_waits_via_on_wait():
+    clock = FakeClock()
+    waits = []
+    rl = RateLimiter(limits=[(2, 10.0)], clock=clock.time, sleep=clock.sleep,
+                     on_wait=waits.append)
+    rl.acquire()
+    rl.acquire()
+    assert waits == []
+    rl.acquire()  # third call within the window must wait ~10s
+    assert len(waits) == 1
+    assert waits[0] == pytest.approx(10.0)
+
+
+def test_client_429_reports_wait_via_limiter_on_wait():
+    calls = {"n": 0}
+    clock = FakeClock()
+    waits = []
+    limiter = RateLimiter(limits=[(1000, 1.0)], clock=clock.time, sleep=clock.sleep,
+                          on_wait=waits.append)
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, headers={"Retry-After": "7"}, json={})
+        return httpx.Response(200, json={"puuid": "abc"})
+
+    make_client(handler, limiter=limiter).get_account("PlayerOne", "EUW")
+    assert 7 in waits
+
+
 # ---------- RiotClient ----------
 
 def make_client(handler, limiter=None, platform="euw1"):

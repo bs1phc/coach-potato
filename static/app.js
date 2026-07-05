@@ -548,6 +548,21 @@ async function loadProgress() {
   segmentUi.cache.clear(); // filters or data changed; refetch game lists on expand
   renderProgress(segments);
   renderSessions(sessionRows);
+  // re-hydrate anything the user had expanded so panels don't stick on "Loading…"
+  let rehydrated = false;
+  for (const segment of segments) {
+    const key = segKey(segment);
+    if (segmentUi.expanded.has(key)) {
+      await ensureSegmentMetrics(segment);
+      rehydrated = true;
+    }
+    if (segmentUi.expandedGames.has(key)) {
+      segmentUi.cache.set("games:" + key,
+        await getJSON(`/api/stats/games?${progressFilterParams(segment)}`));
+      rehydrated = true;
+    }
+  }
+  if (rehydrated) renderProgress(segments);
 }
 
 function setMainView(view) {
@@ -727,14 +742,40 @@ async function checkForUpdates() {
 // ---------- crawl ----------
 
 let crawlTimer = null;
+let crawlPolls = 0;
+
+async function refreshDuringCrawl() {
+  // refresh data views as the crawl lands new games — but never a view
+  // where the user might have half-finished input
+  if (state.mainView === "settings") return;
+  if (state.mainView === "blocks") {
+    if (typeof blockState !== "undefined" &&
+        blockState.editingNotes == null && blockState.editingLearnings == null) {
+      await loadBlocks();
+    }
+    return;
+  }
+  await init(false);
+  if (state.mainView === "progress") await loadProgress();
+  else if (state.mainView === "trends") await loadTrends();
+}
 
 async function pollCrawl() {
   const status = await getJSON("/api/crawl/status");
   const el = $("#crawl-status");
   $("#crawl-btn").disabled = status.running;
+  $("#crawl-indicator").classList.toggle("hidden", !status.running);
   if (status.running) {
-    el.textContent = status.message;
+    const explain = "Riot limits API requests to 100 per 2 minutes, so large " +
+      "updates pause periodically and resume automatically. Progress so far: " +
+      (status.message || "starting");
+    const warn = $("#rate-warn");
+    warn.classList.toggle("hidden", !status.rate_limited);
+    warn.title = explain;
+    warn.onclick = () => alert(explain);
+    el.textContent = "";
     if (!crawlTimer) crawlTimer = setInterval(pollCrawl, 2000);
+    if (++crawlPolls % 5 === 0) await refreshDuringCrawl();
   } else {
     if (crawlTimer) { clearInterval(crawlTimer); crawlTimer = null; }
     if (status.error) {

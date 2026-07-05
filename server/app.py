@@ -18,7 +18,8 @@ from .riot_client import PLATFORM_ROUTING
 
 app = FastAPI(title="Coach Potato")
 
-CRAWL_STATE = {"running": False, "message": "idle", "last_result": None, "error": None}
+CRAWL_STATE = {"running": False, "message": "idle", "last_result": None, "error": None,
+               "rate_limited": False}
 
 
 def _champion_ids():
@@ -380,27 +381,107 @@ def api_put_pool(body: dict):
         conn.close()
 
 
+def _blocks_payload(conn):
+    names = {r["puuid"]: r["game_name"] for r in
+             conn.execute("SELECT puuid, game_name FROM players WHERE is_tracked=1")}
+    games_by_block = {}
+    for game in stats.block_games_detailed(conn):
+        game["account"] = names.get(game["puuid"], "?")
+        games_by_block.setdefault(game["block_id"], []).append(game)
+    blocks = []
+    for row in db.list_blocks(conn):
+        games = games_by_block.get(row["id"], [])
+        record = {**dict(row), "games": games,
+                  "complete": len(games) >= db.BLOCK_SIZE}
+        snapshot = record.pop("pool_snapshot", None)
+        record["pool"] = json.loads(snapshot) if snapshot else None
+        blocks.append(record)
+    return blocks
+
+
 @app.get("/api/blocks")
 def api_blocks():
     conn = get_conn()
     try:
-        names = {r["puuid"]: r["game_name"] for r in
-                 conn.execute("SELECT puuid, game_name FROM players WHERE is_tracked=1")}
-        games_by_block = {}
-        for game in stats.block_games_detailed(conn):
-            game["account"] = names.get(game["puuid"], "?")
-            games_by_block.setdefault(game["block_id"], []).append(game)
-        blocks = []
-        for row in db.list_blocks(conn):
-            games = games_by_block.get(row["id"], [])
-            record = {**dict(row), "games": games,
-                      "complete": len(games) >= db.BLOCK_SIZE}
-            snapshot = record.pop("pool_snapshot", None)
-            record["pool"] = json.loads(snapshot) if snapshot else None
-            blocks.append(record)
-        return {"blocks": blocks, "block_size": db.BLOCK_SIZE}
+        return {"blocks": _blocks_payload(conn), "block_size": db.BLOCK_SIZE}
     finally:
         conn.close()
+
+
+def _game_date(game):
+    return datetime.fromtimestamp(game["game_creation_ms"] / 1000,
+                                  tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+@app.get("/api/blocks/export.md")
+def api_blocks_export_md():
+    conn = get_conn()
+    try:
+        blocks = _blocks_payload(conn)
+    finally:
+        conn.close()
+    parts = ["# Block Learnings\n"]
+    for block in blocks:
+        wins = sum(g["win"] for g in block["games"])
+        title = f" — {block['title']}" if block["title"] else ""
+        parts.append(f"\n## Block #{block['id']}{title} "
+                     f"({wins}–{len(block['games']) - wins})\n")
+        pool = block["pool"]
+        if pool:
+            parts.append(f"\nPool: {pool['main_blind'] or '–'}"
+                         f" · Core: {', '.join(pool['core']) or '–'}"
+                         f" · Counters: {', '.join(pool['counter']) or '–'}\n")
+        parts.append("\n")
+        for g in block["games"]:
+            opp = f" vs {g['opp_champion']}" if g["opp_champion"] else ""
+            line = (f"- {_game_date(g)} · {g['account']} · {g['my_champion']}{opp}"
+                    f" · {'W' if g['win'] else 'L'}"
+                    f" · {g['kills']}/{g['deaths']}/{g['assists']}")
+            note_lines = g["notes"].splitlines() if g["notes"] else []
+            if len(note_lines) == 1 and not note_lines[0].startswith("- "):
+                line += f" — {note_lines[0]}"
+            else:
+                # multi-line / list-style notes nest under the game bullet
+                for note in note_lines:
+                    bullet = note if note.startswith("- ") else f"- {note}"
+                    line += f"\n  {bullet}"
+            parts.append(line + "\n")
+        if block["learnings"]:
+            parts.append(f"\n### Learnings\n\n{block['learnings']}\n")
+    return Response(
+        content="".join(parts),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="block-learnings.md"'},
+    )
+
+
+@app.get("/api/blocks/export.csv")
+def api_blocks_export_csv():
+    import csv
+    import io
+
+    conn = get_conn()
+    try:
+        blocks = _blocks_payload(conn)
+    finally:
+        conn.close()
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["block", "title", "date", "account", "champion", "opponent",
+                     "result", "kills", "deaths", "assists", "notes", "learnings"])
+    for block in blocks:
+        for g in block["games"]:
+            writer.writerow([
+                block["id"], block["title"], _game_date(g), g["account"],
+                g["my_champion"], g["opp_champion"] or "",
+                "W" if g["win"] else "L", g["kills"], g["deaths"], g["assists"],
+                g["notes"], block["learnings"],
+            ])
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="block-learnings.csv"'},
+    )
 
 
 @app.post("/api/blocks/games")
@@ -479,16 +560,23 @@ def api_delete_block(block_id: int):
 def _run_crawl():
     try:
         from .crawler import Crawler
-        from .riot_client import RiotClient
+        from .riot_client import RateLimiter, RiotClient
 
         conn = db.connect(get_db_path())
         settings = config.resolve_settings(conn)
         if not settings["configured"]:
             raise RuntimeError("not configured — set your API key and accounts in Settings")
-        client = RiotClient(settings["riot_api_key"], platform=settings["platform"])
+
+        def on_wait(seconds):
+            if seconds >= 2:  # ignore sub-second burst throttling
+                CRAWL_STATE["rate_limited"] = True
+
+        client = RiotClient(settings["riot_api_key"], platform=settings["platform"],
+                            limiter=RateLimiter(on_wait=on_wait))
 
         def status_cb(msg):
             CRAWL_STATE["message"] = msg
+            CRAWL_STATE["rate_limited"] = False  # progress resumed
 
         crawler = Crawler(client, conn, status_cb=status_cb)
         results = []
@@ -515,7 +603,8 @@ def _run_crawl():
 def api_crawl():
     if CRAWL_STATE["running"]:
         return JSONResponse({"detail": "crawl already running"}, status_code=409)
-    CRAWL_STATE.update({"running": True, "message": "starting", "error": None})
+    CRAWL_STATE.update({"running": True, "message": "starting", "error": None,
+                        "rate_limited": False})
     threading.Thread(target=_run_crawl, daemon=True).start()
     return {"started": True}
 

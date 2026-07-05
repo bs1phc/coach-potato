@@ -34,12 +34,17 @@ class NotFoundError(RiotApiError):
 
 
 class RateLimiter:
-    """Sliding-window limiter over one or more (max_requests, window_s) limits."""
+    """Sliding-window limiter over one or more (max_requests, window_s) limits.
 
-    def __init__(self, limits=DEV_KEY_LIMITS, clock=time.monotonic, sleep=time.sleep):
+    on_wait(seconds) is called before any throttling sleep so callers can
+    surface "we're rate limited" to the UI."""
+
+    def __init__(self, limits=DEV_KEY_LIMITS, clock=time.monotonic, sleep=time.sleep,
+                 on_wait=None):
         self.limits = limits
         self.clock = clock
         self.sleep = sleep
+        self.on_wait = on_wait
         self._history = [deque() for _ in limits]
 
     def acquire(self):
@@ -53,6 +58,8 @@ class RateLimiter:
                     wait = max(wait, history[0] + window - now)
             if wait <= 0:
                 break
+            if self.on_wait:
+                self.on_wait(wait)
             self.sleep(wait)
         now = self.clock()
         for history in self._history:
@@ -101,6 +108,8 @@ class RiotClient:
                 if attempts_429 > self.MAX_429_RETRIES:
                     raise RiotApiError(f"Rate limited too many times: {url}")
                 retry_after = int(response.headers.get("Retry-After", "10"))
+                if self.limiter.on_wait:
+                    self.limiter.on_wait(retry_after)
                 self.limiter.sleep(retry_after)
                 continue
             if response.status_code >= 500:

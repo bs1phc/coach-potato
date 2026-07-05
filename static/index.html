@@ -20,6 +20,10 @@
   <nav id="account-tabs" aria-label="Accounts"></nav>
   <div class="crawl-box">
     <button id="crawl-btn">Update data</button>
+    <span id="crawl-indicator" class="hidden">
+      <span class="spinner" role="status" aria-label="Updating match data"></span>
+      <button id="rate-warn" class="rate-warn hidden" aria-label="Why is this slow?">!</button>
+    </span>
     <span id="crawl-status" class="muted"></span>
   </div>
 </header>
@@ -129,7 +133,13 @@
   </section>
 
   <section>
-    <h2>Blocks</h2>
+    <div class="section-head">
+      <h2>Blocks</h2>
+      <a class="preset" href="/api/blocks/export.md" download>Export .md</a>
+      <a class="preset" href="/api/blocks/export.csv" download>Export .csv</a>
+      <button id="copy-discord" class="preset">Copy for Discord</button>
+      <span id="blocks-export-status" class="muted"></span>
+    </div>
     <div id="blocks-list"></div>
   </section>
 

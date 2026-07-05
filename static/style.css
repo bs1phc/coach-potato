@@ -81,6 +81,30 @@ header {
   font: inherit;
 }
 #crawl-btn:disabled { opacity: 0.55; cursor: default; }
+#crawl-indicator { display: inline-flex; align-items: center; gap: 6px; }
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--grid);
+  border-top-color: var(--series-1);
+  border-radius: 50%;
+  animation: cp-spin 0.9s linear infinite;
+  display: inline-block;
+}
+@keyframes cp-spin { to { transform: rotate(360deg); } }
+.rate-warn {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid #c98500;
+  background: rgba(237, 161, 0, 0.16);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
 
 .filter-row {
   display: flex;

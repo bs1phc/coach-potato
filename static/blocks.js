@@ -25,10 +25,49 @@ async function initBlocks() {
   if (!blockState.wired) {
     blockState.wired = true;
     $("#pool-save").addEventListener("click", savePool);
+    $("#copy-discord").addEventListener("click", copyDiscordMarkdown);
     wireChipBoxes();
     await loadChampionRoster();
   }
   await Promise.all([loadPool(), loadBlocks()]);
+}
+
+// Discord renders bold/lists/inline-code but not tables, so this uses
+// plain lines with ✅/❌ result marks.
+function discordMarkdown() {
+  const lines = [];
+  for (const block of blockState.blocks) {
+    const wins = block.games.filter((g) => g.win).length;
+    const title = block.title ? ` — ${block.title}` : "";
+    lines.push(`**Block #${block.id}${title}** (${wins}–${block.games.length - wins})`);
+    if (block.pool) {
+      lines.push(`Pool: ★ ${champDisplay(block.pool.main_blind) || "–"}` +
+        ` · Core: ${block.pool.core.map(champDisplay).join(", ") || "–"}` +
+        ` · Counters: ${block.pool.counter.map(champDisplay).join(", ") || "–"}`);
+    }
+    for (const g of block.games) {
+      const opp = g.opp_champion ? ` vs ${champDisplay(g.opp_champion)}` : "";
+      const notes = g.notes ? ` — ${g.notes.replace(/\n+/g, " / ")}` : "";
+      lines.push(`${g.win ? "✅" : "❌"} ${fmtDate(g.game_creation_ms)} · ` +
+        `${champDisplay(g.my_champion)}${opp} · ${g.kills}/${g.deaths}/${g.assists}${notes}`);
+    }
+    if (block.learnings) {
+      lines.push("**Learnings**", block.learnings.trim());
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trim();
+}
+
+async function copyDiscordMarkdown() {
+  const status = $("#blocks-export-status");
+  try {
+    await navigator.clipboard.writeText(discordMarkdown());
+    status.textContent = "copied ✓";
+  } catch {
+    status.textContent = "copy failed — clipboard unavailable";
+  }
+  setTimeout(() => { status.textContent = ""; }, 2500);
 }
 
 // full champion roster from the static data file (see CLAUDE.md to re-fetch)
