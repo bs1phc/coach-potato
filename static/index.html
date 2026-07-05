@@ -64,21 +64,29 @@
 </div>
 
 <div id="blocks-view" class="hidden">
-  <section class="filter-row" id="pool-card" aria-label="Champion pool">
-    <div class="filter-group">
-      <label class="filter-label" for="pool-main">Main Blind</label>
-      <input type="text" id="pool-main" list="champ-list" placeholder="e.g. Gwen" style="width:9em">
+  <section id="pool-card" aria-label="Champion pool">
+    <div class="pool-group">
+      <span class="filter-label">Main Blind</span>
+      <div class="chip-box" data-role="main_blind">
+        <input class="chip-input" list="champ-list" placeholder="champion…" aria-label="Main blind pick">
+      </div>
     </div>
-    <div class="filter-group" style="flex:1">
-      <label class="filter-label" for="pool-core">Core Pool</label>
-      <input type="text" id="pool-core" placeholder="comma-separated, e.g. Kled, Gragas" style="width:100%">
+    <div class="pool-group">
+      <span class="filter-label">Core Pool</span>
+      <div class="chip-box" data-role="core">
+        <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Core pool">
+      </div>
     </div>
-    <div class="filter-group" style="flex:1">
-      <label class="filter-label" for="pool-counter">Counter Picks</label>
-      <input type="text" id="pool-counter" placeholder="comma-separated, e.g. Malphite, Quinn" style="width:100%">
+    <div class="pool-group">
+      <span class="filter-label">Counter Picks</span>
+      <div class="chip-box" data-role="counter">
+        <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Counter picks">
+      </div>
     </div>
-    <button id="pool-save" class="preset">Save pool</button>
-    <span id="pool-status" class="muted"></span>
+    <div class="pool-actions">
+      <button id="pool-save" class="preset">Save pool</button>
+      <span id="pool-status" class="muted"></span>
+    </div>
     <datalist id="champ-list"></datalist>
   </section>
 

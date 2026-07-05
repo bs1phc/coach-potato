@@ -3,29 +3,96 @@
    Uses globals from app.js: state, $, getJSON, escapeHtml, champIcon,
    displayName, fmtDate, fmtDuration, renderNotes, unionFilterOptions. */
 
-const blockState = { wired: false, blocks: [], blockSize: 3, editingLearnings: null, editingNotes: null };
+const blockState = {
+  wired: false, blocks: [], blockSize: 3, editingLearnings: null, editingNotes: null,
+  pool: { main_blind: [], core: [], counter: [] },
+};
+
+const POOL_ROLES = {
+  main_blind: { cls: "chip-main", glyph: "★", label: "Main blind" },
+  core: { cls: "chip-core", glyph: "", label: "Core pool" },
+  counter: { cls: "chip-counter", glyph: "", label: "Counter pick" },
+};
 
 async function initBlocks() {
   if (!blockState.wired) {
     blockState.wired = true;
     $("#pool-save").addEventListener("click", savePool);
+    wireChipBoxes();
     const { champions } = await unionFilterOptions();
     $("#champ-list").innerHTML = champions.map((c) => `<option value="${c}">`).join("");
   }
   await Promise.all([loadPool(), loadBlocks()]);
 }
 
-// ---------- champion pool ----------
+// ---------- champion pool (chip editor) ----------
+
+function poolChip(role, champ, removable) {
+  const def = POOL_ROLES[role];
+  return `<span class="chip ${def.cls}" title="${def.label}">
+    ${def.glyph ? def.glyph + " " : ""}${escapeHtml(champ)}${removable
+      ? `<button class="chip-x" data-role="${role}" data-champ="${escapeHtml(champ)}"
+           title="Remove" aria-label="Remove ${escapeHtml(champ)}">×</button>` : ""}
+  </span>`;
+}
+
+function renderPoolEditor() {
+  document.querySelectorAll("#pool-card .chip-box").forEach((box) => {
+    const role = box.dataset.role;
+    const input = box.querySelector(".chip-input");
+    box.querySelectorAll(".chip").forEach((chip) => chip.remove());
+    input.insertAdjacentHTML("beforebegin",
+      blockState.pool[role].map((c) => poolChip(role, c, true)).join(""));
+    box.querySelectorAll(".chip-x").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        blockState.pool[role] = blockState.pool[role].filter((c) => c !== btn.dataset.champ);
+        renderPoolEditor();
+      }));
+  });
+}
+
+function addPoolChip(role, value) {
+  const champ = value.trim();
+  if (!champ) return;
+  if (role === "main_blind") {
+    blockState.pool.main_blind = [champ];  // single pick — replace
+  } else if (!blockState.pool[role].includes(champ)) {
+    blockState.pool[role].push(champ);
+  }
+  renderPoolEditor();
+}
+
+function wireChipBoxes() {
+  document.querySelectorAll("#pool-card .chip-box").forEach((box) => {
+    const role = box.dataset.role;
+    const input = box.querySelector(".chip-input");
+    box.addEventListener("click", () => input.focus());
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === ",") {
+        e.preventDefault();
+        addPoolChip(role, input.value.replace(",", ""));
+        input.value = "";
+      } else if (e.key === "Backspace" && !input.value) {
+        blockState.pool[role].pop();
+        renderPoolEditor();
+      }
+    });
+    // datalist picks fire 'change' without a keydown
+    input.addEventListener("change", () => {
+      addPoolChip(role, input.value);
+      input.value = "";
+    });
+  });
+}
 
 async function loadPool() {
   const pool = await getJSON("/api/pool");
-  $("#pool-main").value = pool.main_blind || "";
-  $("#pool-core").value = pool.core.join(", ");
-  $("#pool-counter").value = pool.counter.join(", ");
-}
-
-function splitChamps(value) {
-  return value.split(",").map((s) => s.trim()).filter(Boolean);
+  blockState.pool = {
+    main_blind: pool.main_blind ? [pool.main_blind] : [],
+    core: pool.core,
+    counter: pool.counter,
+  };
+  renderPoolEditor();
 }
 
 async function savePool() {
@@ -33,13 +100,14 @@ async function savePool() {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      main_blind: $("#pool-main").value.trim(),
-      core: splitChamps($("#pool-core").value),
-      counter: splitChamps($("#pool-counter").value),
+      main_blind: blockState.pool.main_blind[0] || "",
+      core: blockState.pool.core,
+      counter: blockState.pool.counter,
     }),
   });
   $("#pool-status").textContent = response.ok ? "saved" : "save failed";
   setTimeout(() => { $("#pool-status").textContent = ""; }, 2000);
+  loadBlocks(); // a just-completed block may have been stamped with this pool
 }
 
 // ---------- blocks ----------
@@ -69,6 +137,16 @@ function blockGameRow(g) {
   </tr>`;
 }
 
+function blockPoolChips(pool) {
+  if (!pool || (!pool.main_blind && !pool.core.length && !pool.counter.length)) return "";
+  const chips = [
+    ...(pool.main_blind ? [poolChip("main_blind", pool.main_blind, false)] : []),
+    ...pool.core.map((c) => poolChip("core", c, false)),
+    ...pool.counter.map((c) => poolChip("counter", c, false)),
+  ].join("");
+  return `<div class="block-pool"><span class="muted">Pool at completion:</span> ${chips}</div>`;
+}
+
 function blockCard(block, isCurrent) {
   const wins = block.games.filter((g) => g.win).length;
   const editing = blockState.editingLearnings === block.id;
@@ -82,9 +160,16 @@ function blockCard(block, isCurrent) {
         <button class="preset learnings-cancel">Cancel</button>
       </div></div>`;
   } else {
-    learnings = `<div class="session-body md-body">${block.learnings
-      ? renderNotes(block.learnings)
-      : `<p class="muted">No learnings recorded yet.</p>`}</div>`;
+    learnings = `<div class="session-body">
+      <div class="learnings-head">
+        <h4>Learnings</h4>
+        <button class="preset icon-btn learnings-edit" data-id="${block.id}"
+          title="Edit learnings" aria-label="Edit learnings">✎</button>
+      </div>
+      <div class="md-body">${block.learnings
+        ? renderNotes(block.learnings)
+        : `<p class="muted">No learnings recorded yet.</p>`}</div>
+    </div>`;
   }
   return `<div class="session-card block-card">
     <div class="session-head">
@@ -95,10 +180,11 @@ function blockCard(block, isCurrent) {
       <input type="text" class="block-title" data-id="${block.id}"
         value="${escapeHtml(block.title)}" placeholder="block title…">
       <span class="session-actions">
-        <button class="preset learnings-edit" data-id="${block.id}">edit learnings</button>
-        <button class="preset block-delete" data-id="${block.id}">delete</button>
+        <button class="preset icon-btn block-delete" data-id="${block.id}"
+          title="Delete block" aria-label="Delete block">🗑</button>
       </span>
     </div>
+    ${blockPoolChips(block.pool)}
     ${block.games.length ? `<div class="table-wrap block-games"><table>
       <thead><tr><th>Date</th><th>Account</th><th>Me</th><th>Opponent</th>
       <th>Result</th><th>K/D/A</th><th class="notes-col">Notes</th><th></th></tr></thead>

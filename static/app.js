@@ -458,8 +458,8 @@ function sessionCard(s) {
       <span class="session-date">${s.session_date}</span>
       <span class="session-title">${s.title ? escapeHtml(s.title) : "<span class='muted'>untitled</span>"}</span>
       <span class="session-actions">
-        <button class="preset session-edit" data-id="${s.id}">edit</button>
-        <button class="preset session-delete" data-id="${s.id}">delete</button>
+        <button class="preset icon-btn session-edit" data-id="${s.id}" title="Edit session" aria-label="Edit session">✎</button>
+        <button class="preset icon-btn session-delete" data-id="${s.id}" title="Delete session" aria-label="Delete session">🗑</button>
       </span>
     </div>
     ${body}

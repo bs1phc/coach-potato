@@ -385,6 +385,90 @@ td.notes-cell { text-align: left; white-space: normal; }
 }
 .game-notes:hover, .game-notes:focus { border-color: var(--border); background: var(--page); }
 .promote-btn { font-size: 12px; padding: 1px 7px; }
+.icon-btn { font-size: 14px; padding: 2px 8px; line-height: 1.2; }
+
+#pool-card {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) 1fr 1fr auto;
+  gap: 14px;
+  align-items: start;
+  padding: 12px 14px;
+  margin-top: 16px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+@media (max-width: 900px) { #pool-card { grid-template-columns: 1fr; } }
+.pool-group { display: flex; flex-direction: column; gap: 5px; }
+.pool-actions { display: flex; flex-direction: column; gap: 6px; align-self: end; }
+.chip-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 6px;
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: text;
+}
+.chip-input {
+  flex: 1;
+  min-width: 90px;
+  border: none !important;
+  background: transparent !important;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  padding: 2px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chip-main { background: rgba(42, 120, 214, 0.13); border: 1px solid var(--series-1); }
+.chip-core { background: rgba(27, 175, 122, 0.13); border: 1px solid #1baf7a; }
+.chip-counter { background: rgba(237, 161, 0, 0.16); border: 1px solid #c98500; }
+.chip-x {
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 0 0 2px;
+  line-height: 1;
+}
+.chip-x:hover { color: var(--critical); }
+.block-pool {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--grid);
+  font-size: 12px;
+}
+.learnings-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.learnings-head h4 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
 .notes-display {
   min-height: 22px;
   cursor: text;
