@@ -1,10 +1,15 @@
-# Coach Potato 🥔 — LoL Top Lane Stats
+# Coach Potato 🥔 — Coaching & Improvement App for League of Legends
 
-A small local web app that crawls the Riot API match history for any number of
-League of Legends accounts into a SQLite database and shows **top-lane matchup
-winrates** (plus KDA, CS/min, gold/min, damage/min), filterable by date range,
-own champion, queue, and opponent rank — plus a **coaching progress** view that
-tracks your improvement between coaching sessions.
+A local app that crawls the Riot API match history for any number of accounts
+into a SQLite database and turns it into a coaching toolkit: **matchup
+winrates** (plus KDA, CS/min, gold/min, damage/min) filterable by date range,
+champion, queue, and opponent rank; a **coaching progress** view tracking
+improvement between sessions; **trends** over time for every metric; and
+**block learnings** for deliberate practice.
+
+> Lane scope: statistics currently cover **top-lane games** (the lane the app
+> was built around). The match data for all roles is already stored, so
+> other-role support is a planned setting rather than a re-crawl.
 
 ## Desktop app (no Python required)
 

@@ -1,7 +1,11 @@
 # CLAUDE.md
 
-**Coach Potato** — local web app: crawls Riot match history for the configured accounts into sqlite,
-serves top-lane matchup stats via FastAPI + vanilla-JS frontend.
+**Coach Potato** — coaching & improvement app for LoL: crawls Riot match
+history for the configured accounts into sqlite, serves matchup stats /
+coaching progress / trends / block learnings via FastAPI + vanilla-JS
+frontend. Stats are currently top-lane scoped (`team_position='TOP'` in
+`stats._BASE`); all roles' data is stored, so generalizing is a query/UI
+change, not a crawler change.
 
 ## Commands
 
