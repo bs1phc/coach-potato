@@ -256,6 +256,33 @@ def trend_buckets(conn, puuids, bucket="month", champion=None, queues=None):
     return results
 
 
+def single_game_metrics(conn, match_id, puuid):
+    """One game's metric values transformed to the same display units the
+    aggregated views use. None when the game has no metrics row."""
+    row = conn.execute(
+        """SELECT pm.*, m.game_duration_s FROM participant_metrics pm
+           JOIN matches m ON m.match_id = pm.match_id
+           WHERE pm.match_id=? AND pm.puuid=?""",
+        (match_id, puuid)).fetchone()
+    if row is None:
+        return None
+    duration = row["game_duration_s"]
+    values = {}
+    for m in METRICS:
+        raw = row[m["key"]]
+        if raw is None:
+            values[m["key"]] = None
+        elif m["agg"] == "pct01":
+            values[m["key"]] = 100.0 * raw
+        elif m["agg"] == "per_min":
+            values[m["key"]] = 60.0 * raw / duration
+        elif m["agg"] == "pct_time":
+            values[m["key"]] = 100.0 * raw / duration
+        else:
+            values[m["key"]] = raw
+    return values
+
+
 def block_games_detailed(conn):
     """Block-game entries hydrated from stored matches, oldest first."""
     rows = conn.execute(

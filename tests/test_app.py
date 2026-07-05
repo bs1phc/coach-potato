@@ -358,6 +358,17 @@ def test_settings_put_validation(client):
         "riot_api_key": "k", "accounts": ["A#B"], "platform": "moon1"}).status_code == 400
 
 
+def test_single_game_metrics_endpoint(client):
+    seed_metrics(client, [80, 90, 70])
+    game = client.get("/api/stats/games").json()[0]
+    data = client.get(
+        f"/api/stats/games/metrics?match_id={game['match_id']}&puuid={game['my_puuid']}").json()
+    assert data["metrics"]["cs_at_10"] in (80, 90, 70)
+    assert any(m["key"] == "cs_at_10" for m in data["meta"])
+    assert client.get(
+        "/api/stats/games/metrics?match_id=EUW1_nope&puuid=x").status_code == 404
+
+
 def test_index_served(client):
     response = client.get("/")
     assert response.status_code == 200

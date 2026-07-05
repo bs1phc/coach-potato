@@ -294,6 +294,18 @@ def api_metrics(request: Request, from_ms: int | None = None, to_ms: int | None 
         conn.close()
 
 
+@app.get("/api/stats/games/metrics")
+def api_single_game_metrics(match_id: str, puuid: str):
+    conn = get_conn()
+    try:
+        metrics = stats.single_game_metrics(conn, match_id, puuid)
+        if metrics is None:
+            raise HTTPException(404, "no metrics recorded for that game")
+        return {"metrics": metrics, "meta": METRICS}
+    finally:
+        conn.close()
+
+
 @app.get("/api/stats/trends")
 def api_trends(request: Request, bucket: str = "month"):
     params = dict(request.query_params)

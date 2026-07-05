@@ -396,6 +396,25 @@ def test_block_games_detailed_hydrates_from_matches(conn):
     assert g2["opp_champion"] is None  # no enemy TOP in that game
 
 
+def test_single_game_metrics_transforms_per_agg_kind(conn):
+    m1, _ = add_match(conn, when=1_000, duration=1800)
+    add_metrics(conn, m1, cs_at_10=80, lane_adv_early=1, team_dmg_pct=0.25,
+                self_mitigated=18000, time_dead=180)
+    metrics = stats.single_game_metrics(conn, m1, ME)
+    assert metrics["cs_at_10"] == 80                       # avg -> raw
+    assert metrics["lane_adv_early"] == 100.0              # pct01 -> %
+    assert metrics["team_dmg_pct"] == pytest.approx(25.0)
+    assert metrics["self_mitigated"] == pytest.approx(600.0)   # per_min
+    assert metrics["time_dead"] == pytest.approx(10.0)         # pct_time
+    assert metrics["vision_adv"] is None                   # missing field
+
+
+def test_single_game_metrics_missing_row_returns_none(conn):
+    m1, _ = add_match(conn, when=1_000)
+    assert stats.single_game_metrics(conn, m1, ME) is None
+    assert stats.single_game_metrics(conn, "EUW1_nope", ME) is None
+
+
 def test_filter_options(conn):
     _, opp = add_match(conn, my_champ="Garen", queue=420)
     add_match(conn, my_champ="Kled", queue=440)
