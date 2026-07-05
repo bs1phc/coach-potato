@@ -10,8 +10,10 @@ from tests.test_stats import ME, add_match  # reuse fixture builder
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    from server import config
     db_path = tmp_path / "t.sqlite"
     monkeypatch.setenv("LOL_DB_PATH", str(db_path))
+    monkeypatch.setattr(config, "ENV_FALLBACK_ROOT", tmp_path)  # ignore repo .env
     conn = db.connect(db_path)
     db.upsert_player(conn, ME, "PlayerOne", "EUW", is_tracked=True)
     add_match(conn, my_champ="Garen", opp_champ="Darius", win=True, when=1_700_000_000_000)
@@ -323,6 +325,37 @@ def test_pool_save_stamps_completed_current_block_without_snapshot(client, monke
     client.put("/api/pool", json={"main_blind": "Gwen", "core": [], "counter": []})
     block = client.get("/api/blocks").json()["blocks"][0]
     assert block["pool"]["main_blind"] == "Gwen"
+
+
+def test_settings_unconfigured_by_default(client):
+    data = client.get("/api/settings").json()
+    assert data["configured"] is False
+    assert data["riot_api_key"] == ""
+    assert data["accounts"] == []
+    assert data["platform"] == "euw1"
+    assert "euw1" in data["platforms"] and "na1" in data["platforms"]
+
+
+def test_settings_put_round_trip(client):
+    response = client.put("/api/settings", json={
+        "riot_api_key": "RGAPI-new", "accounts": ["Foo#BAR", "Baz#EUW"], "platform": "NA1"})
+    assert response.status_code == 200
+    data = client.get("/api/settings").json()
+    assert data["configured"] is True
+    assert data["source"] == "db"
+    assert data["accounts"] == ["Foo#BAR", "Baz#EUW"]
+    assert data["platform"] == "na1"
+
+
+def test_settings_put_validation(client):
+    assert client.put("/api/settings", json={
+        "riot_api_key": "", "accounts": ["A#B"], "platform": "euw1"}).status_code == 400
+    assert client.put("/api/settings", json={
+        "riot_api_key": "k", "accounts": ["NoTag"], "platform": "euw1"}).status_code == 400
+    assert client.put("/api/settings", json={
+        "riot_api_key": "k", "accounts": [], "platform": "euw1"}).status_code == 400
+    assert client.put("/api/settings", json={
+        "riot_api_key": "k", "accounts": ["A#B"], "platform": "moon1"}).status_code == 400
 
 
 def test_index_served(client):

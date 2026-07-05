@@ -11,9 +11,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import db, stats
-from .config import PROJECT_ROOT, load_config
+from . import config, db, stats
+from .config import PROJECT_ROOT
 from .metrics import METRICS
+from .riot_client import PLATFORM_ROUTING
 
 app = FastAPI(title="Coach Potato")
 
@@ -23,10 +24,7 @@ RANGE_PRESETS = {"7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180, "365d": 
 
 
 def get_db_path() -> Path:
-    env = os.environ.get("LOL_DB_PATH")
-    if env:
-        return Path(env)
-    return load_config().db_path
+    return config.default_db_path()
 
 
 def get_conn():
@@ -67,6 +65,49 @@ def stat_filters(request: Request):
         "rank_tier": params.get("rank_tier") or None,
         "min_games": int(params.get("min_games", 1)),
     }
+
+
+@app.get("/api/settings")
+def api_get_settings():
+    conn = get_conn()
+    try:
+        settings = config.resolve_settings(conn)
+        settings["platforms"] = sorted(PLATFORM_ROUTING)
+        return settings
+    finally:
+        conn.close()
+
+
+@app.put("/api/settings")
+def api_put_settings(body: dict):
+    api_key = (body.get("riot_api_key") or "").strip()
+    accounts = body.get("accounts") or []
+    platform = (body.get("platform") or "euw1").strip().lower()
+    if not api_key:
+        raise HTTPException(400, "Riot API key is required")
+    if not isinstance(accounts, list) or not accounts:
+        raise HTTPException(400, "add at least one account")
+    cleaned = []
+    for account in accounts:
+        account = str(account).strip()
+        name, _, tag = account.partition("#")
+        if not name or not tag:
+            raise HTTPException(400, f"account {account!r} must be Name#TAG")
+        cleaned.append(f"{name.strip()}#{tag.strip()}")
+    if platform not in PLATFORM_ROUTING:
+        raise HTTPException(400, f"unknown platform {platform!r}")
+    conn = get_conn()
+    try:
+        db.set_settings(conn, {
+            "riot_api_key": api_key,
+            "accounts": json.dumps(cleaned),
+            "platform": platform,
+        })
+        settings = config.resolve_settings(conn)
+        settings["platforms"] = sorted(PLATFORM_ROUTING)
+        return settings
+    finally:
+        conn.close()
 
 
 @app.get("/api/players")
@@ -401,23 +442,27 @@ def api_delete_block(block_id: int):
 
 def _run_crawl():
     try:
-        config = load_config()
         from .crawler import Crawler
         from .riot_client import RiotClient
 
-        client = RiotClient(config.riot_api_key, platform=config.platform)
-        conn = db.connect(config.db_path)
+        conn = db.connect(get_db_path())
+        settings = config.resolve_settings(conn)
+        if not settings["configured"]:
+            raise RuntimeError("not configured — set your API key and accounts in Settings")
+        client = RiotClient(settings["riot_api_key"], platform=settings["platform"])
 
         def status_cb(msg):
             CRAWL_STATE["message"] = msg
 
         crawler = Crawler(client, conn, status_cb=status_cb)
         results = []
-        for game_name, tag_line in config.accounts:
-            CRAWL_STATE["message"] = f"crawling {game_name}#{tag_line}"
+        for account in settings["accounts"]:
+            game_name, _, tag_line = account.partition("#")
+            CRAWL_STATE["message"] = f"crawling {account}"
             results.append(crawler.crawl_player(game_name, tag_line))
         CRAWL_STATE["message"] = "fetching opponent ranks"
         crawler.enrich_ranks()
+        crawler.backfill_metrics()
         crawler.refresh_tracked_ranks()
         conn.close()
         CRAWL_STATE["last_result"] = results
