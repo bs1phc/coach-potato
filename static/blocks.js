@@ -26,10 +26,27 @@ async function initBlocks() {
     blockState.wired = true;
     $("#pool-save").addEventListener("click", savePool);
     wireChipBoxes();
-    const { champions } = await unionFilterOptions();
-    $("#champ-list").innerHTML = champions.map((c) => `<option value="${c}">`).join("");
+    await loadChampionRoster();
   }
   await Promise.all([loadPool(), loadBlocks()]);
+}
+
+// full champion roster from the static data file (see CLAUDE.md to re-fetch)
+const roster = { byLookup: new Map(), nameById: new Map() };
+
+async function loadChampionRoster() {
+  const data = await getJSON("/champions.json");
+  for (const c of data.champions) {
+    roster.byLookup.set(c.id.toLowerCase(), c.id);
+    roster.byLookup.set(c.name.toLowerCase(), c.id);
+    roster.nameById.set(c.id, c.name);
+  }
+  $("#champ-list").innerHTML = data.champions
+    .map((c) => `<option value="${escapeHtml(c.name)}">`).join("");
+}
+
+function champDisplay(id) {
+  return roster.nameById.get(id) || displayName(id);
 }
 
 // ---------- champion pool (chip editor) ----------
@@ -37,9 +54,9 @@ async function initBlocks() {
 function poolChip(role, champ, removable) {
   const def = POOL_ROLES[role];
   return `<span class="chip ${def.cls}" title="${def.label}">
-    ${def.glyph ? def.glyph + " " : ""}${escapeHtml(champ)}${removable
+    ${def.glyph ? def.glyph + " " : ""}${escapeHtml(champDisplay(champ))}${removable
       ? `<button class="chip-x" data-role="${role}" data-champ="${escapeHtml(champ)}"
-           title="Remove" aria-label="Remove ${escapeHtml(champ)}">×</button>` : ""}
+           title="Remove" aria-label="Remove ${escapeHtml(champDisplay(champ))}">×</button>` : ""}
   </span>`;
 }
 
@@ -59,14 +76,21 @@ function renderPoolEditor() {
 }
 
 function addPoolChip(role, value) {
-  const champ = value.trim();
-  if (!champ) return;
+  const typed = value.trim();
+  if (!typed) return true;
+  const champ = roster.byLookup.get(typed.toLowerCase());
+  if (!champ) {
+    $("#pool-status").textContent = `"${typed}" is not a champion`;
+    setTimeout(() => { $("#pool-status").textContent = ""; }, 2500);
+    return false; // keep the input so the user can correct it
+  }
   if (role === "main_blind") {
     blockState.pool.main_blind = [champ];  // single pick — replace
   } else if (!blockState.pool[role].includes(champ)) {
     blockState.pool[role].push(champ);
   }
   renderPoolEditor();
+  return true;
 }
 
 function wireChipBoxes() {
@@ -77,8 +101,7 @@ function wireChipBoxes() {
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === ",") {
         e.preventDefault();
-        addPoolChip(role, input.value.replace(",", ""));
-        input.value = "";
+        if (addPoolChip(role, input.value.replace(",", ""))) input.value = "";
       } else if (e.key === "Backspace" && !input.value) {
         blockState.pool[role].pop();
         renderPoolEditor();
@@ -86,8 +109,7 @@ function wireChipBoxes() {
     });
     // datalist picks fire 'change' without a keydown
     input.addEventListener("change", () => {
-      addPoolChip(role, input.value);
-      input.value = "";
+      if (addPoolChip(role, input.value)) input.value = "";
     });
   });
 }

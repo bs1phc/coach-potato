@@ -245,6 +245,15 @@ def test_pool_default_and_put_round_trip(client):
                                          "counter": []}).status_code == 400
 
 
+def test_pool_rejects_unknown_champions(client):
+    response = client.put("/api/pool", json={
+        "main_blind": "NotAChampion", "core": [], "counter": []})
+    assert response.status_code == 400
+    assert "NotAChampion" in response.json()["detail"]
+    assert client.put("/api/pool", json={
+        "main_blind": "Gwen", "core": ["MonkeyKing"], "counter": ["KSante"]}).status_code == 200
+
+
 def first_two_games(client):
     games = client.get("/api/stats/games").json()
     return games[-1], games[-2]  # oldest first for stable ids

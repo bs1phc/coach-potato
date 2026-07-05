@@ -20,6 +20,19 @@ app = FastAPI(title="Coach Potato")
 
 CRAWL_STATE = {"running": False, "message": "idle", "last_result": None, "error": None}
 
+
+def _champion_ids():
+    """Valid DDragon champion ids from the static roster file (patched by
+    re-running the DDragon fetch; see CLAUDE.md)."""
+    try:
+        data = json.loads((PROJECT_ROOT / "static" / "champions.json").read_text())
+        return {c["id"] for c in data["champions"]}
+    except (OSError, KeyError, ValueError):
+        return set()  # roster file missing/corrupt: skip validation rather than break
+
+
+CHAMPION_IDS = _champion_ids()
+
 RANGE_PRESETS = {"7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
 
 
@@ -343,11 +356,17 @@ def api_put_pool(body: dict):
     counter = body.get("counter") or []
     if not isinstance(core, list) or not isinstance(counter, list):
         raise HTTPException(400, "core and counter must be lists of champion names")
+    main_blind = (body.get("main_blind") or "").strip() or None
+    core = [str(c).strip() for c in core if str(c).strip()]
+    counter = [str(c).strip() for c in counter if str(c).strip()]
+    if CHAMPION_IDS:
+        unknown = [c for c in [main_blind, *core, *counter]
+                   if c and c not in CHAMPION_IDS]
+        if unknown:
+            raise HTTPException(400, f"not a champion: {', '.join(unknown)}")
     conn = get_conn()
     try:
-        db.set_pool(conn, (body.get("main_blind") or "").strip() or None,
-                    [str(c).strip() for c in core if str(c).strip()],
-                    [str(c).strip() for c in counter if str(c).strip()])
+        db.set_pool(conn, main_blind, core, counter)
         # a block completed before any pool was saved gets this pool stamped
         current = conn.execute(
             """SELECT b.id FROM blocks b WHERE b.pool_snapshot IS NULL

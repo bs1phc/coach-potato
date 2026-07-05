@@ -36,6 +36,11 @@ serves top-lane matchup stats via FastAPI + vanilla-JS frontend.
   Unicode Riot IDs must be URL-encoded (the client does it).
 - Champion names from match-v5 are DDragon keys (`MonkeyKing` = Wukong);
   the frontend maps display names in `DISPLAY_NAME_FIXES`.
+- `static/champions.json` is the static champion roster (ids + display
+  names) used for pool autocomplete/validation (client + `CHAMPION_IDS` in
+  app.py). Refresh after new champion releases:
+  fetch DDragon versions.json → cdn/<ver>/data/en_US/champion.json →
+  regenerate the file (see git history of the file for the exact script).
 - Timestamps are **ms epoch** everywhere in the db; match-v5 `startTime`
   param is **seconds**.
 
