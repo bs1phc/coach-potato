@@ -92,9 +92,14 @@ async function loadMatchups() {
   muState.editingNotes = null;
   const url = muState.view === "rank"
     ? `/api/stats/matchups_by_rank?${muQuery()}` : `/api/stats/matchups?${muQuery()}`;
-  const [rows, notes] = await Promise.all([getJSON(url), getJSON("/api/matchups/notes")]);
+  const [rows, notes, blockNoted] = await Promise.all([
+    getJSON(url),
+    getJSON("/api/matchups/notes"),
+    getJSON("/api/blocks/noted-champions"),
+  ]);
   if (seq !== muState.seq) return; // superseded by a newer load
   muState.notes = notes;
+  muState.blockNoted = new Set(blockNoted);
   renderMU(rows);
   // re-hydrate games for anything the user had expanded
   const open = muState.rows.filter((r) => muState.expanded.has(muKey(r)));
@@ -340,11 +345,13 @@ function matchupRow(row) {
   const key = muKey(row);
   const expanded = muState.expanded.has(key);
   const hasNotes = Boolean(muState.notes[row.opp_champion]);
+  const hasBlockNotes = muState.blockNoted && muState.blockNoted.has(row.opp_champion);
   let html = `<tr>
     <td><button class="preset seg-toggle matchup-toggle" data-key="${escapeHtml(key)}"
       aria-expanded="${expanded}" title="Matchup details">${expanded ? "▾" : "▸"}</button></td>
     <td><span class="champ-cell">${champIcon(row.opp_champion)}${displayName(row.opp_champion)}</span></td>
-    <td>${hasNotes ? `<span class="note-flag" title="Has notes">📝</span>` : ""}</td>
+    <td>${hasNotes ? `<span class="note-flag" title="Has matchup notes">📝</span>` : ""}${
+      hasBlockNotes ? `<span class="note-flag" title="Has block notes">🧱</span>` : ""}</td>
     <td>${row.games}</td>
     <td>${row.wins}–${row.games - row.wins}</td>
     <td class="wr-col">${wrCell(row.winrate)}</td>

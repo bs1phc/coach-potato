@@ -635,6 +635,24 @@ def api_blocks_export_csv(block_id: int | None = None):
     )
 
 
+@app.get("/api/blocks/noted-champions")
+def api_block_noted_champions():
+    """Opponent champions that have at least one block-game note — drives the
+    block-notes indicator in the matchups table."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT DISTINCT opp.champion_name AS champ
+               FROM block_games bg
+               JOIN participants me ON me.match_id = bg.match_id AND me.puuid = bg.puuid
+               JOIN participants opp ON opp.match_id = bg.match_id
+                   AND opp.team_id != me.team_id AND opp.team_position = 'TOP'
+               WHERE TRIM(bg.notes) != ''""").fetchall()
+        return sorted(r["champ"] for r in rows if r["champ"])
+    finally:
+        conn.close()
+
+
 @app.get("/api/blocks/game-notes")
 def api_block_game_notes(opp_champion: str):
     """Read-only: block-game notes from games against the given champion,

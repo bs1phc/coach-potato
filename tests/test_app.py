@@ -653,3 +653,20 @@ def test_close_block_rejects_empty_block(client):
     block_id = db.create_block(conn)
     conn.close()
     assert client.post(f"/api/blocks/{block_id}/close").status_code == 409
+
+
+def test_block_noted_champions_endpoint(client):
+    import os
+    assert client.get("/api/blocks/noted-champions").json() == []
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    m1 = conn.execute(
+        """SELECT p.match_id FROM participants p WHERE p.puuid=?
+           AND p.champion_name='Garen' LIMIT 1""", (ME,)).fetchone()["match_id"]
+    db.add_game_to_block(conn, m1, ME)
+    conn.close()
+    assert client.get("/api/blocks/noted-champions").json() == []  # note is empty
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    entry = conn.execute("SELECT id FROM block_games").fetchone()["id"]
+    db.update_block_game(conn, entry, "respect his Q")
+    conn.close()
+    assert client.get("/api/blocks/noted-champions").json() == ["Darius"]
