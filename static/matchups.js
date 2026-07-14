@@ -108,32 +108,90 @@ async function ensureMatchupGames(row) {
 
 // ---------- expansion panel ----------
 
-const WL_BAR_W = 14, WL_H = 64;
+const WL_BAR_W = 14, WL_H = 64, WL_MAX = 20;
 
-function winLossStrip(games) {
+function winLossStrip(games, key) {
   if (!games) return `<div class="muted">Loading…</div>`;
   if (!games.length) return `<div class="muted">No games.</div>`;
   const ordered = [...games].sort((a, b) => a.game_creation_ms - b.game_creation_ms);
-  const width = Math.max(220, ordered.length * WL_BAR_W + 8);
+  const shown = ordered.slice(-WL_MAX);
+  const width = shown.length * WL_BAR_W + 8;
   const mid = WL_H / 2;
-  const bars = ordered.map((g, i) => {
+  const bars = shown.map((g, i) => {
     const win = Boolean(g.win);
     const x = 4 + i * WL_BAR_W;
     const tip = `${fmtDate(g.game_creation_ms)}: ${displayName(g.my_champion)} ` +
-      `${win ? "won" : "lost"} vs ${displayName(g.opp_champion || "?")}`;
+      `${win ? "won" : "lost"} vs ${displayName(g.opp_champion || "?")} — click for details`;
     return `<rect class="wl-bar ${win ? "wl-win" : "wl-loss"}" x="${x}" width="${WL_BAR_W - 4}"
         y="${win ? 6 : mid + 2}" height="${mid - 8}" rx="2"/>
       <rect class="wl-hit" x="${x - 2}" width="${WL_BAR_W}" y="0" height="${WL_H}"
+        data-key="${escapeHtml(key)}" data-match="${g.match_id}" data-puuid="${g.my_puuid}"
         data-tip="${escapeHtml(tip)}"/>`;
   }).join("");
-  const wins = ordered.filter((g) => g.win).length;
+  const capped = ordered.length > shown.length
+    ? ` (last ${shown.length} of ${ordered.length})` : "";
   return `<div class="wl-wrap">
-    <div class="muted wl-caption">Chronological, oldest first —
-      ${wins}–${ordered.length - wins} (${pct(wins / ordered.length)})</div>
-    <div class="wl-scroll"><svg width="${width}" height="${WL_H}" role="img"
-      aria-label="Win/loss timeline">
+    <div class="muted wl-caption">Win/loss, oldest first${capped} — click a game for details</div>
+    <svg width="${width}" height="${WL_H}" role="img" aria-label="Win/loss timeline">
       <line class="wl-mid" x1="0" x2="${width}" y1="${mid}" y2="${mid}"/>${bars}
-    </svg></div></div>`;
+    </svg></div>`;
+}
+
+// rolling window of the last N metric-bearing games, averaged to a percentage
+const LANE_ROLL = 10;
+const LANE_SERIES = [
+  { key: "lane_adv_early", label: "Ahead @ 7 min", color: "var(--series-1)" },
+  { key: "lane_adv_late", label: "Ahead @ 14 min", color: "#e08a3c" },
+];
+const LANE_W = 340, LANE_H = 130;
+const LANE_PAD = { l: 32, r: 8, t: 8, b: 16 };
+
+function rollingLanePoints(games, metricKey) {
+  const window = [], points = [];
+  games.forEach((g, i) => {
+    const value = g[metricKey];
+    if (value == null) return;
+    window.push(value);
+    if (window.length > LANE_ROLL) window.shift();
+    points.push({ i, t: g.game_creation_ms,
+                  avg: 100 * window.reduce((a, b) => a + b, 0) / window.length });
+  });
+  return points;
+}
+
+function laneTrendGraph(games) {
+  if (!games || !games.length) return "";
+  const ordered = [...games].sort((a, b) => a.game_creation_ms - b.game_creation_ms);
+  const series = LANE_SERIES
+    .map((s) => ({ ...s, points: rollingLanePoints(ordered, s.key) }))
+    .filter((s) => s.points.length > 1);
+  if (!series.length) {
+    return `<div class="muted">No lane metrics recorded for these games yet.</div>`;
+  }
+  const iw = LANE_W - LANE_PAD.l - LANE_PAD.r, ih = LANE_H - LANE_PAD.t - LANE_PAD.b;
+  const lastIndex = Math.max(1, ordered.length - 1);
+  const x = (i) => LANE_PAD.l + (i / lastIndex) * iw;
+  const y = (v) => LANE_PAD.t + ih - (v / 100) * ih;
+  const grid = [0, 50, 100].map((v) => `
+    <line class="rk-grid${v === 50 ? "" : " rk-grid-minor"}" x1="${LANE_PAD.l}"
+      x2="${LANE_W - LANE_PAD.r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>
+    <text class="tl-ylab" x="${LANE_PAD.l - 4}" y="${(y(v) + 3).toFixed(1)}"
+      text-anchor="end">${v}%</text>`).join("");
+  const lines = series.map((s) => {
+    const path = s.points.map((p) => `${x(p.i).toFixed(1)},${y(p.avg).toFixed(1)}`).join(" ");
+    const hits = s.points.map((p) => `<circle class="lane-hit" cx="${x(p.i).toFixed(1)}"
+        cy="${y(p.avg).toFixed(1)}" r="6"
+        data-tip="${escapeHtml(`${fmtDate(p.t)} · ${s.label}: ${p.avg.toFixed(0)}% (last ${LANE_ROLL})`)}"/>`).join("");
+    return `<polyline class="rk-line" style="stroke:${s.color}" points="${path}"/>${hits}`;
+  }).join("");
+  const legend = series.map((s) =>
+    `<span><span class="swatch" style="background:${s.color}"></span>${s.label}</span>`).join("");
+  return `<div class="lane-wrap">
+    <div class="muted wl-caption">Lane won — rolling ${LANE_ROLL}-game average</div>
+    <svg viewBox="0 0 ${LANE_W} ${LANE_H}" role="img"
+      aria-label="Rolling lane advantage">${grid}${lines}</svg>
+    <div class="rank-legend lane-legend">${legend}</div>
+  </div>`;
 }
 
 function matchupNotesBlock(row) {
@@ -201,7 +259,10 @@ function matchupPanel(row) {
   const games = muState.games.get(key);
   const body = tab === "games"
     ? matchupGamesTable(key)
-    : `${winLossStrip(games)}${matchupNotesBlock(row)}`;
+    : `<div class="mu-overview-grid">
+        <div>${matchupNotesBlock(row)}</div>
+        <div>${winLossStrip(games, key)}${laneTrendGraph(games)}</div>
+      </div>`;
   return `<div class="mu-panel">
     <div class="view-toggle mu-tabbar" role="tablist">
       <button class="mu-tab ${tab === "overview" ? "active" : ""}" data-key="${escapeHtml(key)}"
@@ -340,8 +401,24 @@ function wireMUHandlers(target) {
       }
       renderMU(muState.rows);
     }));
+  target.querySelectorAll(".wl-hit").forEach((el) =>
+    el.addEventListener("click", async () => {
+      // jump to this game's details on the Games tab
+      const gkey = `${el.dataset.match}:${el.dataset.puuid}`;
+      muState.tab.set(el.dataset.key, "games");
+      muState.statsOpen.add(gkey);
+      if (!muState.statsCache.has(gkey)) {
+        const response = await fetch(
+          `/api/stats/games/metrics?match_id=${encodeURIComponent(el.dataset.match)}&puuid=${encodeURIComponent(el.dataset.puuid)}`);
+        muState.statsCache.set(gkey, response.ok ? await response.json() : null);
+      }
+      $("#chart-tip").classList.add("hidden");
+      renderMU(muState.rows);
+      const row = $(`#mu-table .mg-stats-toggle[data-gkey="${gkey}"]`);
+      if (row) row.scrollIntoView({ block: "center", behavior: "smooth" });
+    }));
   const tip = $("#chart-tip");
-  target.querySelectorAll(".wl-hit").forEach((el) => {
+  target.querySelectorAll(".wl-hit, .lane-hit").forEach((el) => {
     el.addEventListener("mouseenter", () => {
       tip.textContent = el.dataset.tip;
       tip.classList.remove("hidden");

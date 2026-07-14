@@ -418,7 +418,7 @@ def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues
     sql = f"""
         SELECT match_id, game_creation_ms, game_duration_s, queue_id, my_puuid,
                my_champion, opp_champion, rank_tier, win,
-               kills, deaths, assists, cs
+               kills, deaths, assists, cs, lane_adv_early, lane_adv_late
         FROM ({base}) ORDER BY game_creation_ms DESC
     """
     return [dict(r) for r in conn.execute(sql, params)]

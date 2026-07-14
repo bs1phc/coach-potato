@@ -506,3 +506,13 @@ def test_rank_history_estimates_from_ranked_results(conn):
 def test_rank_history_no_anchor_no_estimates(conn):
     add_match(conn, win=True, when=1_000_000, queue=420)
     assert stats.rank_history(conn, [ME]) == {ME: []}
+
+
+def test_games_in_range_includes_lane_metrics(conn):
+    m1, _ = add_match(conn, when=1_000)
+    add_metrics(conn, m1, lane_adv_early=1, lane_adv_late=0)
+    m2, _ = add_match(conn, when=2_000)  # no metrics row -> nulls
+    games = stats.games_in_range(conn, [ME])
+    by_id = {g["match_id"]: g for g in games}
+    assert (by_id[m1]["lane_adv_early"], by_id[m1]["lane_adv_late"]) == (1, 0)
+    assert by_id[m2]["lane_adv_early"] is None

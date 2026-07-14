@@ -622,13 +622,24 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .mu-panel-body { padding: 10px 4px 4px; }
 .mu-tabbar { margin-bottom: 4px; }
 .note-flag { font-size: 13px; }
-.wl-wrap { margin-bottom: 12px; }
+.mu-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(300px, 420px);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .mu-overview-grid { grid-template-columns: 1fr; }
+}
+.wl-wrap { margin-bottom: 14px; }
 .wl-caption { font-size: 12px; margin-bottom: 4px; }
-.wl-scroll { overflow-x: auto; }
 .wl-mid { stroke: var(--baseline); stroke-width: 1; }
 .wl-bar.wl-win { fill: var(--good); }
 .wl-bar.wl-loss { fill: var(--critical); }
 .wl-hit { fill: transparent; cursor: pointer; }
+.lane-wrap svg { width: 100%; height: auto; display: block; max-width: 420px; }
+.lane-hit { fill: transparent; cursor: pointer; }
+.lane-legend { font-size: 12px; margin-top: 2px; }
 .mu-notes { max-width: 720px; }
 .mu-notes-head { display: flex; align-items: center; gap: 8px; }
 .mu-notes-head h4 { margin: 0; }
