@@ -552,7 +552,9 @@ def test_block_size_setting_clamped_and_respected(conn):
     db.set_settings(conn, {"block_size": "2"})
     assert db.get_block_size(conn) == 2
     db.set_settings(conn, {"block_size": "99"})
-    assert db.get_block_size(conn) == 10  # clamped to MAX_BLOCK_SIZE
+    assert db.get_block_size(conn) == 99  # no upper bound
+    db.set_settings(conn, {"block_size": "0"})
+    assert db.get_block_size(conn) == 1  # floored at 1
     db.set_settings(conn, {"block_size": "junk"})
     assert db.get_block_size(conn) == 3
     # auto-advance follows the setting

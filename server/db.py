@@ -494,19 +494,18 @@ def set_settings(conn, mapping):
 
 
 BLOCK_SIZE = 3  # default games per block
-MAX_BLOCK_SIZE = 10
 BLOCK_GAP_HOURS = 3.0  # default auto-close time gap; 0 disables
 MAX_BLOCK_GAP_HOURS = 168.0
 
 
 def get_block_size(conn):
-    """Games per block from settings, clamped to 1..MAX_BLOCK_SIZE."""
+    """Games per block from settings, floored at 1 (no upper bound)."""
     raw = get_settings(conn).get("block_size")
     try:
         size = int(raw)
     except (TypeError, ValueError):
         return BLOCK_SIZE
-    return max(1, min(MAX_BLOCK_SIZE, size))
+    return max(1, size)
 
 
 def get_block_gap_ms(conn):

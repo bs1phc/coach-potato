@@ -56,6 +56,10 @@ function fmtDate(ms) {
   return new Date(ms).toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" });
 }
 
+function fmtDateTime(ms) {
+  return `${fmtDate(ms)} ${new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+}
+
 function titleCase(tier) {
   return tier === "UNKNOWN" ? "Unknown rank" : tier.charAt(0) + tier.slice(1).toLowerCase();
 }
@@ -393,7 +397,7 @@ function renderRecent(recent) {
     const open = recentUi.runesOpen.has(gkey);
     const hasRunes = g.runes || g.opp_runes;
     let html = `<tr>
-      <td>${fmtDate(g.game_creation_ms)}</td>
+      <td>${fmtDateTime(g.game_creation_ms)}</td>
       ${multi ? `<td>${escapeHtml(names.get(g.my_puuid) ?? "?")}</td>` : ""}
       <td>${QUEUE_NAMES[g.queue_id] ?? g.queue_id}</td>
       <td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>
@@ -1006,6 +1010,18 @@ function renderAccountChips() {
     }));
 }
 
+function applyAppearance(data) {
+  document.documentElement.style.setProperty("--ui-opacity", (data.ui_opacity ?? 100) / 100);
+  const bg = $("#bg-image");
+  if (data.background_image) {
+    bg.style.backgroundImage = `url(/api/settings/background/file?v=${Date.now()})`;
+    bg.classList.add("active");
+  } else {
+    bg.style.backgroundImage = "";
+    bg.classList.remove("active");
+  }
+}
+
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
   for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide"]) {
@@ -1036,9 +1052,40 @@ async function initSettings() {
   $("#setting-block-gap").value = data.block_gap_hours;
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
+  $("#setting-ui-opacity").value = data.ui_opacity;
+  $("#setting-ui-opacity-value").textContent = `${data.ui_opacity}%`;
+  $("#setting-bg-remove").classList.toggle("hidden", !data.background_image);
+  applyAppearance(data);
   $("#settings-banner").classList.toggle("hidden", data.configured);
   if (settingsUi.wired) return;
   settingsUi.wired = true;
+  $("#setting-ui-opacity").addEventListener("input", (e) => {
+    $("#setting-ui-opacity-value").textContent = `${e.target.value}%`;
+    document.documentElement.style.setProperty("--ui-opacity", e.target.value / 100);
+  });
+  $("#setting-bg-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    $("#setting-bg-status").textContent = "uploading…";
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch("/api/settings/background", { method: "POST", body: formData });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) {
+      $("#setting-bg-status").textContent = "saved ✓";
+      $("#setting-bg-remove").classList.remove("hidden");
+      applyAppearance({ ui_opacity: $("#setting-ui-opacity").value, background_image: true });
+    } else {
+      $("#setting-bg-status").textContent = body.detail || `error ${response.status}`;
+    }
+    e.target.value = "";
+  });
+  $("#setting-bg-remove").addEventListener("click", async () => {
+    await fetch("/api/settings/background", { method: "DELETE" });
+    $("#setting-bg-remove").classList.add("hidden");
+    $("#setting-bg-status").textContent = "";
+    applyAppearance({ ui_opacity: $("#setting-ui-opacity").value, background_image: false });
+  });
   $("#key-reveal").addEventListener("click", () => {
     const input = $("#setting-key");
     const hidden = input.type === "password";
@@ -1081,10 +1128,11 @@ async function initSettings() {
         platform: $("#setting-platform").value,
         hidden_views: hiddenViews,
         auto_crawl_hours: Math.max(0, parseInt($("#setting-auto-crawl").value, 10) || 0),
-        block_size: Math.min(10, Math.max(1, parseInt($("#setting-block-size").value, 10) || 3)),
+        block_size: Math.max(1, parseInt($("#setting-block-size").value, 10) || 3),
         block_gap_hours: Math.min(168, Math.max(0, parseFloat($("#setting-block-gap").value) || 0)),
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
         hide_my_rank: $("#setting-hide-rank").checked,
+        ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -1094,6 +1142,7 @@ async function initSettings() {
         init(false); // re-pull data so the redaction change applies everywhere
       }
       applyHiddenViews(body.hidden_views);
+      applyAppearance(body);
       $("#settings-banner").classList.add("hidden");
       if (settingsUi.wasUnconfigured && body.configured) {
         settingsUi.wasUnconfigured = false;
@@ -1364,6 +1413,7 @@ async function init(firstLoad = true) {
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
     applyHiddenViews(settings.hidden_views);
+    applyAppearance(settings);
     maybeStartupCrawl(settings);
     setInterval(autoCrawlTick, 10 * 60 * 1000);
   }

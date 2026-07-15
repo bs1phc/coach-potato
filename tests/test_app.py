@@ -817,9 +817,58 @@ def test_block_size_setting_endpoint(client):
     assert _put_settings(client, block_size=5).status_code == 200
     assert client.get("/api/settings").json()["block_size"] == 5
     assert client.get("/api/blocks").json()["block_size"] == 5
-    assert _put_settings(client, block_size=11).status_code == 400
+    assert _put_settings(client, block_size=25).status_code == 200
+    assert client.get("/api/settings").json()["block_size"] == 25
     assert _put_settings(client, block_size=0).status_code == 400
     assert _put_settings(client, block_size="3").status_code == 400
+
+
+def test_ui_opacity_setting_endpoint(client):
+    assert client.get("/api/settings").json()["ui_opacity"] == 100
+    assert _put_settings(client, ui_opacity=60).status_code == 200
+    assert client.get("/api/settings").json()["ui_opacity"] == 60
+    assert _put_settings(client, ui_opacity=19).status_code == 400
+    assert _put_settings(client, ui_opacity=101).status_code == 400
+    assert _put_settings(client, ui_opacity="60").status_code == 400
+
+
+def test_background_image_upload_roundtrip(client):
+    assert client.get("/api/settings").json()["background_image"] is False
+    assert client.get("/api/settings/background/file").status_code == 404
+
+    resp = client.post("/api/settings/background",
+                        files={"file": ("bg.png", b"fake png bytes", "image/png")})
+    assert resp.status_code == 200
+    assert resp.json() == {"background_image": True}
+    assert client.get("/api/settings").json()["background_image"] is True
+
+    file_resp = client.get("/api/settings/background/file")
+    assert file_resp.status_code == 200
+    assert file_resp.content == b"fake png bytes"
+
+    # uploading again replaces the old file (only one lives on disk)
+    bg_dir = app_module.get_background_dir()
+    assert len(list(bg_dir.iterdir())) == 1
+    resp2 = client.post("/api/settings/background",
+                         files={"file": ("bg2.jpg", b"other bytes", "image/jpeg")})
+    assert resp2.status_code == 200
+    assert len(list(bg_dir.iterdir())) == 1
+    assert client.get("/api/settings/background/file").content == b"other bytes"
+
+    assert client.delete("/api/settings/background").json() == {"deleted": True}
+    assert client.get("/api/settings").json()["background_image"] is False
+    assert client.get("/api/settings/background/file").status_code == 404
+    assert len(list(bg_dir.iterdir())) == 0
+
+
+def test_background_image_rejects_bad_extension_and_oversize(client):
+    resp = client.post("/api/settings/background",
+                        files={"file": ("bg.exe", b"nope", "application/octet-stream")})
+    assert resp.status_code == 400
+    big = b"x" * (app_module.MAX_BACKGROUND_BYTES + 1)
+    resp = client.post("/api/settings/background",
+                        files={"file": ("bg.png", big, "image/png")})
+    assert resp.status_code == 413
 
 
 def _garen_and_kled(conn):

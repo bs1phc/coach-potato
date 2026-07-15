@@ -61,6 +61,16 @@ ALLOWED_CLIP_EXTENSIONS = {".mp4", ".mov", ".webm", ".m4v"}
 CLIP_OWNER_TABLES = {"session": "coaching_sessions", "block_game": "block_games"}
 
 
+def get_background_dir() -> Path:
+    d = get_db_path().parent / "background"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+MAX_BACKGROUND_BYTES = 15 * 1024 * 1024  # 15 MB
+ALLOWED_BACKGROUND_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
 def _unlink_clip_files(file_names):
     for name in file_names:
         (get_clips_dir() / name).unlink(missing_ok=True)
@@ -129,6 +139,8 @@ def _extra_settings(conn):
         "block_size": db.get_block_size(conn),
         "block_gap_hours": db.get_block_gap_ms(conn) / 3_600_000,
         "block_gap_confirm": stored.get("block_gap_confirm") != "0",
+        "ui_opacity": int(stored.get("ui_opacity") or 100),
+        "background_image": bool(stored.get("background_image_file")),
     }
 
 
@@ -216,9 +228,8 @@ def api_put_settings(body: dict):
     if not isinstance(hide_my_rank, bool):
         raise HTTPException(400, "hide_my_rank must be a boolean")
     block_size = body.get("block_size", db.BLOCK_SIZE)
-    if (not isinstance(block_size, int) or isinstance(block_size, bool)
-            or not 1 <= block_size <= db.MAX_BLOCK_SIZE):
-        raise HTTPException(400, f"block_size must be 1..{db.MAX_BLOCK_SIZE}")
+    if not isinstance(block_size, int) or isinstance(block_size, bool) or block_size < 1:
+        raise HTTPException(400, "block_size must be a whole number >= 1")
     gap_hours = body.get("block_gap_hours", db.BLOCK_GAP_HOURS)
     if (isinstance(gap_hours, bool) or not isinstance(gap_hours, (int, float))
             or not 0 <= gap_hours <= db.MAX_BLOCK_GAP_HOURS):
@@ -226,6 +237,10 @@ def api_put_settings(body: dict):
     gap_confirm = body.get("block_gap_confirm", True)
     if not isinstance(gap_confirm, bool):
         raise HTTPException(400, "block_gap_confirm must be a boolean")
+    ui_opacity = body.get("ui_opacity", 100)
+    if (not isinstance(ui_opacity, int) or isinstance(ui_opacity, bool)
+            or not 20 <= ui_opacity <= 100):
+        raise HTTPException(400, "ui_opacity must be a whole number 20..100")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -238,6 +253,7 @@ def api_put_settings(body: dict):
             "block_size": str(block_size),
             "block_gap_hours": str(gap_hours),
             "block_gap_confirm": "1" if gap_confirm else "0",
+            "ui_opacity": str(ui_opacity),
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -245,6 +261,59 @@ def api_put_settings(body: dict):
         return settings
     finally:
         conn.close()
+
+
+@app.post("/api/settings/background")
+async def api_set_background(file: UploadFile = File(...)):
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_BACKGROUND_EXTENSIONS:
+        raise HTTPException(
+            400, f"unsupported file type {ext or '(none)'} — "
+                 f"allowed: {', '.join(sorted(ALLOWED_BACKGROUND_EXTENSIONS))}")
+    data = await file.read(MAX_BACKGROUND_BYTES + 1)
+    if len(data) > MAX_BACKGROUND_BYTES:
+        raise HTTPException(413, "image exceeds the 15 MB limit")
+    conn = get_conn()
+    try:
+        old = db.get_settings(conn).get("background_image_file")
+        stored_name = f"{uuid.uuid4().hex}{ext}"
+        (get_background_dir() / stored_name).write_bytes(data)
+        db.set_settings(conn, {"background_image_file": stored_name})
+    finally:
+        conn.close()
+    if old:
+        (get_background_dir() / old).unlink(missing_ok=True)
+    return {"background_image": True}
+
+
+@app.get("/api/settings/background/file")
+def api_get_background_file():
+    conn = get_conn()
+    try:
+        name = db.get_settings(conn).get("background_image_file")
+    finally:
+        conn.close()
+    if not name:
+        raise HTTPException(404, "no background image set")
+    path = get_background_dir() / name
+    if not path.exists():
+        raise HTTPException(404, "background image missing on disk")
+    return FileResponse(path)
+
+
+@app.delete("/api/settings/background")
+def api_delete_background():
+    conn = get_conn()
+    try:
+        old = db.get_settings(conn).get("background_image_file")
+        if old:
+            with conn:
+                conn.execute("DELETE FROM settings WHERE key='background_image_file'")
+    finally:
+        conn.close()
+    if old:
+        (get_background_dir() / old).unlink(missing_ok=True)
+    return {"deleted": True}
 
 
 @app.get("/api/players")

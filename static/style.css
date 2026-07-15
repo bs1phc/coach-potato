@@ -1,6 +1,9 @@
 :root {
-  --surface-1: #fcfcfb;
-  --page: #f9f9f7;
+  --ui-opacity: 1;          /* 0.2–1, set inline from the ui_opacity setting */
+  --surface-1-solid: #fcfcfb;
+  --page-solid: #f9f9f7;
+  --surface-1: color-mix(in srgb, var(--surface-1-solid) calc(var(--ui-opacity) * 100%), transparent);
+  --page: color-mix(in srgb, var(--page-solid) calc(var(--ui-opacity) * 100%), transparent);
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
   --muted: #898781;
@@ -15,8 +18,8 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --surface-1: #1a1a19;
-    --page: #0d0d0d;
+    --surface-1-solid: #1a1a19;
+    --page-solid: #0d0d0d;
     --text-primary: #ffffff;
     --text-secondary: #c3c2b7;
     --muted: #898781;
@@ -32,6 +35,17 @@
 }
 
 * { box-sizing: border-box; }
+html { background: transparent; }
+#bg-image {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: none;
+}
+#bg-image.active { display: block; }
 body {
   margin: 0 auto;
   max-width: 1080px;
@@ -591,6 +605,13 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   border-radius: 4px;
   padding: 0 3px;
 }
+
+.opacity-row, .bg-image-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#setting-ui-opacity { flex: 1; max-width: 260px; }
 
 /* ---------- settings layout ---------- */
 .settings-group-head {

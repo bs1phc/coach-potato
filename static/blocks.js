@@ -241,7 +241,7 @@ async function loadBlocks() {
   await renderBlockPicker();
 }
 
-function gameMetricsPanel(entryId) {
+function gameMetricsPanel(entryId, game) {
   const data = blockState.gameMetricsCache.get(entryId);
   const metrics = data === null
     ? `<div class="muted">No detailed metrics recorded for this game.</div>`
@@ -254,7 +254,11 @@ function gameMetricsPanel(entryId) {
           </div>`).join("");
         return `<div class="metric-group"><h4>${g}</h4>${rows}</div>`;
       }).join("") + `</div>`;
-  return `${metrics}${clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
+  const runes = (game.runes || game.opp_runes) ? `<div class="runes-compare">${
+    runesCompareCol(game.my_champion, game.runes, "you")}${
+    game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""
+  }</div>` : "";
+  return `${metrics}${runes}${clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
 }
 
 async function toggleGameStats(entryId, matchId, puuid) {
@@ -309,7 +313,7 @@ function blockGameRow(g) {
     `<td><button class="preset game-remove" data-entry="${g.entry_id}" title="Remove from block">×</button></td>
   </tr>`;
   if (statsOpen) {
-    html += `<tr class="games-row"><td colspan="${visible.length + 2}">${gameMetricsPanel(g.entry_id)}</td></tr>`;
+    html += `<tr class="games-row"><td colspan="${visible.length + 2}">${gameMetricsPanel(g.entry_id, g)}</td></tr>`;
   }
   return html;
 }

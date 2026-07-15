@@ -424,7 +424,7 @@ function recentGamesColumn(champ) {
     return `<div class="guide-game-entry">
       <div class="guide-game-row">
         <span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span>
-        <span class="muted">${fmtDate(g.game_creation_ms)}</span>
+        <span class="muted">${fmtDateTime(g.game_creation_ms)}</span>
         <span>${g.kills}/${g.deaths}/${g.assists}</span>
         <span class="muted">${csMin} cs/min</span>
         <span class="muted">${fmtDuration(g.game_duration_s)}</span>

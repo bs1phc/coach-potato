@@ -465,6 +465,27 @@ def test_block_games_detailed_hydrates_from_matches(conn):
     g2 = next(g for g in games if g["match_id"] == m2)
     assert g2["opp_champion"] is None  # no enemy TOP in that game
     assert g2["lane_adv_early"] is None  # no metrics row for that game
+    assert g1["runes"] is None and g1["opp_runes"] is None  # nothing recorded yet
+
+
+def test_block_games_detailed_includes_runes_actually_played(conn):
+    match_id, opp_puuid = add_match(conn, opp_champ="Darius")
+    db.add_game_to_block(conn, match_id, ME)
+    db.insert_participant_runes(conn, match_id, ME, {
+        "label": "", "primary_tree": "Precision", "keystone": "Conqueror",
+        "primary_runes": ["Triumph", "Legend: Alacrity", "Last Stand"],
+        "secondary_tree": "Resolve", "secondary_runes": ["Bone Plating", "Overgrowth"],
+        "shards": ["Adaptive Force", "Armor", "Health"],
+    })
+    db.insert_participant_runes(conn, match_id, opp_puuid, {
+        "label": "", "primary_tree": "Resolve", "keystone": "Grasp of the Undying",
+        "primary_runes": ["Demolish", "Second Wind", "Overgrowth"],
+        "secondary_tree": "Inspiration", "secondary_runes": ["Biscuit Delivery", "Cosmic Insight"],
+        "shards": ["Health", "Armor", "Health"],
+    })
+    games = stats.block_games_detailed(conn)
+    assert games[0]["runes"]["keystone"] == "Conqueror"
+    assert games[0]["opp_runes"]["keystone"] == "Grasp of the Undying"
 
 
 def test_single_game_metrics_transforms_per_agg_kind(conn):

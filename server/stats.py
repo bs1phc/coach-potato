@@ -398,7 +398,9 @@ def block_games_detailed(conn):
                   me.champion_name AS my_champion, me.win,
                   me.kills, me.deaths, me.assists, me.cs,
                   pm.lane_adv_early, pm.lane_adv_late,
-                  opp.champion_name AS opp_champion
+                  opp.champion_name AS opp_champion,
+                  myr.runes AS my_runes_json,
+                  oppr.runes AS opp_runes_json
            FROM block_games bg
            JOIN participants me ON me.match_id = bg.match_id AND me.puuid = bg.puuid
            JOIN matches m ON m.match_id = bg.match_id
@@ -406,9 +408,13 @@ def block_games_detailed(conn):
                AND opp.team_id != me.team_id AND opp.team_position = 'TOP'
            LEFT JOIN participant_metrics pm
                ON pm.match_id = bg.match_id AND pm.puuid = bg.puuid
+           LEFT JOIN participant_runes myr
+               ON myr.match_id = bg.match_id AND myr.puuid = bg.puuid
+           LEFT JOIN participant_runes oppr
+               ON oppr.match_id = bg.match_id AND oppr.puuid = opp.puuid
            ORDER BY m.game_creation_ms"""
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [_decode_game_runes(r) for r in rows]
 
 
 def _decode_game_runes(row):

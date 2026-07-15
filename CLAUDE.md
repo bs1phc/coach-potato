@@ -94,7 +94,17 @@ change, not a crawler change.
   (`hide_my_rank`) redacts own-rank fields (`_MY_RANK_KEYS`) from ALL JSON
   API responses via middleware — new endpoints get hiding for free as long as
   they reuse those key names (`solo_*`, `start_ranks`, `end_ranks`); anything
-  else rank-shaped needs its own check (see the rank-history endpoint). Session CRUD at `/api/sessions`;
+  else rank-shaped needs its own check (see the rank-history endpoint).
+  Appearance settings: `ui_opacity` (20-100, default 100) and an optional
+  uploaded background picture (`POST/DELETE /api/settings/background`,
+  served via `GET /api/settings/background/file`; stored as a single file
+  in `<db_dir>/background/`, filename tracked by the `background_image_file`
+  settings key, replaced/deleted on re-upload). CSS applies both app-wide via
+  `--ui-opacity` (set on `:root` from JS) driving `--surface-1`/`--page`
+  through `color-mix(...)` — every existing `var(--surface-1)`/`var(--page)`
+  usage becomes translucent for free, no per-component changes — plus a
+  fixed, full-viewport `#bg-image` div (z-index -1) behind everything for the
+  picture itself. Session CRUD at `/api/sessions`;
   `/api/stats/progress` aggregates across ALL tracked puuids (no puuid param).
 - Sessions have `title` + Markdown `notes` (legacy `note` column auto-migrates
   in `db._migrate`). `PATCH /api/sessions/{id}` edits them;
@@ -123,8 +133,8 @@ change, not a crawler change.
   `/api/stats/metrics` and `/api/stats/trends` (both include `meta`).
 - Block learnings: `champion_pool` (role main_blind/core/counter, replaced
   wholesale), `blocks` + `block_games` (UNIQUE match_id+puuid). Current block
-  = newest; block size is a setting (`db.get_block_size`, 1–10, default
-  `db.BLOCK_SIZE`=3); complete = closed early, pool-snapshot stamped
+  = newest; block size is a setting (`db.get_block_size`, >=1, no upper
+  bound, default `db.BLOCK_SIZE`=3); complete = closed early, pool-snapshot stamped
   (finalized under an earlier size), or ≥size games;
   `db.add_game_to_block` auto-advances. Time-gap auto-close: adding a game
   whose game time is > `block_gap_hours` (setting, default 3 h, 0 = off)
@@ -233,7 +243,11 @@ either `None` if not recorded — on every row from both `GET
 rune pages side by side, via the shared `runePageIcons()` (guide.js). The
 Champ guide's own "Recent games" column (`recentGamesColumn` in guide.js)
 still only shows your own runes inline, un-toggled — `opp_runes` is
-available there too if that ever needs mirroring.
+available there too if that ever needs mirroring. Also joined (same
+myr/oppr pattern) into `stats.block_games_detailed`, so a block game's
+expanded per-game panel (`gameMetricsPanel` in blocks.js) shows the same
+side-by-side `.runes-compare` layout via the shared `runesCompareCol()`
+(app.js), reused as-is rather than duplicated.
 `clips(id PK, owner_type CHECK IN ('session','block_game'), owner_id, label,
 kind CHECK IN ('upload','link'), file_name, url, created_at_ms)` — 1-minute
 video clips attached to a coaching session or a specific block game (not

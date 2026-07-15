@@ -1,6 +1,22 @@
 {
   "entries": [
     {
+      "version": "1.21.0",
+      "date": "2026-07-16",
+      "items": [
+        "Appearance settings — adjustable opacity (see-through panels, like a translucent terminal) and an optional background picture",
+        "Runes actually played now show in a block game's expanded stats panel too, mirroring Overview and Champ guide"
+      ]
+    },
+    {
+      "version": "1.20.0",
+      "date": "2026-07-16",
+      "items": [
+        "Removed the 10-game cap on block size — set any block size in Settings",
+        "Recent games (Overview and Champ guide) now show the game's time, not just the date"
+      ]
+    },
+    {
       "version": "1.19.1",
       "date": "2026-07-15",
       "items": [
