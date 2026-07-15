@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.19.0",
+      "date": "2026-07-15",
+      "items": [
+        "Overview tab's Recent games now records and shows the opponent's runes too, not just yours — click the ▸ Runes toggle on a game to compare both side by side",
+        "Crawler now also captures the lane opponent's runes (not just tracked accounts); run ./crawl.sh --backfill-runes again to fill in opponent runes for matches crawled before this update"
+      ]
+    },
+    {
       "version": "1.18.0",
       "date": "2026-07-15",
       "items": [

@@ -365,6 +365,20 @@ function renderChampionTable(byChampion) {
     <tbody>${body}</tbody></table></div>`;
 }
 
+const recentUi = { runesOpen: new Set() };
+
+function runesCompareCol(champ, runes, whose) {
+  const body = runes
+    ? `<div class="recent-runes-cell-inner">${
+        runePageIcons(runes, { keystoneSize: 22, minorSize: 16, treeSize: 18, shardSize: 13 })}</div>`
+    : `<p class="muted">Not recorded — crawl again or run
+        <code>./crawl.sh --backfill-runes</code>.</p>`;
+  return `<div class="runes-compare-col">
+    <h5>${champIcon(champ)}${displayName(champ)} <span class="muted">(${whose})</span></h5>
+    ${body}
+  </div>`;
+}
+
 function renderRecent(recent) {
   const target = $("#recent-list");
   if (!recent.length) {
@@ -372,8 +386,13 @@ function renderRecent(recent) {
     return;
   }
   const multi = selectedPuuids().length > 1;
+  const colCount = 10 + (multi ? 1 : 0);
   const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
-  const body = recent.map((g) => `<tr>
+  const body = recent.map((g) => {
+    const gkey = `${g.match_id}:${g.my_puuid}`;
+    const open = recentUi.runesOpen.has(gkey);
+    const hasRunes = g.runes || g.opp_runes;
+    let html = `<tr>
       <td>${fmtDate(g.game_creation_ms)}</td>
       ${multi ? `<td>${escapeHtml(names.get(g.my_puuid) ?? "?")}</td>` : ""}
       <td>${QUEUE_NAMES[g.queue_id] ?? g.queue_id}</td>
@@ -383,18 +402,32 @@ function renderRecent(recent) {
       <td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>
       <td>${g.kills}/${g.deaths}/${g.assists}</td>
       <td>${fmtDuration(g.game_duration_s)}</td>
-      <td class="recent-runes-cell">${g.runes
-        ? `<div class="recent-runes-cell-inner">${
-            runePageIcons(g.runes, { keystoneSize: 18, minorSize: 14, treeSize: 16, shardSize: 12 })}</div>`
+      <td>${hasRunes
+        ? `<button class="preset seg-toggle runes-toggle" data-gkey="${gkey}"
+             aria-expanded="${open}" title="Runes">${open ? "▾" : "▸"} Runes</button>`
         : `<span class="muted">–</span>`}</td>
       <td><button class="preset promote-btn" data-match="${g.match_id}"
         data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
-    </tr>`).join("");
+    </tr>`;
+    if (open) {
+      html += `<tr class="games-row"><td colspan="${colCount}"><div class="runes-compare">${
+        runesCompareCol(g.my_champion, g.runes, "you")}${
+        g.opp_champion ? runesCompareCol(g.opp_champion, g.opp_runes, "opponent") : ""
+      }</div></td></tr>`;
+    }
+    return html;
+  }).join("");
   target.innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th>Date</th>${multi ? "<th>Account</th>" : ""}<th>Queue</th><th>Me</th><th>Opponent</th><th>Opp. rank</th>
     <th>Result</th><th>K/D/A</th><th>Length</th><th>Runes</th><th></th></tr></thead>
     <tbody>${body}</tbody></table></div>`;
   wirePromoteButtons(target);
+  target.querySelectorAll(".runes-toggle").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const gkey = btn.dataset.gkey;
+      recentUi.runesOpen.has(gkey) ? recentUi.runesOpen.delete(gkey) : recentUi.runesOpen.add(gkey);
+      renderRecent(recent);
+    }));
 }
 
 function wirePromoteButtons(container) {

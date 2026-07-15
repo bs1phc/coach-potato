@@ -169,17 +169,25 @@ def test_summary_counts_and_champion_breakdown(conn):
 
 
 def test_summary_recent_includes_runes_actually_played(conn):
-    match_id, _ = add_match(conn, opp_champ="Darius")
+    match_id, opp_puuid = add_match(conn, opp_champ="Darius")
     s = stats.summary(conn, ME)
     assert s["recent"][0]["runes"] is None  # nothing recorded for this game yet
+    assert s["recent"][0]["opp_runes"] is None
     db.insert_participant_runes(conn, match_id, ME, {
         "label": "", "primary_tree": "Precision", "keystone": "Conqueror",
         "primary_runes": ["Triumph", "Legend: Alacrity", "Last Stand"],
         "secondary_tree": "Resolve", "secondary_runes": ["Bone Plating", "Overgrowth"],
         "shards": ["Adaptive Force", "Armor", "Health"],
     })
+    db.insert_participant_runes(conn, match_id, opp_puuid, {
+        "label": "", "primary_tree": "Resolve", "keystone": "Grasp of the Undying",
+        "primary_runes": ["Demolish", "Second Wind", "Overgrowth"],
+        "secondary_tree": "Inspiration", "secondary_runes": ["Biscuit Delivery", "Cosmic Insight"],
+        "shards": ["Health", "Armor", "Health"],
+    })
     s = stats.summary(conn, ME)
     assert s["recent"][0]["runes"]["keystone"] == "Conqueror"
+    assert s["recent"][0]["opp_runes"]["keystone"] == "Grasp of the Undying"
 
 
 DAY_MS = 86_400_000
@@ -304,17 +312,25 @@ def test_games_in_range_lists_game_without_top_opponent(conn):
 
 
 def test_games_in_range_includes_runes_actually_played(conn):
-    match_id, _ = add_match(conn, when=1_000, opp_champ="Darius")
+    match_id, opp_puuid = add_match(conn, when=1_000, opp_champ="Darius")
     games = stats.games_in_range(conn, [ME])
     assert games[0]["runes"] is None  # nothing recorded for this game yet
+    assert games[0]["opp_runes"] is None
     db.insert_participant_runes(conn, match_id, ME, {
         "label": "", "primary_tree": "Precision", "keystone": "Conqueror",
         "primary_runes": ["Triumph", "Legend: Alacrity", "Last Stand"],
         "secondary_tree": "Resolve", "secondary_runes": ["Bone Plating", "Overgrowth"],
         "shards": ["Adaptive Force", "Armor", "Health"],
     })
+    db.insert_participant_runes(conn, match_id, opp_puuid, {
+        "label": "", "primary_tree": "Resolve", "keystone": "Grasp of the Undying",
+        "primary_runes": ["Demolish", "Second Wind", "Overgrowth"],
+        "secondary_tree": "Inspiration", "secondary_runes": ["Biscuit Delivery", "Cosmic Insight"],
+        "shards": ["Health", "Armor", "Health"],
+    })
     games = stats.games_in_range(conn, [ME])
     assert games[0]["runes"]["keystone"] == "Conqueror"
+    assert games[0]["opp_runes"]["keystone"] == "Grasp of the Undying"
 
 
 def test_progress_segments_carry_session_start_ranks(conn):

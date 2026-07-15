@@ -188,8 +188,8 @@ PERKS = {
 }
 
 
-def test_crawl_stores_runes_for_tracked_participant(conn):
-    match = match_json("EUW1_1", 1_700_000_000_000)
+def test_crawl_stores_runes_for_tracked_participant_and_lane_opponent(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)  # opp_pos defaults to TOP, shares the lane
     tracked = next(p for p in match["info"]["participants"]
                    if p["puuid"] == TRACKED_PUUID)
     tracked["perks"] = PERKS
@@ -202,8 +202,13 @@ def test_crawl_stores_runes_for_tracked_participant(conn):
     assert runes["primary_tree"] == "Precision"
     assert runes["keystone"] == "Conqueror"
     assert runes["secondary_tree"] == "Resolve"
-    # opponents don't get rune rows
-    assert conn.execute("SELECT COUNT(*) c FROM participant_runes").fetchone()["c"] == 1
+    # the lane opponent (same teamPosition, other team) also gets a row —
+    # blank here since this fixture doesn't set perks for them
+    opp_row = conn.execute(
+        "SELECT runes FROM participant_runes WHERE match_id='EUW1_1' AND puuid='opp-1'").fetchone()
+    assert opp_row["runes"] == ""
+    # only the tracked participant + their lane opponent — not all 10 players
+    assert conn.execute("SELECT COUNT(*) c FROM participant_runes").fetchone()["c"] == 2
 
 
 def test_crawl_stores_blank_runes_row_when_no_perks_data(conn):
@@ -230,9 +235,10 @@ def test_backfill_runes_fetches_missing_only(conn):
     assert client.detail_calls == 0
     conn.execute("DELETE FROM participant_runes WHERE match_id='EUW1_1'")
     conn.commit()
-    assert crawler.backfill_runes() == 1             # only the missing one refetched
+    assert crawler.backfill_runes() == 1             # only the missing match refetched
     assert client.detail_calls == 1
-    assert conn.execute("SELECT COUNT(*) c FROM participant_runes").fetchone()["c"] == 2
+    # 2 rows per match (tracked + lane opponent) x 2 matches
+    assert conn.execute("SELECT COUNT(*) c FROM participant_runes").fetchone()["c"] == 4
 
 
 def test_backfill_metrics_fetches_missing_only(conn):

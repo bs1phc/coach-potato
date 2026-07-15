@@ -209,17 +209,25 @@ count in a `confirm()` before committing.
 `participant_metrics(match_id+puuid PK, has_challenges, one REAL col per
 metric key)` — coaching metrics, tracked players only, columns generated
 from `server/metrics.py`
-`participant_runes(match_id+puuid PK, runes)` — the rune page a tracked
-player *actually played*, decoded from match-v5's `perks` payload
+`participant_runes(match_id+puuid PK, runes)` — the rune page actually
+played, decoded from match-v5's `perks` payload
 (`server/rune_data.decode_perks`) into the same shape as a champ-guide rune
 page; `runes` is `''` when a match legitimately had no perks data (so
-`Crawler.backfill_runes()` doesn't keep re-fetching it). Populated inline
-during crawl (`Crawler._store_runes`, alongside `_store_metrics`); backfill
-via `./crawl.sh --backfill-runes`. Joined into `stats._BASE` (alias `myr`)
-and surfaced as `runes` (decoded, or `None`) on every row from both
-`GET /api/stats/games` (Champ guide "Recent games" column) and
-`stats.summary()`'s `recent` (Overview tab's "Recent games" table, its own
-`runes` cell) — `runePageIcons()` (guide.js) renders the icon strip in both.
+`Crawler.backfill_runes()` doesn't keep re-fetching it). Stores rows for
+every tracked participant **and their lane opponent** (same
+`team_position`, other team — `Crawler._store_runes`, alongside
+`_store_metrics`; the backfill query mirrors `enrich_ranks`' lane-opponent
+join). Backfill via `./crawl.sh --backfill-runes`. Joined into
+`stats._BASE` twice (alias `myr` on `me.puuid`, alias `oppr` on
+`opp.puuid`) and surfaced as `runes` (mine) / `opp_runes` (opponent's) —
+either `None` if not recorded — on every row from both `GET
+/api/stats/games` and `stats.summary()`'s `recent`. The Overview tab's
+"Recent games" table uses a ▸/▾ toggle per game (`.runes-toggle`,
+`renderRecent`/`runesCompareCol` in app.js) that expands both players'
+rune pages side by side, via the shared `runePageIcons()` (guide.js). The
+Champ guide's own "Recent games" column (`recentGamesColumn` in guide.js)
+still only shows your own runes inline, un-toggled — `opp_runes` is
+available there too if that ever needs mirroring.
 `clips(id PK, owner_type CHECK IN ('session','block_game'), owner_id, label,
 kind CHECK IN ('upload','link'), file_name, url, created_at_ms)` — 1-minute
 video clips attached to a coaching session or a specific block game (not

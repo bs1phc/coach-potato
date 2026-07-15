@@ -107,22 +107,45 @@ class Crawler:
         return count
 
     def _store_runes(self, match_json):
+        """Stores runes for tracked participants AND their lane opponent
+        (same teamPosition, other team) — the Overview/Champ-guide recent-
+        games lists show both sides of the matchup, not just your own pick."""
         tracked = self._tracked_puuids()
         match_id = match_json["metadata"]["matchId"]
-        for participant in match_json["info"]["participants"]:
-            if participant["puuid"] in tracked:
-                runes = rune_data.decode_perks(participant.get("perks"))
-                db.insert_participant_runes(self.conn, match_id, participant["puuid"], runes)
+        participants = match_json["info"]["participants"]
+        by_puuid = {p["puuid"]: p for p in participants}
+        wanted = set()
+        for p in participants:
+            if p["puuid"] not in tracked:
+                continue
+            wanted.add(p["puuid"])
+            pos = p.get("teamPosition")
+            if not pos:
+                continue
+            enemy = next((q for q in participants
+                         if q["teamId"] != p["teamId"] and q.get("teamPosition") == pos), None)
+            if enemy:
+                wanted.add(enemy["puuid"])
+        for puuid in wanted:
+            runes = rune_data.decode_perks(by_puuid[puuid].get("perks"))
+            db.insert_participant_runes(self.conn, match_id, puuid, runes)
 
     def backfill_runes(self, limit=None):
-        """Re-fetch details for stored matches whose tracked participants
-        lack a participant_runes row. Returns matches fetched."""
+        """Re-fetch details for stored matches missing a participant_runes
+        row for a tracked participant or their lane opponent. Returns
+        matches fetched."""
         rows = self.conn.execute(
-            """SELECT DISTINCT p.match_id FROM participants p
-               JOIN players pl ON pl.puuid = p.puuid AND pl.is_tracked = 1
-               LEFT JOIN participant_runes pr
-                 ON pr.match_id = p.match_id AND pr.puuid = p.puuid
-               WHERE pr.match_id IS NULL"""
+            """SELECT DISTINCT me.match_id FROM participants me
+               JOIN players pl ON pl.puuid = me.puuid AND pl.is_tracked = 1
+               LEFT JOIN participant_runes pr_me
+                 ON pr_me.match_id = me.match_id AND pr_me.puuid = me.puuid
+               LEFT JOIN participants opp
+                 ON opp.match_id = me.match_id AND opp.team_id != me.team_id
+                    AND opp.team_position = me.team_position AND me.team_position != ''
+               LEFT JOIN participant_runes pr_opp
+                 ON pr_opp.match_id = opp.match_id AND pr_opp.puuid = opp.puuid
+               WHERE pr_me.match_id IS NULL
+                  OR (opp.puuid IS NOT NULL AND pr_opp.match_id IS NULL)"""
         ).fetchall()
         count = 0
         for row in rows:
