@@ -555,16 +555,23 @@ async function renderBlockPicker() {
 }
 
 // shared with match-list promote buttons in app.js
-async function promoteGame(matchId, puuid, btn) {
+async function promoteGame(matchId, puuid, btn, confirmGap = false) {
   const response = await fetch("/api/blocks/games", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ match_id: matchId, puuid }),
+    body: JSON.stringify({ match_id: matchId, puuid, confirm_gap: confirmGap }),
   });
   const body = await response.json().catch(() => ({}));
   if (response.ok) {
     btn.textContent = `✓ Block #${body.block_id}`;
     btn.disabled = true;
+  } else if (response.status === 412 && body.detail && body.detail.reason === "gap") {
+    const d = body.detail;
+    if (confirm(`This game is ${d.gap_hours} h apart from the latest game in `
+        + `Block #${d.block_id} — blocks are meant to be played in succession.\n\n`
+        + `Close Block #${d.block_id} and start a new block with this game?`)) {
+      return promoteGame(matchId, puuid, btn, true);
+    }
   } else {
     alert(body.detail || `error ${response.status}`);
   }

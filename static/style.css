@@ -578,6 +578,40 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   padding: 0 3px;
 }
 
+/* ---------- settings layout ---------- */
+.settings-group-head {
+  margin: 26px 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--grid);
+  padding-bottom: 5px;
+}
+#settings-card .settings-group-head:first-child { margin-top: 0; }
+.settings-savebar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 24px;
+  padding: 12px 0;
+  background: var(--surface-1);
+  border-top: 1px solid var(--border);
+}
+.btn-primary {
+  background: var(--series-1);
+  border: 1px solid var(--series-1);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  padding: 8px 26px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.btn-primary:hover { filter: brightness(1.08); }
+
 /* ---------- patch notes overlay ---------- */
 .overlay {
   position: fixed; inset: 0; z-index: 100;

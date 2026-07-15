@@ -106,6 +106,8 @@ def _extra_settings(conn):
         "last_crawl_ms": int(last) if last else None,
         "hide_my_rank": stored.get("hide_my_rank") == "1",
         "block_size": db.get_block_size(conn),
+        "block_gap_hours": db.get_block_gap_ms(conn) / 3_600_000,
+        "block_gap_confirm": stored.get("block_gap_confirm") != "0",
     }
 
 
@@ -196,6 +198,13 @@ def api_put_settings(body: dict):
     if (not isinstance(block_size, int) or isinstance(block_size, bool)
             or not 1 <= block_size <= db.MAX_BLOCK_SIZE):
         raise HTTPException(400, f"block_size must be 1..{db.MAX_BLOCK_SIZE}")
+    gap_hours = body.get("block_gap_hours", db.BLOCK_GAP_HOURS)
+    if (isinstance(gap_hours, bool) or not isinstance(gap_hours, (int, float))
+            or not 0 <= gap_hours <= db.MAX_BLOCK_GAP_HOURS):
+        raise HTTPException(400, f"block_gap_hours must be 0..{db.MAX_BLOCK_GAP_HOURS:g}")
+    gap_confirm = body.get("block_gap_confirm", True)
+    if not isinstance(gap_confirm, bool):
+        raise HTTPException(400, "block_gap_confirm must be a boolean")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -206,6 +215,8 @@ def api_put_settings(body: dict):
             "auto_crawl_hours": str(hours),
             "hide_my_rank": "1" if hide_my_rank else "0",
             "block_size": str(block_size),
+            "block_gap_hours": str(gap_hours),
+            "block_gap_confirm": "1" if gap_confirm else "0",
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -711,6 +722,20 @@ def api_add_block_game(body: dict):
             (match_id, puuid)).fetchone()
         if not known:
             raise HTTPException(404, "no such game for that account")
+        holder = db.find_block_for_game(conn, match_id, puuid)
+        if holder is not None:  # duplicate check before any gap side-effects
+            raise HTTPException(409, f"game is already in Block #{holder}")
+        gap = db.block_gap_exceeded(conn, match_id)
+        if gap is not None:
+            gap_block, gap_ms = gap
+            confirm_on = db.get_settings(conn).get("block_gap_confirm") != "0"
+            if confirm_on and not body.get("confirm_gap"):
+                # 412: the client confirms, then retries with confirm_gap
+                raise HTTPException(412, {
+                    "reason": "gap", "block_id": gap_block,
+                    "gap_hours": round(gap_ms / 3_600_000, 1),
+                })
+            db.close_block(conn, gap_block)  # auto-close, new block below
         try:
             block_id = db.add_game_to_block(conn, match_id, puuid)
         except sqlite3.IntegrityError:

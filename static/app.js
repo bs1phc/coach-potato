@@ -905,6 +905,8 @@ async function initSettings() {
   });
   $("#setting-auto-crawl").value = data.auto_crawl_hours;
   $("#setting-block-size").value = data.block_size;
+  $("#setting-block-gap").value = data.block_gap_hours;
+  $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   $("#settings-banner").classList.toggle("hidden", data.configured);
   if (settingsUi.wired) return;
@@ -952,6 +954,8 @@ async function initSettings() {
         hidden_views: hiddenViews,
         auto_crawl_hours: Math.max(0, parseInt($("#setting-auto-crawl").value, 10) || 0),
         block_size: Math.min(10, Math.max(1, parseInt($("#setting-block-size").value, 10) || 3)),
+        block_gap_hours: Math.min(168, Math.max(0, parseFloat($("#setting-block-gap").value) || 0)),
+        block_gap_confirm: $("#setting-block-gap-confirm").checked,
         hide_my_rank: $("#setting-hide-rank").checked,
       }),
     });

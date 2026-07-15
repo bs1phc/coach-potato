@@ -476,3 +476,27 @@ def test_raising_block_size_does_not_reopen_finalized_block(conn):
     db.set_settings(conn, {"block_size": "5"})
     assert db.add_game_to_block(conn, ids[3], "me") == 2  # new block, not reopened
     assert db.close_block(conn, 1) is False  # finalized blocks can't be closed
+
+
+def _match_at(conn, match_id, t_ms):
+    db.insert_match(conn, {"match_id": match_id, "queue_id": 420,
+                           "game_creation_ms": t_ms, "game_duration_s": 1800,
+                           "game_version": "x"},
+                    [make_participant("me")])
+
+
+def test_block_gap_exceeded_detects_time_gap(conn):
+    H = 3_600_000
+    _match_at(conn, "G1", 10 * H)
+    _match_at(conn, "G2", 12 * H)   # 2 h later: within default 3 h
+    _match_at(conn, "G3", 16 * H)   # 6 h later: beyond
+    _match_at(conn, "G0", 2 * H)    # 8 h older: beyond (absolute gap)
+    assert db.block_gap_exceeded(conn, "G1") is None  # no open block yet
+    db.add_game_to_block(conn, "G1", "me")
+    assert db.block_gap_exceeded(conn, "G2") is None
+    assert db.block_gap_exceeded(conn, "G3") == (1, 6 * H)
+    assert db.block_gap_exceeded(conn, "G0") == (1, 8 * H)
+    db.set_settings(conn, {"block_gap_hours": "10"})  # raise threshold
+    assert db.block_gap_exceeded(conn, "G3") is None
+    db.set_settings(conn, {"block_gap_hours": "0"})   # disabled
+    assert db.block_gap_exceeded(conn, "G0") is None

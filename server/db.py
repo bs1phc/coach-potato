@@ -371,6 +371,8 @@ def set_settings(conn, mapping):
 
 BLOCK_SIZE = 3  # default games per block
 MAX_BLOCK_SIZE = 10
+BLOCK_GAP_HOURS = 3.0  # default auto-close time gap; 0 disables
+MAX_BLOCK_GAP_HOURS = 168.0
 
 
 def get_block_size(conn):
@@ -381,6 +383,55 @@ def get_block_size(conn):
     except (TypeError, ValueError):
         return BLOCK_SIZE
     return max(1, min(MAX_BLOCK_SIZE, size))
+
+
+def get_block_gap_ms(conn):
+    """Auto-close threshold in ms (game-time gap), 0 = disabled."""
+    raw = get_settings(conn).get("block_gap_hours")
+    try:
+        hours = float(raw)
+    except (TypeError, ValueError):
+        hours = BLOCK_GAP_HOURS
+    return int(max(0.0, min(MAX_BLOCK_GAP_HOURS, hours)) * 3_600_000)
+
+
+def _open_block(conn):
+    """Id of the block the next game would land in, or None if a new one
+    would open (newest block full, closed early, or finalized)."""
+    current = conn.execute("SELECT MAX(id) AS id FROM blocks").fetchone()["id"]
+    if current is None:
+        return None
+    row = conn.execute(
+        """SELECT (SELECT COUNT(*) FROM block_games WHERE block_id=b.id) AS c,
+                  b.closed_at_ms, b.pool_snapshot
+           FROM blocks b WHERE b.id=?""", (current,)).fetchone()
+    if (row["c"] >= get_block_size(conn) or row["closed_at_ms"] is not None
+            or row["pool_snapshot"] is not None):
+        return None
+    return current
+
+
+def block_gap_exceeded(conn, match_id):
+    """(open_block_id, gap_ms) when adding match_id would breach the
+    auto-close time gap — blocks are meant to be played in succession, so a
+    game far (in game start time) from the open block's latest game closes
+    it. None when disabled, no open block, or within the threshold."""
+    threshold = get_block_gap_ms(conn)
+    if not threshold:
+        return None
+    current = _open_block(conn)
+    if current is None:
+        return None
+    last = conn.execute(
+        """SELECT MAX(m.game_creation_ms) AS t FROM block_games bg
+           JOIN matches m ON m.match_id = bg.match_id
+           WHERE bg.block_id=?""", (current,)).fetchone()["t"]
+    candidate = conn.execute(
+        "SELECT game_creation_ms FROM matches WHERE match_id=?", (match_id,)).fetchone()
+    if last is None or candidate is None:
+        return None
+    gap = abs(candidate["game_creation_ms"] - last)
+    return (current, gap) if gap > threshold else None
 
 
 def get_pool(conn):
@@ -422,17 +473,9 @@ def add_game_to_block(conn, match_id, puuid):
     current one is full, closed early, already finalized, or absent. Raises
     sqlite3.IntegrityError on duplicates."""
     size = get_block_size(conn)
-    current = conn.execute("SELECT MAX(id) AS id FROM blocks").fetchone()["id"]
-    if current is not None:
-        row = conn.execute(
-            """SELECT (SELECT COUNT(*) FROM block_games WHERE block_id=b.id) AS c,
-                      b.closed_at_ms, b.pool_snapshot
-               FROM blocks b WHERE b.id=?""", (current,)).fetchone()
-        # pool_snapshot marks a block finalized at its size at the time —
-        # raising the block-size setting must not reopen it
-        if (row["c"] >= size or row["closed_at_ms"] is not None
-                or row["pool_snapshot"] is not None):
-            current = None
+    # _open_block treats a full, early-closed or finalized (pool_snapshot
+    # stamped under an earlier size setting) newest block as unavailable
+    current = _open_block(conn)
     if current is None:
         current = create_block(conn)
     with conn:

@@ -93,6 +93,7 @@
     history (a long first crawl — roughly 2 minutes per 100 games).
   </div>
   <section id="settings-card">
+    <h3 class="settings-group-head">Riot API &amp; accounts</h3>
     <div class="settings-field">
       <label class="filter-label" for="setting-key">Riot API key</label>
       <div class="key-row">
@@ -118,6 +119,35 @@
       <select id="setting-platform"></select>
     </div>
     <div class="settings-field">
+      <label class="filter-label" for="setting-auto-crawl">Auto-update interval (hours)</label>
+      <input type="number" id="setting-auto-crawl" min="0" step="1" value="3" style="width:6em">
+      <p class="muted">While the app is open, new games are fetched on this schedule
+        (0 = off). Data also updates once on startup and whenever you press
+        <em>Update data</em>.</p>
+    </div>
+
+    <h3 class="settings-group-head">Blocks</h3>
+    <div class="settings-field">
+      <label class="filter-label" for="setting-block-size">Block size (games per block)</label>
+      <input type="number" id="setting-block-size" min="1" max="10" step="1" value="3" style="width:6em">
+      <p class="muted">Blocks auto-advance after this many games (1–10). Changing it
+        applies to the current and future blocks; finished blocks keep their size.</p>
+    </div>
+    <div class="settings-field">
+      <label class="filter-label" for="setting-block-gap">Auto-close time gap (hours)</label>
+      <input type="number" id="setting-block-gap" min="0" max="168" step="0.5" value="3" style="width:6em">
+      <p class="muted">Blocks are meant to be played in succession: if a game you add
+        starts this many hours (game time) away from the block's latest game, the
+        block closes and a new one starts. 0 turns this off.</p>
+    </div>
+    <div class="settings-field">
+      <label><input type="checkbox" id="setting-block-gap-confirm" checked>
+        Ask before auto-closing a block</label>
+      <p class="muted">Untick to auto-close silently when the time gap is exceeded.</p>
+    </div>
+
+    <h3 class="settings-group-head">Interface</h3>
+    <div class="settings-field">
       <span class="filter-label">Visible views</span>
       <div class="view-toggles">
         <label><input type="checkbox" class="view-toggle-cb" value="overview" checked> Overview</label>
@@ -130,29 +160,17 @@
         (data collection is unaffected).</p>
     </div>
     <div class="settings-field">
-      <label class="filter-label" for="setting-block-size">Block size (games per block)</label>
-      <input type="number" id="setting-block-size" min="1" max="10" step="1" value="3" style="width:6em">
-      <p class="muted">Blocks auto-advance after this many games (1–10). Changing it
-        applies to the current and future blocks; finished blocks keep their size.</p>
-    </div>
-    <div class="settings-field">
       <label><input type="checkbox" id="setting-hide-rank"> Hide my rank / LP</label>
       <p class="muted">Hides your own solo-queue rank and LP everywhere — summary
         tile, account tabs, rank chart, coaching/block rank columns. Rank history
         keeps being recorded and reappears when you untick this.</p>
     </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-auto-crawl">Auto-update interval (hours)</label>
-      <input type="number" id="setting-auto-crawl" min="0" step="1" value="3" style="width:6em">
-      <p class="muted">While the app is open, new games are fetched on this schedule
-        (0 = off). Data also updates once on startup and whenever you press
-        <em>Update data</em>.</p>
-    </div>
-    <div class="settings-field">
-      <button id="settings-save" class="preset">Save settings</button>
+
+    <div class="settings-savebar">
+      <button id="settings-save" class="btn-primary">Save settings</button>
       <span id="settings-status" class="muted"></span>
+      <span class="muted" style="margin-left:auto">Coach Potato <span id="app-version"></span></span>
     </div>
-    <p class="muted">Coach Potato <span id="app-version"></span></p>
   </section>
 </div>
 

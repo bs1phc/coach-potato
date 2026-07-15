@@ -97,7 +97,11 @@ change, not a crawler change.
   = newest; block size is a setting (`db.get_block_size`, 1–10, default
   `db.BLOCK_SIZE`=3); complete = closed early, pool-snapshot stamped
   (finalized under an earlier size), or ≥size games;
-  `db.add_game_to_block` auto-advances. Hydration via
+  `db.add_game_to_block` auto-advances. Time-gap auto-close: adding a game
+  whose game time is > `block_gap_hours` (setting, default 3 h, 0 = off)
+  from the open block's latest game 412s with `{"reason": "gap"}` for
+  client confirmation (skipped when `block_gap_confirm` is off), then
+  closes the block (`db.block_gap_exceeded`). Hydration via
   `stats.block_games_detailed`. API: `/api/pool`, `/api/blocks`,
   `POST /api/blocks/games` (409 names holding block),
   `GET /api/blocks/game-notes?opp_champion=` (read-only; feeds the matchup

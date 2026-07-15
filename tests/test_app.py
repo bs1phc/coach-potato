@@ -319,7 +319,15 @@ def test_block_patch_and_deletes(client):
     assert client.delete(f"/api/blocks/{block_id}").status_code == 404
 
 
+def _disable_block_gap(client):
+    import os
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    db.set_settings(conn, {"block_gap_hours": "0"})
+    conn.close()
+
+
 def test_blocks_expose_parsed_pool_snapshot(client):
+    _disable_block_gap(client)  # fixture games are years apart in game time
     client.put("/api/pool", json={"main_blind": "Gwen", "core": ["Kled"], "counter": []})
     games = client.get("/api/stats/games").json()[:3]
     for game in games:
@@ -332,6 +340,7 @@ def test_blocks_expose_parsed_pool_snapshot(client):
 
 def test_pool_save_stamps_completed_current_block_without_snapshot(client, monkeypatch):
     import os
+    _disable_block_gap(client)  # fixture games are years apart in game time
     # complete a block with an empty pool (no snapshot content of value)
     conn = db.connect(os.environ["LOL_DB_PATH"])
     games = client.get("/api/stats/games").json()[:3]
@@ -446,6 +455,7 @@ def test_version_endpoint(client):
 
 
 def seed_block(client):
+    _disable_block_gap(client)  # fixture games are years apart in game time
     games = client.get("/api/stats/games").json()[:2]
     for game in games:
         client.post("/api/blocks/games",
@@ -680,3 +690,57 @@ def test_block_size_setting_endpoint(client):
     assert _put_settings(client, block_size=11).status_code == 400
     assert _put_settings(client, block_size=0).status_code == 400
     assert _put_settings(client, block_size="3").status_code == 400
+
+
+def _garen_and_kled(conn):
+    garen = conn.execute(
+        "SELECT match_id FROM participants WHERE puuid=? AND champion_name='Garen'"
+        " LIMIT 1", (ME,)).fetchone()["match_id"]
+    kled = conn.execute(
+        "SELECT match_id FROM participants WHERE puuid=? AND champion_name='Kled'",
+        (ME,)).fetchone()["match_id"]
+    return garen, kled  # ~3.2 years apart in game time
+
+
+def test_add_game_gap_asks_for_confirmation(client):
+    import os
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    garen, kled = _garen_and_kled(conn)
+    db.add_game_to_block(conn, garen, ME)
+    conn.close()
+    response = client.post("/api/blocks/games", json={"match_id": kled, "puuid": ME})
+    assert response.status_code == 412
+    detail = response.json()["detail"]
+    assert detail["reason"] == "gap" and detail["block_id"] == 1
+    assert detail["gap_hours"] > 3
+    # nothing changed yet
+    assert client.get("/api/blocks").json()["blocks"][0]["closed"] is False
+    # confirmed retry closes block 1 and opens block 2
+    response = client.post("/api/blocks/games",
+                           json={"match_id": kled, "puuid": ME, "confirm_gap": True})
+    assert response.json() == {"block_id": 2}
+    blocks = {b["id"]: b for b in client.get("/api/blocks").json()["blocks"]}
+    assert blocks[1]["closed"] is True
+    # duplicates still 409, never a gap prompt
+    assert client.post("/api/blocks/games",
+                       json={"match_id": kled, "puuid": ME}).status_code == 409
+
+
+def test_add_game_gap_silent_when_confirmation_off(client):
+    import os
+    assert _put_settings(client, block_gap_confirm=False).status_code == 200
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    garen, kled = _garen_and_kled(conn)
+    db.add_game_to_block(conn, garen, ME)
+    conn.close()
+    response = client.post("/api/blocks/games", json={"match_id": kled, "puuid": ME})
+    assert response.json() == {"block_id": 2}  # auto-closed without asking
+    assert client.get("/api/blocks").json()["blocks"][1]["closed"] is True
+
+
+def test_block_gap_settings_validation(client):
+    assert _put_settings(client, block_gap_hours=1.5).status_code == 200
+    assert client.get("/api/settings").json()["block_gap_hours"] == 1.5
+    assert _put_settings(client, block_gap_hours=-1).status_code == 400
+    assert _put_settings(client, block_gap_hours=999).status_code == 400
+    assert _put_settings(client, block_gap_confirm="yes").status_code == 400
