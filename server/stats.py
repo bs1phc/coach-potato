@@ -119,6 +119,7 @@ SELECT m.match_id, m.game_creation_ms, m.game_duration_s, m.queue_id,
        opp.champion_name AS opp_champion, opp.puuid AS opp_puuid,
        COALESCE(pr.solo_tier, 'UNKNOWN') AS rank_tier,
        pm.match_id AS pm_match_id,
+       myr.runes AS my_runes_json,
        """ + _METRIC_SELECT + """
 FROM participants me
 JOIN matches m ON m.match_id = me.match_id
@@ -127,6 +128,8 @@ LEFT JOIN participants opp ON opp.match_id = me.match_id
 LEFT JOIN player_ranks pr ON pr.puuid = opp.puuid
 LEFT JOIN participant_metrics pm
     ON pm.match_id = me.match_id AND pm.puuid = me.puuid
+LEFT JOIN participant_runes myr
+    ON myr.match_id = me.match_id AND myr.puuid = me.puuid
 WHERE me.puuid IN ({puuid_slots}) AND me.team_position = 'TOP'
   AND m.game_duration_s >= :remake_s
 """
@@ -418,10 +421,17 @@ def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues
     sql = f"""
         SELECT match_id, game_creation_ms, game_duration_s, queue_id, my_puuid,
                my_champion, opp_champion, rank_tier, win,
-               kills, deaths, assists, cs, lane_adv_early, lane_adv_late
+               kills, deaths, assists, cs, lane_adv_early, lane_adv_late,
+               my_runes_json
         FROM ({base}) ORDER BY game_creation_ms DESC
     """
-    return [dict(r) for r in conn.execute(sql, params)]
+    games = []
+    for r in conn.execute(sql, params):
+        game = dict(r)
+        runes_json = game.pop("my_runes_json")
+        game["runes"] = json.loads(runes_json) if runes_json else None
+        games.append(game)
+    return games
 
 
 def filter_options(conn, puuid):

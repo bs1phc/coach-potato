@@ -117,6 +117,13 @@ CREATE TABLE IF NOT EXISTS champion_notes (
     updated_at_ms INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS participant_runes (
+    match_id TEXT NOT NULL,
+    puuid TEXT NOT NULL,
+    runes TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (match_id, puuid)
+);
+
 CREATE TABLE IF NOT EXISTS rank_history (
     puuid TEXT NOT NULL,
     solo_tier TEXT,
@@ -397,6 +404,17 @@ def insert_participant_metrics(conn, match_id, puuid, values):
             f"VALUES ({placeholders})",
             {**values, "match_id": match_id, "puuid": puuid},
         )
+
+
+def insert_participant_runes(conn, match_id, puuid, runes):
+    """runes: a decoded rune-page dict (server.rune_data.decode_perks), or
+    None when the match had no usable perks data. Always inserts a row
+    (blank when None) so backfill_runes doesn't keep re-fetching matches
+    that genuinely have no perks data."""
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO participant_runes (match_id, puuid, runes) VALUES (?, ?, ?)",
+            (match_id, puuid, json.dumps(runes) if runes else ""))
 
 
 def tracked_ranks(conn):

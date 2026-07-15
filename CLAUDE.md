@@ -51,15 +51,19 @@ change, not a crawler change.
   app.py). Refresh after new champion releases:
   fetch DDragon versions.json → cdn/<ver>/data/en_US/champion.json →
   regenerate the file (see git history of the file for the exact script).
-- `static/runes.json` is the static rune tree/row/shard roster (names +
-  icon paths) that drives the Champ guide rune-page picker (client +
-  `RUNE_TREE_NAMES`/`RUNE_NAMES`/`RUNE_SHARD_NAMES` in app.py). Refresh
-  after a rune rework: DDragon versions.json → cdn/<ver>/data/en_US/
-  runesReforged.json for trees/keystones/minors (icon paths as-is, served
+- `static/runes.json` is the static rune tree/row/shard roster (names, icon
+  paths, and numeric match-v5 ids) that drives the Champ guide rune-page
+  picker (client + `server/rune_data.py`, the single loader both `app.py`
+  validation and `crawler.py` decoding go through). Refresh after a rune
+  rework: DDragon versions.json → cdn/<ver>/data/en_US/runesReforged.json
+  for trees/keystones/minors (`id`/`name`/`icon`, icon paths as-is, served
   from `ddragon.leagueoflegends.com/cdn/img/<icon>`); stat shards aren't in
   that file — pull them from CommunityDragon's
-  `rcp-be-lol-game-data/global/default/v1/perks.json`, icons served from
-  `raw.communitydragon.org/.../perk-images/statmods/<icon lowercased>`.
+  `rcp-be-lol-game-data/global/default/v1/perks.json` for name+id, icons
+  served from `raw.communitydragon.org/.../perk-images/statmods/<icon
+  lowercased>`. **The numeric `id` fields must stay correct** — they're how
+  `rune_data.decode_perks()` turns a match-v5 participant's `perks` payload
+  (tree/rune/shard ids) into the same rune-page shape as the champ guide.
 - Timestamps are **ms epoch** everywhere in the db; match-v5 `startTime`
   param is **seconds**.
 
@@ -73,6 +77,9 @@ change, not a crawler change.
   watermark in `crawl_state` (incomplete crawls re-page full history; detail
   fetches are skipped for stored matches, so it's cheap). `enrich_ranks()`
   fetches lane opponents' current solo rank (7-day TTL in `player_ranks`).
+  `_store_metrics()`/`_store_runes()` run inline per new match for tracked
+  participants (coaching metrics, actual runes played); `backfill_metrics()`/
+  `backfill_runes()` re-fetch stored matches missing either.
 - `server/stats.py` — all aggregation in SQL over a filtered base query;
   matchup = tracked TOP player joined to enemy TOP participant; remakes
   (<300 s) excluded; opponent rank bucket `UNKNOWN` when not fetched.
@@ -133,9 +140,10 @@ change, not a crawler change.
   champion" from the full roster — not just played champions — see/edit
   general champion notes, full rune pages + patch + notes for every matchup
   it has faced, or add one for a matchup not yet played via the shared
-  champion-roster autocomplete from `blocks.js`; Export/Import menus export/
-  import one champion's whole guide as JSON, optionally password-encrypted)
-  in `guide.js`.
+  champion-roster autocomplete from `blocks.js`; each matchup's "Recent
+  games" column shows real games with the actual runes played, when
+  recorded; Export/Import menus export/import one champion's whole guide as
+  JSON, optionally password-encrypted) in `guide.js`.
 
 ## Schema (data/lol.sqlite)
 
@@ -199,6 +207,16 @@ count in a `confirm()` before committing.
 `participant_metrics(match_id+puuid PK, has_challenges, one REAL col per
 metric key)` — coaching metrics, tracked players only, columns generated
 from `server/metrics.py`
+`participant_runes(match_id+puuid PK, runes)` — the rune page a tracked
+player *actually played*, decoded from match-v5's `perks` payload
+(`server/rune_data.decode_perks`) into the same shape as a champ-guide rune
+page; `runes` is `''` when a match legitimately had no perks data (so
+`Crawler.backfill_runes()` doesn't keep re-fetching it). Populated inline
+during crawl (`Crawler._store_runes`, alongside `_store_metrics`); backfill
+via `./crawl.sh --backfill-runes`. Joined into `stats._BASE` (alias `myr`)
+and surfaced as `runes` (decoded, or `None`) on every row from
+`GET /api/stats/games` — the Champ guide page's per-matchup "Recent games"
+column renders these next to the planned rune pages.
 
 ## Development rules
 

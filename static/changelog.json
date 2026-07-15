@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.16.0",
+      "date": "2026-07-15",
+      "items": [
+        "Champ guide's matchup rows show a \"Recent games\" column on the right — real games vs that opponent, with the runes you actually played in each one",
+        "Crawler now records the actual rune page played per game for tracked accounts; run `./crawl.sh --backfill-runes` to fill it in for matches crawled before this update"
+      ]
+    },
+    {
       "version": "1.15.0",
       "date": "2026-07-15",
       "items": [

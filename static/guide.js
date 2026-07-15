@@ -4,19 +4,23 @@
    notes, patch version, and one or more full rune pages (primary tree +
    keystone + 3 minors, secondary tree + 2 minors, 3 stat shards) — for
    every matchup that champion has faced, or add one for a matchup not yet
-   played. Export/import a champion's whole guide as JSON, optionally
+   played. Each matchup also shows its recent games on the right, including
+   the runes actually played in each one (decoded server-side from match-v5
+   perks data — see server/rune_data.py / crawler.py) when available.
+   Export/import a champion's whole guide as JSON, optionally
    password-encrypted.
    Uses globals from app.js: $, getJSON, escapeHtml, displayName, champIcon,
-   wrCell, renderNotes, accountParams, setMainView. Uses roster/
-   loadChampionRoster/champDisplay from blocks.js for champion-name
-   resolution and the shared #champ-list datalist. Called from matchups.js
-   via openGuide(). */
+   wrCell, renderNotes, accountParams, setMainView, fmtDate, fmtDuration.
+   Uses roster/loadChampionRoster/champDisplay from blocks.js for
+   champion-name resolution and the shared #champ-list datalist. Called
+   from matchups.js via openGuide(). */
 
 const guideState = {
   wired: false,
   myChampion: "",
   matchups: [],   // stats rows for myChampion: {opp_champion, games, winrate, ...}
   guide: {},      // opp_champion -> {notes, runes: [rune page, ...], patch_version}
+  games: new Map(), // opp_champion -> recent games list (each may carry a "runes" field)
   editing: null,  // opp_champion whose editor is open
   draft: null,    // working copy of the guide being edited: {notes, patch_version, runes}
   openRuneIndex: null, // index into draft.runes currently expanded in the picker
@@ -130,8 +134,19 @@ async function loadGuide() {
   guideState.matchups = matchups;
   guideState.guide = guide;
   guideState.generalNotes = general.notes;
+  guideState.games = new Map();
   renderGuide();
   renderGuideGeneral();
+  // hydrate each played matchup's recent games (shown in the right column)
+  // after the first paint so the page isn't blocked on N game-list fetches
+  const played = matchups.filter((m) => m.games > 0);
+  if (played.length) {
+    const results = await Promise.all(played.map((m) =>
+      getJSON(`/api/stats/games?${accountParams()}&champion=${encodeURIComponent(guideState.myChampion)}` +
+        `&opp_champion=${encodeURIComponent(m.opp_champion)}`)));
+    played.forEach((m, i) => guideState.games.set(m.opp_champion, results[i]));
+    renderGuide();
+  }
 }
 
 function addGuideMatchup() {
@@ -334,6 +349,8 @@ function guideRow(m) {
     body = `${runePagesDisplay(runes)}${patchLine}${notesBody}${
       hasAny ? "" : `<p class="muted">No guide yet — click ✎ to add one.</p>`}`;
   }
+  const gamesSide = m.games > 0
+    ? `<div class="guide-row-side">${recentGamesColumn(champ)}</div>` : "";
   return `<div class="mu-notes mu-guide guide-row" data-opp="${escapeHtml(champ)}">
     <div class="mu-notes-head">
       <h4>${champIcon(champ)}${displayName(champ)}</h4>
@@ -341,8 +358,38 @@ function guideRow(m) {
       ${editing ? "" : `<button class="preset icon-btn guide-edit" data-opp="${escapeHtml(champ)}"
         title="Edit champ guide" aria-label="Edit champ guide">✎</button>`}
     </div>
-    ${body}
+    <div class="guide-row-grid">
+      <div class="guide-row-main">${body}</div>
+      ${gamesSide}
+    </div>
   </div>`;
+}
+
+function recentGamesColumn(champ) {
+  const games = guideState.games.get(champ);
+  if (!games) return `<h5>Recent games</h5><div class="muted">Loading…</div>`;
+  if (!games.length) return `<h5>Recent games</h5><div class="muted">No games recorded yet.</div>`;
+  const rows = games.slice(0, 10).map((g) => {
+    const csMin = (g.cs * 60 / g.game_duration_s).toFixed(1);
+    const primaryTree = g.runes ? treeByName(g.runes.primary_tree) : null;
+    const secondaryTree = g.runes ? treeByName(g.runes.secondary_tree) : null;
+    const runesLine = g.runes && (g.runes.keystone || secondaryTree)
+      ? `<span class="guide-game-runes">${
+          g.runes.keystone ? `<img src="${runeIconUrl(runeIcon(g.runes.keystone, primaryTree))}"
+            width="16" height="16" title="${escapeHtml(g.runes.keystone)}">` : ""}${
+          secondaryTree ? `<img src="${runeIconUrl(secondaryTree.icon)}"
+            width="14" height="14" title="${escapeHtml(secondaryTree.name)}">` : ""}</span>`
+      : "";
+    return `<div class="guide-game-row">
+      <span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span>
+      <span class="muted">${fmtDate(g.game_creation_ms)}</span>
+      <span>${g.kills}/${g.deaths}/${g.assists}</span>
+      <span class="muted">${csMin} cs/min</span>
+      <span class="muted">${fmtDuration(g.game_duration_s)}</span>
+      ${runesLine}
+    </div>`;
+  }).join("");
+  return `<h5>Recent games</h5>${rows}`;
 }
 
 function renderGuide() {

@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import config, crypto, db, stats
+from . import config, crypto, db, rune_data, stats
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING
@@ -35,20 +35,8 @@ def _champion_ids():
 CHAMPION_IDS = _champion_ids()
 
 
-def _rune_data():
-    """Valid tree/rune/shard names from the static rune data file, for loose
-    validation of champ-guide rune-page fields (see static/runes.json)."""
-    try:
-        data = json.loads((PROJECT_ROOT / "static" / "runes.json").read_text())
-        tree_names = {t["name"] for t in data["trees"]}
-        rune_names = {r["name"] for t in data["trees"] for row in t["rows"] for r in row["runes"]}
-        shard_names = {s["name"] for row in data["shardRows"] for s in row["shards"]}
-        return tree_names, rune_names, shard_names
-    except (OSError, KeyError, ValueError):
-        return set(), set(), set()  # data file missing/corrupt: skip validation rather than break
-
-
-RUNE_TREE_NAMES, RUNE_NAMES, RUNE_SHARD_NAMES = _rune_data()
+RUNE_TREE_NAMES, RUNE_NAMES, RUNE_SHARD_NAMES = (
+    rune_data.TREE_NAMES, rune_data.RUNE_NAMES, rune_data.SHARD_NAMES)
 
 RANGE_PRESETS = {"7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
 

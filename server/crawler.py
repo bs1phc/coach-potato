@@ -1,7 +1,7 @@
 """Incremental, idempotent match-history crawler + rank enrichment."""
 import time
 
-from . import db
+from . import db, rune_data
 from .metrics import parse_metrics
 from .parsing import parse_match
 
@@ -55,6 +55,7 @@ class Crawler:
                     match_row, participant_rows = parse_match(match_json)
                     if db.insert_match(self.conn, match_row, participant_rows):
                         self._store_metrics(match_json)
+                        self._store_runes(match_json)
                         new_matches += 1
                         self.status_cb(
                             f"{game_name}#{tag_line} queue {queue}: stored {match_id} "
@@ -103,6 +104,33 @@ class Crawler:
             self._store_metrics(self.client.get_match(row["match_id"]))
             count += 1
             self.status_cb(f"metrics backfill: {count}/{len(rows)} matches")
+        return count
+
+    def _store_runes(self, match_json):
+        tracked = self._tracked_puuids()
+        match_id = match_json["metadata"]["matchId"]
+        for participant in match_json["info"]["participants"]:
+            if participant["puuid"] in tracked:
+                runes = rune_data.decode_perks(participant.get("perks"))
+                db.insert_participant_runes(self.conn, match_id, participant["puuid"], runes)
+
+    def backfill_runes(self, limit=None):
+        """Re-fetch details for stored matches whose tracked participants
+        lack a participant_runes row. Returns matches fetched."""
+        rows = self.conn.execute(
+            """SELECT DISTINCT p.match_id FROM participants p
+               JOIN players pl ON pl.puuid = p.puuid AND pl.is_tracked = 1
+               LEFT JOIN participant_runes pr
+                 ON pr.match_id = p.match_id AND pr.puuid = p.puuid
+               WHERE pr.match_id IS NULL"""
+        ).fetchall()
+        count = 0
+        for row in rows:
+            if limit is not None and count >= limit:
+                break
+            self._store_runes(self.client.get_match(row["match_id"]))
+            count += 1
+            self.status_cb(f"runes backfill: {count}/{len(rows)} matches")
         return count
 
     def _stale_before(self):

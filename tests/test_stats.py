@@ -289,6 +289,20 @@ def test_games_in_range_lists_game_without_top_opponent(conn):
     assert games[0]["opp_champion"] is None
 
 
+def test_games_in_range_includes_runes_actually_played(conn):
+    match_id, _ = add_match(conn, when=1_000, opp_champ="Darius")
+    games = stats.games_in_range(conn, [ME])
+    assert games[0]["runes"] is None  # nothing recorded for this game yet
+    db.insert_participant_runes(conn, match_id, ME, {
+        "label": "", "primary_tree": "Precision", "keystone": "Conqueror",
+        "primary_runes": ["Triumph", "Legend: Alacrity", "Last Stand"],
+        "secondary_tree": "Resolve", "secondary_runes": ["Bone Plating", "Overgrowth"],
+        "shards": ["Adaptive Force", "Armor", "Health"],
+    })
+    games = stats.games_in_range(conn, [ME])
+    assert games[0]["runes"]["keystone"] == "Conqueror"
+
+
 def test_progress_segments_carry_session_start_ranks(conn):
     import json
     add_match(conn, when=S1_MS + DAY_MS)
