@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.23.0",
+      "date": "2026-07-16",
+      "items": [
+        "Champ guide can be exported as a printable PDF — general notes, patch, rune pages (with icons), and notes for every matchup"
+      ]
+    },
+    {
       "version": "1.22.0",
       "date": "2026-07-16",
       "items": [

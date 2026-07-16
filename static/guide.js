@@ -8,7 +8,8 @@
    the runes actually played in each one (decoded server-side from match-v5
    perks data — see server/rune_data.py / crawler.py) when available.
    Export/import a champion's whole guide as JSON, optionally
-   password-encrypted.
+   password-encrypted; also exportable as a printable PDF (with rune icons,
+   fetched server-side at export time — see server/pdf_export.py).
    Uses globals from app.js: $, getJSON, escapeHtml, displayName, champIcon,
    wrCell, renderNotes, accountParams, setMainView, fmtDate, fmtDuration.
    Uses roster/loadChampionRoster/champDisplay from blocks.js for
@@ -697,6 +698,20 @@ function wireExportImport() {
     }
     downloadBlob(await response.blob(), `champ-guide-${guideState.myChampion.toLowerCase()}.json`);
     $("#guide-export-password").value = "";
+  });
+
+  $("#guide-export-pdf-btn").addEventListener("click", async () => {
+    if (!guideState.myChampion) return;
+    const status = $("#guide-export-pdf-status");
+    status.textContent = "generating… (fetches rune icons, may take a moment)";
+    const response = await fetch(
+      `/api/matchups/notes/export.pdf?my_champion=${encodeURIComponent(guideState.myChampion)}`);
+    if (!response.ok) {
+      status.textContent = "export failed";
+      return;
+    }
+    downloadBlob(await response.blob(), `champ-guide-${guideState.myChampion.toLowerCase()}.pdf`);
+    status.textContent = "";
   });
 
   $("#guide-import-btn").addEventListener("click", async () => {

@@ -27,6 +27,13 @@ TREE_ID_TO_NAME = {t["id"]: t["name"] for t in _DATA["trees"]}
 RUNE_ID_TO_NAME = {r["id"]: r["name"] for r in _ALL_RUNES}
 SHARD_ID_TO_NAME = {s["id"]: s["name"] for s in _ALL_SHARDS}
 
+# name -> icon path, for server-side rendering (e.g. pdf_export.py) that
+# needs the same icons the frontend hotlinks via runeIconUrl/shardIconUrl
+# in guide.js (ddragon for trees/runes, CommunityDragon for shards).
+TREE_ICON = {t["name"]: t["icon"] for t in _DATA["trees"]}
+RUNE_ICON = {r["name"]: r["icon"] for r in _ALL_RUNES}
+SHARD_ICON = {s["name"]: s["icon"] for s in _ALL_SHARDS}
+
 
 def _padded(names, length):
     names = list(names)[:length]

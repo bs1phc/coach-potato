@@ -47,6 +47,10 @@ change, not a crawler change.
   through CI `build.yml` on all three OSes. `python-multipart` was added
   for the clips feature's file-upload endpoints (`Form`/`File`/`UploadFile`
   in app.py) — FastAPI raises at startup if it's missing, easy to mis-diagnose.
+  `reportlab` was added for the Champ guide's PDF export
+  (`server/pdf_export.py`) — pure-Python-installable prebuilt wheels on all
+  three OSes, builds clean under PyInstaller like the other compiled/native
+  deps here.
 - **Rate limits: 20 req/1 s and 100 req/2 min**, enforced by
   `RateLimiter` in `server/riot_client.py`. Never bypass it; test crawler
   changes with `--limit 5` before any full crawl.
@@ -234,6 +238,21 @@ which opponents would be added/overwritten without writing anything;
 password on an encrypted file → 401. UI in `guide.js` (Export/Import menus
 on the Champ guide page); import always shows the preview's overwrite
 count in a `confirm()` before committing.
+`GET /api/matchups/notes/export.pdf?my_champion=` — a printable PDF of the
+same content (general notes + every matchup: patch, rune pages, Markdown
+notes), built by `server/pdf_export.py` (reportlab). Unlike the JSON
+export, this fetches rune/tree/shard icons live from ddragon/CommunityDragon
+at export time (same CDN URLs guide.js hotlinks; name→icon lookups added to
+`rune_data.py` as `TREE_ICON`/`RUNE_ICON`/`SHARD_ICON`) and embeds them —
+slower, needs network, no password option (nothing to protect in a
+print-and-read document). A fetch failure for one icon silently skips just
+that icon rather than failing the export (`_IconFetcher`, cached per call).
+Markdown notes go through a small purpose-built converter
+(`_markdown_flowables`/`_inline_markup`) — headings/paragraphs/bullets/
+**bold**/*italic*/`code` only, no tables/links/nested lists, since coaching
+notes here are short freeform text, not full documents. Uses reportlab's
+core Helvetica font (Latin-1/WinAnsi only) — non-Latin note text won't
+render correctly; embedding a Unicode font was judged out of scope.
 `crawl_state(puuid+queue_id PK, newest_ms, complete)` — resume watermarks
 `participant_metrics(match_id+puuid PK, has_challenges, one REAL col per
 metric key)` — coaching metrics, tracked players only, columns generated

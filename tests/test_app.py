@@ -733,6 +733,27 @@ def test_champ_guide_export_encrypted_hides_plaintext(client):
     assert "respect level 2" not in raw  # plaintext notes must not leak into the encrypted file
 
 
+def test_champ_guide_export_pdf(client, monkeypatch):
+    import httpx as httpx_module
+    from server import pdf_export as pdf_export_module
+
+    def fake_get(url, timeout=5.0):
+        return httpx_module.Response(200, content=b"", request=httpx_module.Request("GET", url))
+    monkeypatch.setattr(pdf_export_module.httpx, "get", fake_get)
+
+    _seed_champ_guide(client)
+    r = client.get("/api/matchups/notes/export.pdf", params={"my_champion": "Gwen"})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert "champ-guide-gwen.pdf" in r.headers["content-disposition"]
+    assert r.content.startswith(b"%PDF")
+
+
+def test_champ_guide_export_pdf_requires_my_champion(client):
+    assert client.get("/api/matchups/notes/export.pdf").status_code == 422  # missing query param
+    assert client.get("/api/matchups/notes/export.pdf", params={"my_champion": ""}).status_code == 400
+
+
 def test_champ_guide_import_plain_round_trip(client):
     _seed_champ_guide(client)
     export = client.post("/api/matchups/notes/export", json={"my_champion": "Gwen"}).json()

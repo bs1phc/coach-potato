@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import config, crypto, db, rune_data, stats
+from . import config, crypto, db, pdf_export, rune_data, stats
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING
@@ -667,6 +667,23 @@ def api_export_champ_guide(body: dict):
     return Response(
         content=json.dumps(envelope, indent=2),
         media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.get("/api/matchups/notes/export.pdf")
+def api_export_champ_guide_pdf(my_champion: str):
+    if not my_champion:
+        raise HTTPException(400, "provide my_champion")
+    conn = get_conn()
+    try:
+        general_notes = db.get_champion_note(conn, my_champion)
+        guide = db.get_matchup_notes(conn, my_champion)
+    finally:
+        conn.close()
+    pdf_bytes = pdf_export.build_champion_guide_pdf(my_champion, general_notes, guide)
+    filename = f"champ-guide-{my_champion.lower()}.pdf"
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
