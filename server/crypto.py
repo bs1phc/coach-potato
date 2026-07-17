@@ -14,6 +14,9 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 PBKDF2_ITERATIONS = 390_000  # current OWASP-recommended minimum for PBKDF2-HMAC-SHA256
+# Import files carry their own iteration count; cap it so a crafted file
+# can't pin the CPU for minutes/hours during key derivation.
+MAX_PBKDF2_ITERATIONS = 10_000_000
 
 
 def _derive_key(password: str, salt: bytes, iterations: int) -> bytes:
@@ -37,7 +40,10 @@ def decrypt_payload(salt_b64: str, iterations: int, ciphertext: str, password: s
     """Raises ValueError on a wrong password or corrupt/tampered ciphertext."""
     try:
         salt = base64.b64decode(salt_b64)
-        key = _derive_key(password, salt, int(iterations))
+        iterations = int(iterations)
+        if not 1 <= iterations <= MAX_PBKDF2_ITERATIONS:
+            raise ValueError("iterations out of range")
+        key = _derive_key(password, salt, iterations)
         plaintext = Fernet(key).decrypt(ciphertext.encode("ascii"))
         return json.loads(plaintext)
     except (InvalidToken, ValueError, TypeError, KeyError) as exc:

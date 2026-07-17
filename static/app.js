@@ -14,6 +14,8 @@ const state = {
   progressChampion: null, // null = not initialized yet (defaults to Gwen)
   progressQueue: "",
   ddragonVersion: null,
+  ddragonVersions: [], // recent DDragon versions, newest first (patch picker)
+  defaultChampion: null, // Champ guide's pre-selected champion (settings)
 };
 
 const QUEUE_NAMES = { 400: "Normal Draft", 420: "Ranked Solo", 430: "Normal Blind",
@@ -34,9 +36,13 @@ function accountParams(params = new URLSearchParams()) {
 
 function displayName(champ) { return DISPLAY_NAME_FIXES[champ] || champ; }
 
+// match-v5 spellings that differ from the DDragon id used in icon URLs
+const ICON_NAME_FIXES = { FiddleSticks: "Fiddlesticks" };
+
 function champIcon(champ) {
   if (!state.ddragonVersion || !champ) return "";
-  const url = `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/champion/${champ}.png`;
+  const id = ICON_NAME_FIXES[champ] || champ;
+  const url = `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/champion/${id}.png`;
   return `<img src="${url}" alt="" loading="lazy" onerror="this.style.display='none'">`;
 }
 
@@ -745,7 +751,10 @@ function renderNotes(notes) {
 
 // ---------- clips (shared by coaching sessions and block games) ----------
 
+const clipsUi = { formOpen: new Set() }; // "ownerType:ownerId" keys with the add-form open
+
 function clipsSection(ownerType, ownerId, clips) {
+  const key = `${ownerType}:${ownerId}`;
   const items = clips === undefined
     ? `<p class="muted">Loading…</p>`
     : (clips.length ? clips.map((c) => `<div class="clip-item">
@@ -757,26 +766,44 @@ function clipsSection(ownerType, ownerId, clips) {
         ${c.kind === "upload"
           ? `<video controls preload="metadata" src="${escapeHtml(c.play_url)}"></video>`
           : `<a href="${escapeHtml(c.play_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(c.play_url)}</a>`}
-      </div>`).join("") : `<p class="muted">No clips yet.</p>`);
+      </div>`).join("") : "");
+  const form = clipsUi.formOpen.has(key)
+    ? `<form class="clip-add-form">
+        <input type="text" class="clip-label-input" placeholder='Label (optional) — e.g. "wave management @14min"'>
+        <div class="clip-add-row">
+          <input type="file" class="clip-file-input" accept=".mp4,.mov,.webm,.m4v,video/mp4,video/quicktime,video/webm">
+          <span class="muted">or</span>
+          <input type="url" class="clip-url-input" placeholder="paste a link (YouTube, Twitch…)">
+        </div>
+        <div class="session-actions">
+          <button type="submit" class="preset">Add</button>
+          <button type="button" class="preset clip-form-cancel">Cancel</button>
+          <span class="muted clip-add-status"></span>
+        </div>
+      </form>`
+    : `<button type="button" class="preset clip-form-open">+ Add clip</button>`;
   return `<div class="clips-section" data-owner-type="${ownerType}" data-owner-id="${ownerId}">
-    <h5>Clips</h5>
+    <h5>Clips${clips && clips.length ? ` (${clips.length})` : ""}</h5>
     <div class="clips-list">${items}</div>
-    <form class="clip-add-form">
-      <input type="text" class="clip-label-input" placeholder='Label (optional) — e.g. "wave management @14min"'>
-      <div class="clip-add-row">
-        <input type="file" class="clip-file-input" accept=".mp4,.mov,.webm,.m4v,video/mp4,video/quicktime,video/webm">
-        <span class="muted">or</span>
-        <input type="url" class="clip-url-input" placeholder="paste a link (YouTube, Twitch…)">
-        <button type="submit" class="preset">Add clip</button>
-      </div>
-      <span class="muted clip-add-status"></span>
-    </form>
+    ${form}
   </div>`;
 }
 
 // reload(ownerType, ownerId): async callback the caller supplies to refetch
-// that owner's clips into its own cache and re-render its view
-function wireClipsSection(container, reload) {
+// that owner's clips into its own cache and re-render its view.
+// rerender(): cheap re-render of the caller's view without refetching —
+// used for opening/closing the add form.
+function wireClipsSection(container, reload, rerender) {
+  const toggleForm = (btn, open) => {
+    const section = btn.closest(".clips-section");
+    const key = `${section.dataset.ownerType}:${section.dataset.ownerId}`;
+    open ? clipsUi.formOpen.add(key) : clipsUi.formOpen.delete(key);
+    rerender();
+  };
+  container.querySelectorAll(".clip-form-open").forEach((btn) =>
+    btn.addEventListener("click", () => toggleForm(btn, true)));
+  container.querySelectorAll(".clip-form-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => toggleForm(btn, false)));
   container.querySelectorAll(".clip-delete").forEach((btn) =>
     btn.addEventListener("click", async () => {
       if (!confirm("Delete this clip?")) return;
@@ -806,6 +833,7 @@ function wireClipsSection(container, reload) {
         status.textContent = body.detail || `error ${response.status}`;
         return;
       }
+      clipsUi.formOpen.delete(`${section.dataset.ownerType}:${section.dataset.ownerId}`);
       await reload(section.dataset.ownerType, section.dataset.ownerId);
     }));
 }
@@ -912,7 +940,7 @@ function renderSessions(sessionRows) {
     sessionUi.clips.delete(+ownerId);
     await ensureSessionClips(+ownerId);
     renderSessions(sessionRows);
-  });
+  }, () => renderSessions(sessionRows));
 }
 
 async function unionFilterOptions() {
@@ -1052,6 +1080,40 @@ function applyHiddenViews(hidden) {
   }
 }
 
+// full-roster <select> options, alphabetical by display name
+async function championOptions(selected, emptyLabel) {
+  await loadChampionRoster(); // blocks.js — cached after the first call
+  const all = [...roster.nameById.keys()].sort(
+    (a, b) => champDisplay(a).localeCompare(champDisplay(b)));
+  const empty = emptyLabel === undefined ? "" : `<option value="">${emptyLabel}</option>`;
+  return empty + all.map((c) =>
+    `<option value="${c}" ${c === selected ? "selected" : ""}>${escapeHtml(champDisplay(c))}</option>`).join("");
+}
+
+// legacy matchup notes (pre-champ-guide, my_champion='') — Settings offers to
+// migrate them under one of your champions or delete them; the section only
+// shows while such rows exist
+async function refreshLegacySection() {
+  const section = $("#legacy-notes-section");
+  let info;
+  try {
+    info = await getJSON("/api/matchups/legacy-notes");
+  } catch {
+    return;
+  }
+  section.classList.toggle("hidden", !info.count);
+  if (!info.count) return;
+  $("#legacy-notes-summary").textContent =
+    `${info.count} matchup note(s) from before the champ-guide update — ` +
+    `${Object.keys(info.notes).map(displayName).join(", ")} — aren't tied to one of ` +
+    `your champions, so they don't appear in the Champ guide. Assign them to a ` +
+    `champion, or delete them.`;
+  const select = $("#legacy-migrate-champion");
+  if (!select.options.length) {
+    select.innerHTML = await championOptions(state.defaultChampion || "");
+  }
+}
+
 async function initSettings() {
   await loadChampionRoster(); // populates the shared #champ-list datalist
   const data = await getJSON("/api/settings");
@@ -1071,7 +1133,9 @@ async function initSettings() {
   $("#setting-block-gap").value = data.block_gap_hours;
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
-  $("#setting-default-champion").value = data.default_champion || "";
+  $("#setting-default-champion").innerHTML =
+    await championOptions(data.default_champion || "", "– none –");
+  refreshLegacySection();
   $("#setting-accent-color").value = data.accent_color
     || rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
   $("#setting-accent-reset").classList.toggle("hidden", !data.accent_color);
@@ -1119,6 +1183,34 @@ async function initSettings() {
     $("#setting-bg-status").textContent = "";
     applyAppearance({ background_image: false });
   });
+  $("#legacy-migrate-btn").addEventListener("click", async () => {
+    const champ = $("#legacy-migrate-champion").value;
+    const status = $("#legacy-notes-status");
+    if (!champ) { status.textContent = "pick a champion first"; return; }
+    const response = await fetch("/api/matchups/legacy-notes/migrate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ my_champion: champ }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      status.textContent = body.detail || `error ${response.status}`;
+      return;
+    }
+    status.textContent = `Moved ${body.migrated} note(s) to ${displayName(champ)}`
+      + (body.skipped.length
+        ? ` — skipped ${body.skipped.map(displayName).join(", ")} (${displayName(champ)} already has a guide for them)`
+        : "");
+    $("#settings-status").textContent = status.textContent;
+    refreshLegacySection();
+  });
+  $("#legacy-delete-btn").addEventListener("click", async () => {
+    if (!confirm("Delete these older matchup notes for good? This cannot be undone.")) return;
+    const response = await fetch("/api/matchups/legacy-notes", { method: "DELETE" });
+    const body = await response.json().catch(() => ({}));
+    $("#settings-status").textContent = `Deleted ${body.deleted ?? 0} older matchup note(s).`;
+    refreshLegacySection();
+  });
   $("#key-reveal").addEventListener("click", () => {
     const input = $("#setting-key");
     const hidden = input.type === "password";
@@ -1152,12 +1244,6 @@ async function initSettings() {
     addAccount(); // commit any half-typed account first
     const hiddenViews = [...document.querySelectorAll(".view-toggle-cb")]
       .filter((cb) => !cb.checked).map((cb) => cb.value);
-    const typedChampion = $("#setting-default-champion").value.trim();
-    const defaultChampion = typedChampion ? roster.byLookup.get(typedChampion.toLowerCase()) : "";
-    if (typedChampion && !defaultChampion) {
-      $("#settings-status").textContent = `"${typedChampion}" is not a champion`;
-      return;
-    }
     const previousDefaultChampion = state.defaultChampion;
     const response = await fetch("/api/settings", {
       method: "PUT",
@@ -1175,7 +1261,7 @@ async function initSettings() {
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
         accent_color: $("#setting-accent-reset").classList.contains("hidden")
           ? null : $("#setting-accent-color").value,
-        default_champion: defaultChampion || null,
+        default_champion: $("#setting-default-champion").value || null,
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -1184,6 +1270,7 @@ async function initSettings() {
         state.hideMyRank = body.hide_my_rank;
         init(false); // re-pull data so the redaction change applies everywhere
       }
+      state.defaultChampion = body.default_champion || null;
       applyHiddenViews(body.hidden_views);
       applyAppearance(body);
       state.defaultChampion = body.default_champion || "";
@@ -1446,17 +1533,22 @@ function wireFilters() {
 async function loadDdragonVersion() {
   try {
     const cached = localStorage.getItem("ddragon-version");
+    const cachedList = localStorage.getItem("ddragon-versions");
     const cachedAt = +localStorage.getItem("ddragon-version-at") || 0;
-    if (cached && Date.now() - cachedAt < 86_400_000) {
+    if (cached && cachedList && Date.now() - cachedAt < 86_400_000) {
       state.ddragonVersion = cached;
+      state.ddragonVersions = JSON.parse(cachedList);
       return;
     }
     const versions = await getJSON("https://ddragon.leagueoflegends.com/api/versions.json");
     state.ddragonVersion = versions[0];
+    state.ddragonVersions = versions.slice(0, 40); // recent patches, for the guide's patch picker
     localStorage.setItem("ddragon-version", versions[0]);
+    localStorage.setItem("ddragon-versions", JSON.stringify(state.ddragonVersions));
     localStorage.setItem("ddragon-version-at", String(Date.now()));
   } catch {
     state.ddragonVersion = null; // icons silently disabled offline
+    state.ddragonVersions = [];
   }
 }
 
@@ -1471,7 +1563,7 @@ async function init(firstLoad = true) {
     checkForUpdates();
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
-    state.defaultChampion = settings.default_champion || "";
+    state.defaultChampion = settings.default_champion || null;
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);

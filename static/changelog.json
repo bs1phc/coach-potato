@@ -1,26 +1,37 @@
 {
   "entries": [
     {
-      "version": "1.27.0",
+      "version": "1.28.0",
       "date": "2026-07-17",
       "items": [
         "\"Champ guide\" renamed to \"Matchup guide\", with a champion icon next to the \"My champion\" selector",
-        "Ability cooldown tables (Q/W/E/R across levels 1/3/6/9/11/13/16/18) — always shown for \"My champion\", and for the opponent once a matchup is expanded",
-        "Fixed oversized champion icons in the Matchup guide's matchup row headers"
+        "Ability cooldown tables (Q/W/E/R across levels 1/3/6/9/11/13/16/18) — always shown for \"My champion\", and for the opponent once a matchup is expanded"
+      ]
+    },
+    {
+      "version": "1.27.0",
+      "date": "2026-07-17",
+      "items": [
+        "Older matchup notes (pre-matchup-guide) now surface in Settings — migrate them under one of your champions, or delete them (replaces the one-time startup popup)",
+        "Default champion setting — pre-selects your champion on the Matchup guide page",
+        "Matchup guide design pass: consistent Markdown editor, patch dropdown defaulting to the current patch (validated), properly sized champion icons, opponent picker only lists champions without a guide, clearer empty-state",
+        "Clips section design pass: add-clip form now folds behind a + Add clip button and matches the app's form styling",
+        "Fixed the Fiddlesticks champion icon never loading (match-v5 vs DDragon spelling mismatch)"
       ]
     },
     {
       "version": "1.26.0",
       "date": "2026-07-17",
       "items": [
-        "Default champion setting — preselects \"My champion\" when you open the Matchup guide"
+        "New Research tab — a study journal for other players' games: Markdown notes and attached screenshots"
       ]
     },
     {
       "version": "1.25.0",
       "date": "2026-07-17",
       "items": [
-        "New Research tab — a study journal for other players' games: Markdown notes and attached screenshots"
+        "One-time prompt after updating: matchup notes written before the matchup-guide update are no longer shown in the app — answer yes to export them as Markdown files to a folder of your choice",
+        "Matchup-guide import now validates rune pages and file structure (clear errors instead of accepting malformed files), and export rejects invalid champion names"
       ]
     },
     {

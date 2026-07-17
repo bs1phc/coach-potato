@@ -240,8 +240,23 @@ single primary_keystone/secondary_tree columns collapsed into the `runes`
 list, across two migrations in `db._migrate` (SQLite can't ALTER a primary
 key, so both rebuild the table) — old rows land at `my_champion=''` since
 neither predecessor schema tracked which champion notes were written for.
+Those `my_champion=''` rows are unreachable from the guide UI, so Settings
+shows an "Older matchup notes" section (only while such rows exist —
+`refreshLegacySection` in app.js) with Migrate (a champion select; `POST
+/api/matchups/legacy-notes/migrate` reassigns the rows to that champion,
+skipping opponents it already has a guide for and reporting them back as
+`skipped`) and Delete (`DELETE /api/matchups/legacy-notes`, confirm()ed —
+the one user-content delete that's allowed, since it's explicit). `GET
+/api/matchups/legacy-notes` returns {count, notes}. `patch_version` is
+validated everywhere it's written (`PATCH_VERSION_RE`, e.g. 16.14 or
+16.14.1, or empty); the guide editor offers a patch dropdown built from
+DDragon versions.json (cached in `state.ddragonVersions` by
+`loadDdragonVersion`, major.minor deduped), defaulting to the current
+patch. `default_champion` (settings key, validated champion or unset)
+pre-selects the Matchup guide's "My champion" — reuse it for any future
+your-champion-scoped feature (`state.defaultChampion` client-side).
 `champion_notes(champion PK, notes, updated_at_ms)` — general (non-matchup)
-Markdown notes for a champion, shown above the matchup list on the Champ
+Markdown notes for a champion, shown above the matchup list on the Matchup
 guide page. `GET`/`PUT /api/champions/notes/{champion}`.
 `champion_item_builds(champion PK, core, situational, updated_at_ms)` — a
 mobafire-style item build, separate from the freeform general notes:
@@ -364,6 +379,9 @@ rest of the entry on first expand via `GET /api/research/{id}`).
 
 ## Development rules
 
+- **All UI work follows `STYLE.md`** — theme variables (never hardcode
+  accent/surface colors), shared component patterns (buttons, editors,
+  badges, collapsed add-forms), and the design-pass checklist live there.
 - **All notes render as Markdown wherever they are displayed** — session
   notes, block learnings, block-game notes, matchup notes, champion notes,
   and any future note field. Use `renderNotes(...)` (vendored marked) inside
