@@ -1,20 +1,24 @@
 "use strict";
-/* Cooldown comparison popup (opened from the Matchups view): your champion's
-   ability cooldowns on the left, the opponent's on the right. Each side has
-   a level slider and a drag-to-reorder skill priority (R fixed at 6/11/16)
-   that decide every spell's current rank, plus a list of haste sources
-   (ability haste / ultimate ability haste — items, runes, buffs, whatever);
-   reduced cooldowns render next to the base values. Spell data comes from
-   DDragon's champion/<id>.json at open time (cached per session). Skill
-   priority persists per champion in localStorage. Uses globals from app.js:
-   state, $, getJSON, escapeHtml, champIcon, championOptions,
-   ICON_NAME_FIXES. */
+/* Cooldown comparison popup (opened from the Matchups and Champ guide
+   views): your champion's ability cooldowns on the left, the opponent's on
+   the right. Each side has a level slider and an 18×4 skill-order grid
+   (level × Q/W/E/R — click a cell to put that level's point into that
+   ability; validated against the in-game rules) that decide every spell's
+   current rank, plus a list of haste sources (ability haste / ultimate
+   ability haste — items, runes, buffs, whatever); reduced cooldowns render
+   next to the base values. Spell data comes from DDragon's
+   champion/<id>.json at open time (cached per session). Your side's build
+   can be saved to the champ guide for the open matchup
+   (matchup_notes.skill_order); the grid otherwise persists per champion in
+   localStorage. Uses globals from app.js: state, $, getJSON, escapeHtml,
+   champIcon, displayName, championOptions, ICON_NAME_FIXES. */
 
 const SPELL_KEYS = ["Q", "W", "E", "R"];
 const R_LEVELS = [6, 11, 16];
+const GRID_LEVELS = 18;
 
 const cdState = {
-  sides: { me: null, opp: null }, // {champ, level, order, haste[], detail, error}
+  sides: { me: null, opp: null }, // {champ, level, grid, haste[], detail, error}
   options: { me: "", opp: "" },   // champion <select> options per side
 };
 
@@ -30,17 +34,72 @@ async function loadChampionDetail(champ) {
   return detail;
 }
 
-function savedSkillOrder(champ) {
+// ---------- skill-order grid (18 levels × Q/W/E/R) ----------
+
+// null when valid, else a short human-readable reason. Mirrors the server's
+// _validate_skill_order: basics max 5 points with point k needing level
+// 2k-1; R max 3 points at levels 6/11/16.
+function validateSkillGrid(cells) {
+  const points = { Q: [], W: [], E: [], R: [] };
+  cells.forEach((cell, i) => { if (cell) points[cell].push(i + 1); });
+  for (const key of SPELL_KEYS) {
+    const levels = points[key];
+    const maxPoints = key === "R" ? 3 : 5;
+    if (levels.length > maxPoints) return `${key} can have at most ${maxPoints} points`;
+    for (let i = 0; i < levels.length; i++) {
+      const needed = key === "R" ? R_LEVELS[i] : 2 * (i + 1) - 1;
+      if (levels[i] < needed) return `${key} point ${i + 1} needs level ${needed}`;
+    }
+  }
+  return null;
+}
+
+// standard default: one point in each basic over levels 1-3 (priority
+// order), R at 6/11/16, the rest greedily maxing by priority
+function defaultSkillGrid(priority = ["Q", "W", "E"]) {
+  const cells = Array(GRID_LEVELS).fill("");
+  const count = { Q: 0, W: 0, E: 0, R: 0 };
+  const maxAt = (lvl) => Math.min(5, Math.floor((lvl + 1) / 2));
+  for (let lvl = 1; lvl <= GRID_LEVELS; lvl++) {
+    if (R_LEVELS.includes(lvl)) { cells[lvl - 1] = "R"; count.R++; continue; }
+    if (lvl <= 3) { const k = priority[lvl - 1]; cells[lvl - 1] = k; count[k]++; continue; }
+    for (const k of priority) {
+      if (count[k] < maxAt(lvl)) { cells[lvl - 1] = k; count[k]++; break; }
+    }
+  }
+  return cells;
+}
+
+function champGrid(champ) {
   try {
-    const raw = JSON.parse(localStorage.getItem(`cp-skill-order-${champ}`) || "null");
-    if (Array.isArray(raw) && raw.length === 3
-        && ["Q", "W", "E"].every((k) => raw.includes(k))) return raw;
-  } catch { /* corrupted — fall back to default */ }
-  return ["Q", "W", "E"];
+    const raw = JSON.parse(localStorage.getItem(`cp-skill-grid-${champ}`) || "null");
+    if (Array.isArray(raw) && raw.length === GRID_LEVELS
+        && raw.every((c) => c === "" || SPELL_KEYS.includes(c))
+        && !validateSkillGrid(raw)) return raw;
+  } catch { /* corrupted — fall through */ }
+  try {
+    // pre-v1.32 stored a Q/W/E priority list instead of a grid
+    const order = JSON.parse(localStorage.getItem(`cp-skill-order-${champ}`) || "null");
+    if (Array.isArray(order) && order.length === 3) return defaultSkillGrid(order);
+  } catch { /* ditto */ }
+  return defaultSkillGrid();
+}
+
+// a saved-to-guide build takes priority over the per-champion default
+async function savedMatchupBuild(me, opp) {
+  if (!me || !opp) return null;
+  try {
+    const guide = await getJSON(`/api/matchups/notes?my_champion=${encodeURIComponent(me)}`);
+    const cells = guide[opp] && guide[opp].skill_order;
+    return Array.isArray(cells) && cells.some(Boolean)
+      ? [...cells, ...Array(GRID_LEVELS).fill("")].slice(0, GRID_LEVELS) : null;
+  } catch {
+    return null;
+  }
 }
 
 function newCdSide(champ) {
-  return { champ: champ || "", level: 9, order: savedSkillOrder(champ),
+  return { champ: champ || "", level: 9, grid: champ ? champGrid(champ) : defaultSkillGrid(),
            haste: [], detail: null, error: null };
 }
 
@@ -59,18 +118,9 @@ async function hydrateCdSide(side) {
   }
 }
 
-// skill points at a level: R at 6/11/16; basic spells greedily by priority.
-// Rank k of a basic spell needs level 2k-1 (max 5).
-function ranksAtLevel(level, order) {
+function ranksAtLevel(level, grid) {
   const ranks = { Q: 0, W: 0, E: 0, R: 0 };
-  ranks.R = R_LEVELS.filter((l) => level >= l).length;
-  let points = level - ranks.R;
-  const maxBasic = Math.min(5, Math.floor((level + 1) / 2));
-  for (const key of order) {
-    const take = Math.min(points, maxBasic);
-    ranks[key] = take;
-    points -= take;
-  }
+  for (let i = 0; i < level; i++) if (grid[i]) ranks[grid[i]]++;
   return ranks;
 }
 
@@ -91,12 +141,41 @@ function cdHasteSummary(side) {
   return `${ah} AH${ultAh ? ` · +${ultAh} ult AH` : ""}`;
 }
 
+// ---------- rendering ----------
+
+function skillGridHtml(sideKey) {
+  const side = cdState.sides[sideKey];
+  const head = `<div class="sg-row sg-head"><span class="sg-label"></span>${
+    Array.from({ length: GRID_LEVELS }, (_, i) =>
+      `<span class="sg-lvl ${i + 1 === side.level ? "sg-now" : ""}">${i + 1}</span>`).join("")}</div>`;
+  const rows = SPELL_KEYS.map((key) => `<div class="sg-row">
+    <span class="sg-label">${key}</span>
+    ${Array.from({ length: GRID_LEVELS }, (_, i) =>
+      `<button type="button" class="sg-cell ${side.grid[i] === key ? "active" : ""}"
+        data-side="${sideKey}" data-key="${key}" data-lvl="${i + 1}"
+        title="${key} at level ${i + 1}" aria-label="${key} at level ${i + 1}"
+        aria-pressed="${side.grid[i] === key}"></button>`).join("")}
+  </div>`).join("");
+  return `<div class="skill-grid">${head}${rows}
+    <span class="cd-grid-status" data-side="${sideKey}"></span></div>`;
+}
+
+// compact read-only variant, shared with the champ guide's build display
+function skillGridMini(cells) {
+  const grid = [...cells, ...Array(GRID_LEVELS).fill("")].slice(0, GRID_LEVELS);
+  return `<div class="skill-grid skill-grid-mini">${SPELL_KEYS.map((key) => `<div class="sg-row">
+    <span class="sg-label">${key}</span>
+    ${grid.map((c, i) => `<span class="sg-cell ${c === key ? "active" : ""}"
+      title="${c === key ? `${key} at level ${i + 1}` : ""}"></span>`).join("")}
+  </div>`).join("")}</div>`;
+}
+
 function cdSpellsTable(side) {
   if (!side.champ) return `<p class="muted">Pick a champion.</p>`;
   if (side.error) return `<p class="muted">${escapeHtml(side.error)}</p>`;
   if (!side.detail) return `<p class="muted">Loading…</p>`;
   const { ah, ultAh } = hasteTotals(side);
-  const ranks = ranksAtLevel(side.level, side.order);
+  const ranks = ranksAtLevel(side.level, side.grid);
   const rows = side.detail.spells.map((spell, i) => {
     const key = SPELL_KEYS[i];
     const cds = spell.cooldown || [];
@@ -138,9 +217,12 @@ function cdSidePanel(sideKey, title) {
       <button type="button" class="preset icon-btn cd-haste-remove" data-side="${sideKey}" data-i="${i}"
         title="Remove" aria-label="Remove haste source">✕</button>
     </div>`).join("");
-  const orderChips = side.order.map((k) => `<span class="chip chip-plain cd-order-chip"
-      draggable="true" data-side="${sideKey}" data-key="${k}"
-      title="Drag to change skill priority">${k}</span>`).join("");
+  const saveBtn = sideKey === "me" && side.champ && cdState.sides.opp.champ
+    ? `<div class="cd-control-row">
+        <button type="button" class="preset cd-save-build">Save build to champ guide
+          (vs ${escapeHtml(displayName(cdState.sides.opp.champ))})</button>
+        <span class="muted cd-save-status"></span>
+      </div>` : "";
   return `<div class="cd-side">
     <div class="filter-label">${title}</div>
     <div class="cd-side-head">
@@ -153,10 +235,11 @@ function cdSidePanel(sideKey, title) {
       <input type="range" class="cd-level" data-side="${sideKey}" min="1" max="18" value="${side.level}">
     </div>
     <div class="cd-control-row">
-      <span>Skill priority</span>
-      <span class="cd-order">${orderChips}</span>
-      <span class="muted">R at 6 / 11 / 16</span>
+      <span>Skill order</span>
+      <span class="muted">click a cell to spend that level's point</span>
     </div>
+    ${skillGridHtml(sideKey)}
+    ${saveBtn}
     <div class="cd-haste">
       <div class="cd-control-row">
         <span>Haste sources</span>
@@ -179,8 +262,6 @@ function updateCdSide(sideKey) {
   if (totals) totals.textContent = cdHasteSummary(side);
 }
 
-let cdDragKey = null; // {side, key} of the skill-priority chip being dragged
-
 function renderCooldowns() {
   const box = $("#modal-box");
   box.innerHTML = `
@@ -192,6 +273,13 @@ function renderCooldowns() {
   wireCooldowns(box);
 }
 
+function flashGridStatus(sideKey, message) {
+  const status = $(`.cd-grid-status[data-side="${sideKey}"]`);
+  if (!status) return;
+  status.textContent = message;
+  setTimeout(() => { if (status.textContent === message) status.textContent = ""; }, 2500);
+}
+
 function wireCooldowns(box) {
   box.querySelector("#modal-close").addEventListener("click", closeModal);
   box.querySelectorAll(".cd-champ-select").forEach((select) => {
@@ -199,7 +287,11 @@ function wireCooldowns(box) {
     select.addEventListener("change", async () => {
       const side = cdState.sides[select.dataset.side];
       side.champ = select.value;
-      side.order = savedSkillOrder(side.champ);
+      side.grid = side.champ ? champGrid(side.champ) : defaultSkillGrid();
+      if (select.dataset.side === "me") {
+        const saved = await savedMatchupBuild(side.champ, cdState.sides.opp.champ);
+        if (saved) side.grid = saved;
+      }
       renderCooldowns();
       await hydrateCdSide(side);
       renderCooldowns();
@@ -210,8 +302,49 @@ function wireCooldowns(box) {
       const side = cdState.sides[input.dataset.side];
       side.level = +input.value;
       $(`.cd-level-value[data-side="${input.dataset.side}"]`).textContent = side.level;
+      // move the current-level highlight without a full re-render
+      input.closest(".cd-side").querySelectorAll(".sg-head .sg-lvl").forEach((el, idx) =>
+        el.classList.toggle("sg-now", idx + 1 === side.level));
       updateCdSide(input.dataset.side);
     }));
+  box.querySelectorAll(".sg-cell").forEach((cell) =>
+    cell.addEventListener("click", () => {
+      const sideKey = cell.dataset.side;
+      const side = cdState.sides[sideKey];
+      const i = +cell.dataset.lvl - 1;
+      const key = cell.dataset.key;
+      const next = [...side.grid];
+      next[i] = next[i] === key ? "" : key; // second click clears the point
+      const problem = validateSkillGrid(next);
+      if (problem) {
+        flashGridStatus(sideKey, problem);
+        return;
+      }
+      side.grid = next;
+      if (side.champ) {
+        localStorage.setItem(`cp-skill-grid-${side.champ}`, JSON.stringify(next));
+      }
+      renderCooldowns();
+    }));
+  const saveBtn = box.querySelector(".cd-save-build");
+  if (saveBtn) saveBtn.addEventListener("click", async () => {
+    const me = cdState.sides.me.champ;
+    const opp = cdState.sides.opp.champ;
+    const status = box.querySelector(".cd-save-status");
+    const response = await fetch(
+      `/api/matchups/notes/${encodeURIComponent(me)}/${encodeURIComponent(opp)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skill_order: cdState.sides.me.grid }),
+      });
+    if (response.ok) {
+      status.textContent = "saved ✓";
+    } else {
+      const body = await response.json().catch(() => ({}));
+      status.classList.add("status-error");
+      status.textContent = `save failed — ${body.detail || `error ${response.status}`}`;
+    }
+  });
   box.querySelectorAll(".cd-haste-add").forEach((btn) =>
     btn.addEventListener("click", () => {
       cdState.sides[btn.dataset.side].haste.push({ label: "", ah: 10, ultAh: 0 });
@@ -236,40 +369,6 @@ function wireCooldowns(box) {
       cdState.sides[input.dataset.side].haste[+input.dataset.i].ultAh = +input.value || 0;
       updateCdSide(input.dataset.side);
     }));
-  box.querySelectorAll(".cd-order-chip").forEach((chip) => {
-    chip.addEventListener("dragstart", (e) => {
-      cdDragKey = { side: chip.dataset.side, key: chip.dataset.key };
-      chip.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", chip.dataset.key);
-    });
-    chip.addEventListener("dragend", () => {
-      cdDragKey = null;
-      chip.classList.remove("dragging");
-    });
-    chip.addEventListener("dragover", (e) => {
-      if (!cdDragKey || cdDragKey.side !== chip.dataset.side
-          || cdDragKey.key === chip.dataset.key) return;
-      e.preventDefault();
-      chip.classList.add("drag-over");
-    });
-    chip.addEventListener("dragleave", () => chip.classList.remove("drag-over"));
-    chip.addEventListener("drop", (e) => {
-      e.preventDefault();
-      chip.classList.remove("drag-over");
-      if (!cdDragKey || cdDragKey.side !== chip.dataset.side) return;
-      const side = cdState.sides[chip.dataset.side];
-      const from = side.order.indexOf(cdDragKey.key);
-      const to = side.order.indexOf(chip.dataset.key);
-      if (from < 0 || to < 0 || from === to) return;
-      side.order.splice(from, 1);
-      side.order.splice(to, 0, cdDragKey.key);
-      if (side.champ) {
-        localStorage.setItem(`cp-skill-order-${side.champ}`, JSON.stringify(side.order));
-      }
-      renderCooldowns();
-    });
-  });
 }
 
 async function openCooldowns(me, opp) {
@@ -277,10 +376,14 @@ async function openCooldowns(me, opp) {
   cdState.sides.opp = newCdSide(opp);
   $("#modal-overlay").classList.remove("hidden");
   $("#modal-box").innerHTML = `<p class="muted">Loading…</p>`;
-  [cdState.options.me, cdState.options.opp] = await Promise.all([
+  const [meOptions, oppOptions, saved] = await Promise.all([
     championOptions(cdState.sides.me.champ, "– pick a champion –"),
     championOptions(cdState.sides.opp.champ, "– pick a champion –"),
+    savedMatchupBuild(me, opp),
   ]);
+  cdState.options.me = meOptions;
+  cdState.options.opp = oppOptions;
+  if (saved) cdState.sides.me.grid = saved;
   renderCooldowns();
   await Promise.all([hydrateCdSide(cdState.sides.me), hydrateCdSide(cdState.sides.opp)]);
   renderCooldowns();

@@ -62,7 +62,7 @@ function runeIcon(name, tree) {
   return rune ? rune.icon : "";
 }
 
-function emptyGuide() { return { notes: "", runes: [], patch_version: "" }; }
+function emptyGuide() { return { notes: "", runes: [], patch_version: "", skill_order: [] }; }
 function emptyRunePage() {
   return { label: "", primary_tree: "", keystone: "", primary_runes: ["", "", ""],
            secondary_tree: "", secondary_runes: [], shards: ["", "", ""] };
@@ -473,8 +473,17 @@ function guideRow(m) {
       </div>
     </div>`;
   }
-  const { notes, runes, patch_version } = guideFor(champ);
-  const hasAny = notes || (runes && runes.length) || patch_version;
+  const { notes, runes, patch_version, skill_order } = guideFor(champ);
+  const hasBuild = skill_order && skill_order.some(Boolean);
+  const hasAny = notes || (runes && runes.length) || patch_version || hasBuild;
+  const buildBlock = !editing && hasBuild
+    ? `<div class="guide-build">
+        <div class="mu-notes-head"><h5>Saved skill order</h5>
+          <button type="button" class="preset icon-btn guide-build-clear" data-opp="${escapeHtml(champ)}"
+            title="Remove saved build" aria-label="Remove saved build">✕</button>
+        </div>
+        ${skillGridMini(skill_order)}
+      </div>` : "";
   let body;
   if (editing) {
     const draft = guideState.draft;
@@ -490,7 +499,7 @@ function guideRow(m) {
         <span class="muted guide-status"></span>
       </div>`;
   } else if (hasAny) {
-    body = `${runePagesDisplay(runes, champ)}${
+    body = `${runePagesDisplay(runes, champ)}${buildBlock}${
       notes ? `<div class="md-body">${renderNotes(notes)}</div>` : ""}`;
   } else {
     body = `<p class="muted">No guide yet —
@@ -506,6 +515,8 @@ function guideRow(m) {
       <h4>${champIcon(champ)}${displayName(champ)}</h4>
       ${patchBadge}
       ${statLine}
+      <button class="preset icon-btn guide-cd-link" data-opp="${escapeHtml(champ)}"
+        title="Compare ability cooldowns" aria-label="Compare ability cooldowns">⏱</button>
       ${editing || !hasAny ? "" : `<button class="preset icon-btn guide-edit" data-opp="${escapeHtml(champ)}"
         title="Edit champ guide" aria-label="Edit champ guide">✎</button>`}
     </div>
@@ -617,12 +628,40 @@ function wireGuideHandlers(target) {
         status.textContent = `Save failed — ${body.detail || `error ${response.status}`}`;
         return;
       }
-      const hasAny = payload.notes.trim() || payload.runes.length || payload.patch_version.trim();
-      if (hasAny) guideState.guide[opp] = payload;
+      // the editor doesn't touch skill_order (saved from the cooldown popup)
+      // — the server keeps it (partial update), so keep it client-side too
+      const keptBuild = guideFor(opp).skill_order;
+      const hasAny = payload.notes.trim() || payload.runes.length
+        || payload.patch_version.trim() || keptBuild.some(Boolean);
+      if (hasAny) guideState.guide[opp] = { ...payload, skill_order: keptBuild };
       else delete guideState.guide[opp];
       guideState.editing = null;
       guideState.draft = null;
       guideState.openRuneIndex = null;
+      renderGuide();
+      updateGuideAddOptions();
+    }));
+  target.querySelectorAll(".guide-cd-link").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      openCooldowns(guideState.myChampion, btn.dataset.opp))); // cooldowns.js
+  target.querySelectorAll(".guide-build-clear").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const opp = btn.dataset.opp;
+      if (!confirm("Remove the saved skill order for this matchup?")) return;
+      const response = await fetch(
+        `/api/matchups/notes/${encodeURIComponent(guideState.myChampion)}/${encodeURIComponent(opp)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ skill_order: [] }),
+        });
+      if (!response.ok) return;
+      const entry = guideState.guide[opp];
+      if (entry) {
+        entry.skill_order = [];
+        if (!entry.notes && !(entry.runes || []).length && !entry.patch_version) {
+          delete guideState.guide[opp]; // server deleted the all-blank row too
+        }
+      }
       renderGuide();
       updateGuideAddOptions();
     }));

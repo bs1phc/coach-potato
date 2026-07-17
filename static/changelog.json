@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.32.0",
+      "date": "2026-07-18",
+      "items": [
+        "Skill order in the cooldown popup is now a full 18×4 grid (level × Q/W/E/R) — click a cell to spend that level's point, so 1-1-1 and 2-1-0 openers and anything else legal works; selections are validated against the in-game rules",
+        "Save your build per matchup: the cooldown popup's \"Save build to champ guide\" stores your skill order on that matchup's champ guide, preloads it next time, and shows it read-only on the guide page",
+        "Cooldown comparison (⏱) is also available on Champ guide matchup rows"
+      ]
+    },
+    {
       "version": "1.31.0",
       "date": "2026-07-17",
       "items": [

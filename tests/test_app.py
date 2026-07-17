@@ -554,7 +554,8 @@ def test_matchup_notes_endpoints(client):
         "notes": "- respect level 2", "runes": [CONQ_PAGE, GRASP_PAGE], "patch_version": "14.14"})
     assert r.status_code == 200
     assert client.get("/api/matchups/notes?my_champion=Gwen").json() == {"Darius": {
-        "notes": "- respect level 2", "runes": [CONQ_PAGE, GRASP_PAGE], "patch_version": "14.14"}}
+        "notes": "- respect level 2", "runes": [CONQ_PAGE, GRASP_PAGE],
+        "patch_version": "14.14", "skill_order": []}}
     # a different "my champion" has its own, independent guide
     assert client.get("/api/matchups/notes?my_champion=Camille").json() == {}
     assert client.get("/api/matchups/notes").status_code == 422  # my_champion required
@@ -816,6 +817,43 @@ def test_rune_page_with_empty_slots_saves(client):
         "runes": [{**partial, "primary_runes": ["Fake Rune", "", ""]}]}).status_code == 400
     assert client.put("/api/matchups/notes/Gwen/Darius", json={
         "runes": [{**partial, "shards": ["Fake Shard", "", ""]}]}).status_code == 400
+
+
+def test_skill_order_endpoint_roundtrip_and_partial_update(client):
+    order = ["Q", "W", "E", "Q", "Q", "R", "Q", "W", "Q", "W", "R", "W", "W",
+             "E", "E", "R", "E", "E"]
+    # build saves alone (cooldown popup) without touching other fields
+    client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "keep these notes"})
+    r = client.put("/api/matchups/notes/Gwen/Darius", json={"skill_order": order})
+    assert r.status_code == 200
+    guide = client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]
+    assert guide["skill_order"] == order
+    assert guide["notes"] == "keep these notes"
+    # editor-style save (no skill_order key) keeps the saved build
+    client.put("/api/matchups/notes/Gwen/Darius",
+               json={"notes": "edited", "runes": [], "patch_version": ""})
+    guide = client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]
+    assert guide["skill_order"] == order
+    assert guide["notes"] == "edited"
+    # partial grids are fine; sparse levels allowed
+    assert client.put("/api/matchups/notes/Gwen/Darius",
+                      json={"skill_order": ["Q", "", "W"]}).status_code == 200
+
+
+def test_skill_order_validation(client):
+    put = lambda so: client.put("/api/matchups/notes/Gwen/Darius",
+                                json={"skill_order": so}).status_code
+    assert put("QWER") == 400                       # not a list
+    assert put(["X"]) == 400                        # unknown ability
+    assert put([""] * 19) == 400                    # more than 18 levels
+    assert put(["Q", "Q"]) == 400                   # Q rank 2 needs level 3
+    assert put(["R"]) == 400                        # R needs level 6
+    assert put([""] * 5 + ["R", "R"]) == 400        # R rank 2 needs level 11
+    assert put(["Q", "W", "Q", "Q"]) == 400         # Q rank 3 needs level 5
+    assert put(["Q", "W", "E", "Q", "Q", "R", "Q", "W", "Q", "W", "R", "W",
+                "W", "E", "E", "R", "E", "E", ]) == 200  # a legal full build
+    # 6 points in one basic ability
+    assert put(["Q", "W", "Q", "W", "Q", "R", "Q", "W", "Q", "W", "R", "Q"]) == 400
 
 
 def test_champ_guide_import_rejects_non_export_file(client):

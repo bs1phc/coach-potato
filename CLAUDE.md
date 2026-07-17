@@ -174,13 +174,22 @@ change, not a crawler change.
   notes] / Games tabs; a 📖 link per row — shown only when a specific "My
   champion" filter is active, since guides are scoped per champion pair —
   deep-links to that matchup's Champ guide) in `matchups.js`;
-  a ⏱ button per matchup row opens the cooldown-comparison modal
-  (`cooldowns.js`: generic `#modal-overlay`/`#modal-box` shell in
-  index.html; spell data fetched from DDragon `champion/<id>.json` at open
-  time, session-cached; per-side level slider + drag-reorder skill priority
-  [R fixed at 6/11/16, basic rank k needs level 2k-1] + freeform haste
-  sources; reduced cd = base/(1+haste/100), R adds ult haste; skill order
-  persists per champion in localStorage `cp-skill-order-<champ>`);
+  a ⏱ button per matchup row (also on Champ-guide rows) opens the
+  cooldown-comparison modal (`cooldowns.js`: generic
+  `#modal-overlay`/`#modal-box` shell in index.html; spell data fetched
+  from DDragon `champion/<id>.json` at open time, session-cached; per-side
+  level slider + an 18×4 skill-order grid [level × Q/W/E/R, click to spend
+  that level's point; validated client- AND server-side — basics max 5,
+  point k needs level 2k-1, R at 6/11/16] + freeform haste sources; reduced
+  cd = base/(1+haste/100), R adds ult haste. Grid persists per champion in
+  localStorage `cp-skill-grid-<champ>` [legacy `cp-skill-order-<champ>`
+  priority lists auto-convert]; "Save build to champ guide" writes it to
+  `matchup_notes.skill_order` for the open matchup — saved builds preload
+  on open and display read-only in the guide row via `skillGridMini`.
+  `PUT /api/matchups/notes/{my}/{opp}` is a PARTIAL update: only body keys
+  are written, so popup and guide editor don't clobber each other's
+  fields; `db.set_matchup_note` keeps un-passed fields via a _KEEP
+  sentinel);
   trends view (SVG small-multiple charts + breakdown table) in `trends.js`;
   blocks view in `blocks.js`; Champ guide view (own nav tab: pick "My
   champion" from the full roster — not just played champions — see/edit
