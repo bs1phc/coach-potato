@@ -1,6 +1,30 @@
 {
   "entries": [
     {
+      "version": "1.31.0",
+      "date": "2026-07-17",
+      "items": [
+        "Matchup guide list is table-like: aligned columns, row hover, and separate indicators for matchup notes (📝) and rune pages (🔮)"
+      ]
+    },
+    {
+      "version": "1.30.1",
+      "date": "2026-07-17",
+      "items": [
+        "Fixed partially-filled rune pages silently failing to save (unfilled slots were rejected by validation with a near-invisible error)",
+        "Save failures in the Matchup guide now show a clear red error message",
+        "Switching champion or collapsing a matchup mid-edit now asks before discarding unsaved changes"
+      ]
+    },
+    {
+      "version": "1.30.0",
+      "date": "2026-07-17",
+      "items": [
+        "Rune pages in the Matchup guide expand for viewing (▸ on the page card) — full rune names by tree, no need to open the editor",
+        "Matchups with a guide now always show in the Matchup guide list, even against opponents that champion hasn't faced yet (e.g. migrated or imported notes)"
+      ]
+    },
+    {
       "version": "1.29.0",
       "date": "2026-07-17",
       "items": [

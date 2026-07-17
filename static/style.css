@@ -819,7 +819,21 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   border-bottom: 1px solid var(--grid);
 }
 #guide-list .guide-row:last-child { border-bottom: none; }
-#guide-list .guide-row-collapsed { margin: 0; padding: 4px 0; }
+/* collapsed rows read as a table: fixed toggle / champion / flags columns,
+   stats right-aligned, consistent row height + hover like table rows */
+#guide-list .guide-row-collapsed { margin: 0; padding: 6px 4px; }
+#guide-list .guide-row-collapsed:hover { background: var(--accent-wash); }
+#guide-list .guide-row-collapsed .mu-notes-head {
+  display: grid;
+  grid-template-columns: 28px minmax(130px, 170px) 44px 1fr;
+  align-items: center;
+  gap: 6px;
+}
+#guide-list .guide-row-collapsed .guide-stat { justify-self: end; }
+.guide-flags {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 13px; white-space: nowrap;
+}
 #guide-list .mu-notes-head h4 {
   display: flex; align-items: center; gap: 8px;
   margin: 0; font-size: 15px; font-weight: 600;
@@ -837,6 +851,7 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   background: none; border: none; padding: 0; font: inherit;
   color: var(--series-1); text-decoration: underline; cursor: pointer;
 }
+.status-error { color: var(--critical) !important; font-weight: 600; }
 .guide-row-grid {
   display: grid; grid-template-columns: minmax(280px, 1fr) minmax(260px, 340px);
   gap: 20px; align-items: start; margin-top: 8px;
@@ -904,7 +919,25 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
   min-width: 220px;
 }
-.rune-page-title { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.rune-page-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 4px;
+}
+.rune-page-title { font-size: 12px; font-weight: 600; }
+.rune-page-detail {
+  display: flex; flex-wrap: wrap; gap: 16px;
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--grid);
+}
+.rune-detail-col h6 {
+  display: flex; align-items: center; gap: 5px;
+  margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--text-secondary);
+}
+.rune-detail-col h6 img { border-radius: 50%; }
+.rune-detail-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 1px 0;
+}
+.rune-detail-item img { border-radius: 50%; background: var(--surface-1); }
 .rune-page-display {
   display: flex; align-items: center; gap: 4px; flex-wrap: nowrap;
   overflow-x: auto;
