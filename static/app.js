@@ -1189,7 +1189,7 @@ async function initSettings() {
       state.defaultChampion = body.default_champion || "";
       if (state.defaultChampion && state.defaultChampion !== previousDefaultChampion) {
         // A newly-configured (or changed) default should apply even if the
-        // Champ guide already had a selection from earlier in this session —
+        // Matchup guide already had a selection from earlier in this session —
         // loadGuideChampionOptions() only auto-picks when myChampion is empty.
         guideState.myChampion = "";
         if (state.mainView === "guide") initGuide();
@@ -1499,7 +1499,7 @@ async function init(firstLoad = true) {
   renderAccountSelector();
   // loadRuneTrees (guide.js) is idempotent — populates RUNE_TREES/SHARD_ROWS
   // for the recent-games rune icons on this Overview tab too, even if the
-  // user never visits the Champ guide tab
+  // user never visits the Matchup guide tab
   await Promise.all([loadFilterOptions(), loadRuneTrees()]);
   await refresh();
   if (firstLoad && location.hash === "#matchups") setMainView("matchups");

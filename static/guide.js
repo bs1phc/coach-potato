@@ -1,5 +1,5 @@
 "use strict";
-/* Champ guide view: pick any champion (full roster, not just ones you've
+/* Matchup guide view: pick any champion (full roster, not just ones you've
    played) and see/edit a guide — general notes, and per-matchup Markdown
    notes, patch version, and one or more full rune pages (primary tree +
    keystone + 3 minors, secondary tree + 2 minors, 3 stat shards) — for
@@ -77,6 +77,79 @@ async function loadItemData() {
 function itemByName(name) { return ITEMS.find((i) => i.name === name); }
 function itemIconUrl(icon) { return `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/item/${icon}`; }
 
+// ---------- ability cooldowns ----------
+
+const ABILITY_CACHE = new Map(); // champion id -> [{key, cooldowns}] | null (fetch failed)
+
+async function loadAbilityCooldowns(champ) {
+  if (!champ || !state.ddragonVersion) return null;
+  if (ABILITY_CACHE.has(champ)) return ABILITY_CACHE.get(champ);
+  const cacheKey = `ability-cds-${state.ddragonVersion}-${champ}`;
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      ABILITY_CACHE.set(champ, parsed);
+      return parsed;
+    }
+    const data = await getJSON(
+      `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/data/en_US/champion/${champ}.json`);
+    const spells = (data.data[champ] || {}).spells || [];
+    const keys = ["Q", "W", "E", "R"];
+    const abilities = spells.map((s, i) => ({ key: keys[i] || s.id, cooldowns: s.cooldown || [] }));
+    localStorage.setItem(cacheKey, JSON.stringify(abilities));
+    ABILITY_CACHE.set(champ, abilities);
+    return abilities;
+  } catch {
+    ABILITY_CACHE.set(champ, null); // offline / fetch failed — table just shows unavailable
+    return null;
+  }
+}
+
+// Standard reference skill order (NOT any real game's order) used only to
+// map ability rank -> level for the cooldown table below, matching the
+// convention most build sites/wikis use for this exact table: max Q first,
+// then W, then E, ult at 6/11/16.
+const ABILITY_SKILL_ORDER = [
+  "Q", "W", "Q", "E", "Q", "R", "Q", "W", "Q", "W", "R", "W", "E", "E", "W", "R", "E", "E"];
+const ABILITY_CD_LEVELS = [1, 3, 6, 9, 11, 13, 16, 18];
+
+function abilityRankAtLevel(key, level) {
+  let rank = 0;
+  for (let i = 0; i < level; i++) if (ABILITY_SKILL_ORDER[i] === key) rank++;
+  return rank;
+}
+
+function fmtCooldown(seconds) {
+  return Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1);
+}
+
+function abilityCooldownTableHtml(abilities) {
+  if (!abilities || !abilities.length) {
+    return `<p class="muted">Ability data unavailable (offline?).</p>`;
+  }
+  const headCells = ABILITY_CD_LEVELS.map((l) => `<th>${l}</th>`).join("");
+  const rows = abilities.map((a) => {
+    const cells = ABILITY_CD_LEVELS.map((level) => {
+      const rank = abilityRankAtLevel(a.key, level);
+      if (rank === 0 || !a.cooldowns.length) return `<td class="muted">–</td>`;
+      const cd = a.cooldowns[Math.min(rank, a.cooldowns.length) - 1];
+      return `<td>${fmtCooldown(cd)}</td>`;
+    }).join("");
+    return `<tr><th>${a.key}</th>${cells}</tr>`;
+  }).join("");
+  return `<div class="table-wrap"><table class="ability-cd-table">
+    <thead><tr><th>Ability</th>${headCells}</tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>
+  <p class="muted ability-cd-note">Levels follow a standard reference skill order
+    (max Q → W → E, ult at 6/11/16) — not necessarily the actual build.</p>`;
+}
+
+async function ensureAbilityCooldowns(champ) {
+  await loadAbilityCooldowns(champ);
+}
+
 function runeIconUrl(icon) { return `https://ddragon.leagueoflegends.com/cdn/img/${icon}`; }
 function shardIconUrl(icon) {
   return `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/${icon}`;
@@ -122,6 +195,7 @@ async function initGuide() {
       guideState.editing = null;
       guideState.editingGeneral = false;
       guideState.editingItemBuild = false;
+      updateGuideChampionIcon();
       loadGuide();
     });
     $("#guide-add-form").addEventListener("submit", (e) => {
@@ -138,7 +212,7 @@ async function initGuide() {
     guideState.pendingFocus = null;
     addOrFocusMatchup(champ);
     renderGuide();
-    await ensureMatchupGames(champ);
+    await Promise.all([ensureMatchupGames(champ), ensureAbilityCooldowns(champ)]);
     renderGuide();
   }
 }
@@ -162,6 +236,11 @@ async function loadGuideChampionOptions() {
     ? all.map((c) =>
         `<option value="${c}" ${c === guideState.myChampion ? "selected" : ""}>${escapeHtml(champDisplay(c))}</option>`).join("")
     : `<option value="">No champions found</option>`;
+  updateGuideChampionIcon();
+}
+
+function updateGuideChampionIcon() {
+  $("#guide-champion-icon").innerHTML = champIcon(guideState.myChampion);
 }
 
 async function loadGuide() {
@@ -176,6 +255,7 @@ async function loadGuide() {
     renderGuide();
     renderGuideGeneral();
     renderGuideItemBuild();
+    renderGuideAbilityCooldowns();
     return;
   }
   const [matchups, guide, general, itemBuild] = await Promise.all([
@@ -191,6 +271,17 @@ async function loadGuide() {
   renderGuide();
   renderGuideGeneral();
   renderGuideItemBuild();
+  renderGuideAbilityCooldowns(); // fire-and-forget — own network fetch to ddragon
+}
+
+async function renderGuideAbilityCooldowns() {
+  const target = $("#guide-ability-cooldowns");
+  const champ = guideState.myChampion;
+  if (!champ) { target.innerHTML = ""; return; }
+  target.innerHTML = `<div class="mu-notes"><h4>${displayName(champ)} ability cooldowns</h4><p class="muted">Loading…</p></div>`;
+  const abilities = await loadAbilityCooldowns(champ);
+  if (guideState.myChampion !== champ) return; // champion changed while this was in flight
+  target.innerHTML = `<div class="mu-notes"><h4>${displayName(champ)} ability cooldowns</h4>${abilityCooldownTableHtml(abilities)}</div>`;
 }
 
 // fetch a matchup's recent games on first expand only (collapsed rows never
@@ -216,7 +307,7 @@ async function addGuideMatchup() {
   $("#guide-add-status").textContent = "";
   addOrFocusMatchup(champ);
   renderGuide();
-  await ensureMatchupGames(champ);
+  await Promise.all([ensureMatchupGames(champ), ensureAbilityCooldowns(champ)]);
   renderGuide();
 }
 
@@ -415,7 +506,7 @@ function guideRow(m) {
       <div class="mu-notes-head">
         ${toggleBtn}
         <h4>${champIcon(champ)}${displayName(champ)}</h4>
-        ${hasGuide ? `<span class="note-flag" title="Has champ guide">📝</span>` : ""}
+        ${hasGuide ? `<span class="note-flag" title="Has matchup guide">📝</span>` : ""}
         ${statLine}
       </div>
     </div>`;
@@ -440,8 +531,12 @@ function guideRow(m) {
       ? `<div class="muted mu-guide-patch">Patch ${escapeHtml(patch_version)}</div>` : "";
     const notesBody = notes ? `<div class="md-body">${renderNotes(notes)}</div>` : "";
     const hasAny = notes || (runes && runes.length) || patch_version;
+    const abilities = ABILITY_CACHE.get(champ);
+    const abilitiesBody = ABILITY_CACHE.has(champ)
+      ? `<h5>${displayName(champ)} ability cooldowns</h5>${abilityCooldownTableHtml(abilities)}`
+      : "";
     body = `${runePagesDisplay(runes)}${patchLine}${notesBody}${
-      hasAny ? "" : `<p class="muted">No guide yet — click ✎ to add one.</p>`}`;
+      hasAny ? "" : `<p class="muted">No guide yet — click ✎ to add one.</p>`}${abilitiesBody}`;
   }
   const gamesSide = m.games > 0
     ? `<div class="guide-row-side">${recentGamesColumn(champ)}</div>` : "";
@@ -451,7 +546,7 @@ function guideRow(m) {
       <h4>${champIcon(champ)}${displayName(champ)}</h4>
       ${statLine}
       ${editing ? "" : `<button class="preset icon-btn guide-edit" data-opp="${escapeHtml(champ)}"
-        title="Edit champ guide" aria-label="Edit champ guide">✎</button>`}
+        title="Edit matchup guide" aria-label="Edit matchup guide">✎</button>`}
     </div>
     <div class="guide-row-grid">
       <div class="guide-row-main">${body}</div>
@@ -487,7 +582,7 @@ function recentGamesColumn(champ) {
 function renderGuide() {
   const target = $("#guide-list");
   if (!guideState.myChampion) {
-    target.innerHTML = `<div class="empty">Pick a champion above to see or build its champ guide.</div>`;
+    target.innerHTML = `<div class="empty">Pick a champion above to see or build its matchup guide.</div>`;
     return;
   }
   const rows = [...guideState.matchups].sort((a, b) => {
@@ -521,14 +616,15 @@ function wireGuideHandlers(target) {
       }
       guideState.expanded.add(champ);
       renderGuide(); // show "Loading…" immediately
-      await ensureMatchupGames(champ);
+      await Promise.all([ensureMatchupGames(champ), ensureAbilityCooldowns(champ)]);
       renderGuide();
     }));
   target.querySelectorAll(".guide-edit").forEach((btn) =>
     btn.addEventListener("click", async () => {
       startEditing(btn.dataset.opp);
       renderGuide();
-      await ensureMatchupGames(btn.dataset.opp);
+      await Promise.all([
+        ensureMatchupGames(btn.dataset.opp), ensureAbilityCooldowns(btn.dataset.opp)]);
       renderGuide();
     }));
   target.querySelectorAll(".guide-cancel").forEach((btn) =>
