@@ -965,11 +965,11 @@ async function loadProgress() {
 function setMainView(view) {
   state.mainView = view;
   if (history.replaceState) {
-    const hash = { matchups: "#matchups", progress: "#progress",
-                   trends: "#trends", blocks: "#blocks", guide: "#guide" }[view] || "#";
+    const hash = { matchups: "#matchups", progress: "#progress", trends: "#trends",
+                   blocks: "#blocks", guide: "#guide", research: "#research" }[view] || "#";
     history.replaceState(null, "", hash);
   }
-  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "settings"]) {
+  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "settings"]) {
     $(`#nav-${v}`).classList.toggle("active", view === v);
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
@@ -978,6 +978,7 @@ function setMainView(view) {
   if (view === "trends") initTrends();
   if (view === "blocks") initBlocks();
   if (view === "guide") initGuide();
+  if (view === "research") initResearch();
   if (view === "settings") initSettings();
 }
 
@@ -1041,17 +1042,18 @@ function applyAppearance(data) {
 
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
-  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide"]) {
+  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research"]) {
     $(`#nav-${view}`).classList.toggle("hidden", state.hiddenViews.includes(view));
   }
   if (state.hiddenViews.includes(state.mainView)) {
-    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide"]
+    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research"]
       .find((view) => !state.hiddenViews.includes(view));
     setMainView(fallback || "settings");
   }
 }
 
 async function initSettings() {
+  await loadChampionRoster(); // populates the shared #champ-list datalist
   const data = await getJSON("/api/settings");
   $("#setting-key").value = data.riot_api_key;
   const platforms = [...data.platforms].sort((a, b) =>
@@ -1069,6 +1071,7 @@ async function initSettings() {
   $("#setting-block-gap").value = data.block_gap_hours;
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
+  $("#setting-default-champion").value = data.default_champion || "";
   $("#setting-accent-color").value = data.accent_color
     || rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
   $("#setting-accent-reset").classList.toggle("hidden", !data.accent_color);
@@ -1149,6 +1152,13 @@ async function initSettings() {
     addAccount(); // commit any half-typed account first
     const hiddenViews = [...document.querySelectorAll(".view-toggle-cb")]
       .filter((cb) => !cb.checked).map((cb) => cb.value);
+    const typedChampion = $("#setting-default-champion").value.trim();
+    const defaultChampion = typedChampion ? roster.byLookup.get(typedChampion.toLowerCase()) : "";
+    if (typedChampion && !defaultChampion) {
+      $("#settings-status").textContent = `"${typedChampion}" is not a champion`;
+      return;
+    }
+    const previousDefaultChampion = state.defaultChampion;
     const response = await fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -1165,6 +1175,7 @@ async function initSettings() {
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
         accent_color: $("#setting-accent-reset").classList.contains("hidden")
           ? null : $("#setting-accent-color").value,
+        default_champion: defaultChampion || null,
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -1175,6 +1186,14 @@ async function initSettings() {
       }
       applyHiddenViews(body.hidden_views);
       applyAppearance(body);
+      state.defaultChampion = body.default_champion || "";
+      if (state.defaultChampion && state.defaultChampion !== previousDefaultChampion) {
+        // A newly-configured (or changed) default should apply even if the
+        // Champ guide already had a selection from earlier in this session —
+        // loadGuideChampionOptions() only auto-picks when myChampion is empty.
+        guideState.myChampion = "";
+        if (state.mainView === "guide") initGuide();
+      }
       $("#settings-banner").classList.add("hidden");
       if (settingsUi.wasUnconfigured && body.configured) {
         settingsUi.wasUnconfigured = false;
@@ -1196,6 +1215,7 @@ function wireProgress() {
   $("#nav-trends").addEventListener("click", () => setMainView("trends"));
   $("#nav-blocks").addEventListener("click", () => setMainView("blocks"));
   $("#nav-guide").addEventListener("click", () => setMainView("guide"));
+  $("#nav-research").addEventListener("click", () => setMainView("research"));
   $("#nav-settings").addEventListener("click", () => setMainView("settings"));
   $("#progress-champion").addEventListener("change", (e) => {
     state.progressChampion = e.target.value; loadProgress();
@@ -1414,6 +1434,13 @@ function wireFilters() {
   renderColPicker($("#progress-cols"), "cp-cols-progress", PROGRESS_COLS, progressCols,
     () => renderProgress(segmentUi.segments));
   $("#crawl-btn").addEventListener("click", startCrawl);
+  $("#champion-table-toggle").addEventListener("click", () => {
+    const btn = $("#champion-table-toggle");
+    const table = $("#champion-table");
+    const expanded = table.classList.toggle("hidden") === false;
+    btn.textContent = expanded ? "▾" : "▸";
+    btn.setAttribute("aria-expanded", String(expanded));
+  });
 }
 
 async function loadDdragonVersion() {
@@ -1444,6 +1471,7 @@ async function init(firstLoad = true) {
     checkForUpdates();
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
+    state.defaultChampion = settings.default_champion || "";
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);
@@ -1479,6 +1507,7 @@ async function init(firstLoad = true) {
   if (firstLoad && location.hash === "#trends") setMainView("trends");
   if (firstLoad && location.hash === "#blocks") setMainView("blocks");
   if (firstLoad && location.hash === "#guide") setMainView("guide");
+  if (firstLoad && location.hash === "#research") setMainView("research");
   if (firstLoad && location.hash === "#settings") setMainView("settings");
 }
 

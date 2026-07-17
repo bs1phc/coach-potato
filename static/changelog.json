@@ -1,6 +1,30 @@
 {
   "entries": [
     {
+      "version": "1.26.0",
+      "date": "2026-07-17",
+      "items": [
+        "Default champion setting — preselects \"My champion\" when you open the Champ guide"
+      ]
+    },
+    {
+      "version": "1.25.0",
+      "date": "2026-07-17",
+      "items": [
+        "New Research tab — a study journal for other players' games: Markdown notes and attached screenshots"
+      ]
+    },
+    {
+      "version": "1.24.0",
+      "date": "2026-07-16",
+      "items": [
+        "Champ guide: mobafire-style item build per champion — a core build order plus labeled situational sections, picked from real item icons",
+        "PDF export now mirrors the full Champ guide (item build included), not just notes and runes",
+        "Champ guide rune-page icons made smaller",
+        "\"My champions\" section on Overview now collapses by default"
+      ]
+    },
+    {
       "version": "1.23.0",
       "date": "2026-07-16",
       "items": [
