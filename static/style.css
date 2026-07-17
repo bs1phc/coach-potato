@@ -212,6 +212,8 @@ tbody tr:hover td { background: var(--accent-wash); }
 
 .champ-cell { display: flex; align-items: center; gap: 8px; }
 .champ-cell img { width: 24px; height: 24px; border-radius: 5px; display: block; }
+.champ-select-row { display: flex; align-items: center; gap: 6px; }
+.champ-select-row img { width: 24px; height: 24px; border-radius: 5px; display: block; }
 
 th.wr-col, td.wr-col { text-align: center; }
 .wr-cell { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle; }
@@ -787,6 +789,15 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 }
 .item-picker-result:hover { background: var(--accent-wash); }
 .item-picker-close { margin-top: 6px; }
+
+/* ---------- ability cooldowns ---------- */
+.ability-cd-table { border-collapse: collapse; font-size: 12px; }
+.ability-cd-table th, .ability-cd-table td {
+  padding: 3px 8px; text-align: center; border-bottom: 1px solid var(--grid);
+}
+.ability-cd-table thead th { color: var(--text-secondary); font-weight: 600; }
+.ability-cd-table tbody th { text-align: left; font-weight: 600; }
+.ability-cd-note { font-size: 11px; margin-top: 4px; }
 
 /* ---------- research view ---------- */
 .research-screenshots {

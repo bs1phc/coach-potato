@@ -326,7 +326,7 @@ def get_player_rank(conn, puuid):
 
 
 def get_matchup_notes(conn, my_champion):
-    """Champ guide (notes, rune pages, patch) for every opponent matchup
+    """Matchup guide (notes, rune pages, patch) for every opponent matchup
     my_champion has any field set for: {opp_champion: {notes, runes: [...],
     patch_version}}. `runes` is a list — a matchup can carry more than one
     rune page (e.g. alternatives being tested)."""

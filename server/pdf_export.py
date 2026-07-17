@@ -1,4 +1,4 @@
-"""Renders a champion's Champ guide (general notes + every matchup: patch,
+"""Renders a champion's Matchup guide (general notes + every matchup: patch,
 rune pages, Markdown notes) as a printable PDF. Rune/tree/shard icons are
 fetched live from ddragon/CommunityDragon at export time (same CDN URLs the
 frontend hotlinks in guide.js) and embedded — unlike the JSON export, this

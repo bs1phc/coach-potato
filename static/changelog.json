@@ -4,7 +4,10 @@
       "version": "1.27.0",
       "date": "2026-07-17",
       "items": [
-        "Champ guide list is table-like: aligned columns, row hover, and separate indicators for matchup notes (📝) and rune pages (🔮)"
+        "Champ guide list is table-like: aligned columns, row hover, and separate indicators for matchup notes (📝) and rune pages (🔮)",
+        "\"Champ guide\" renamed to \"Matchup guide\", with a champion icon next to the \"My champion\" selector",
+        "Ability cooldown tables (Q/W/E/R across levels 1/3/6/9/11/13/16/18) — always shown for \"My champion\", and for the opponent once a matchup is expanded",
+        "Fixed oversized champion icons in the Matchup guide's matchup row headers"
       ]
     },
     {
@@ -47,7 +50,7 @@
       "version": "1.23.0",
       "date": "2026-07-16",
       "items": [
-        "Champ guide can be exported as a printable PDF — general notes, patch, rune pages (with icons), and notes for every matchup"
+        "Matchup guide can be exported as a printable PDF — general notes, patch, rune pages (with icons), and notes for every matchup"
       ]
     },
     {
@@ -62,7 +65,7 @@
       "date": "2026-07-16",
       "items": [
         "Appearance settings — adjustable opacity (see-through panels, like a translucent terminal) and an optional background picture",
-        "Runes actually played now show in a block game's expanded stats panel too, mirroring Overview and Champ guide"
+        "Runes actually played now show in a block game's expanded stats panel too, mirroring Overview and Matchup guide"
       ]
     },
     {
@@ -70,7 +73,7 @@
       "date": "2026-07-16",
       "items": [
         "Removed the 10-game cap on block size — set any block size in Settings",
-        "Recent games (Overview and Champ guide) now show the game's time, not just the date"
+        "Recent games (Overview and Matchup guide) now show the game's time, not just the date"
       ]
     },
     {
@@ -100,7 +103,7 @@
       "version": "1.17.0",
       "date": "2026-07-15",
       "items": [
-        "Champ guide matchups are collapsed by default — click a matchup to expand its notes, runes, and recent games, instead of everything loading open at once",
+        "Matchup guide matchups are collapsed by default — click a matchup to expand its notes, runes, and recent games, instead of everything loading open at once",
         "Recent games now only fetch when you expand a matchup, not for every matchup up front"
       ]
     },
@@ -108,14 +111,14 @@
       "version": "1.16.1",
       "date": "2026-07-15",
       "items": [
-        "Recent games in the Champ guide now show the full rune page actually played (keystone, minors, secondary tree, shards), not just the keystone"
+        "Recent games in the Matchup guide now show the full rune page actually played (keystone, minors, secondary tree, shards), not just the keystone"
       ]
     },
     {
       "version": "1.16.0",
       "date": "2026-07-15",
       "items": [
-        "Champ guide's matchup rows show a \"Recent games\" column on the right — real games vs that opponent, with the runes you actually played in each one",
+        "Matchup guide's matchup rows show a \"Recent games\" column on the right — real games vs that opponent, with the runes you actually played in each one",
         "Crawler now records the actual rune page played per game for tracked accounts; run `./crawl.sh --backfill-runes` to fill it in for matches crawled before this update"
       ]
     },
@@ -123,26 +126,26 @@
       "version": "1.15.0",
       "date": "2026-07-15",
       "items": [
-        "General notes section on the Champ guide page, for champion-wide tips that aren't tied to one matchup",
-        "Export/import a champion's whole guide as a JSON file, with an optional password (real encryption, not just obfuscation) — Export/Import menus on the Champ guide page"
+        "General notes section on the Matchup guide page, for champion-wide tips that aren't tied to one matchup",
+        "Export/import a champion's whole guide as a JSON file, with an optional password (real encryption, not just obfuscation) — Export/Import menus on the Matchup guide page"
       ]
     },
     {
       "version": "1.14.0",
       "date": "2026-07-15",
       "items": [
-        "Champ guide moved to its own page — pick any champion (full roster, not just ones you've played) and see/edit full rune pages, patch, and notes for every matchup it has faced, or add one for a matchup you haven't played yet",
+        "Matchup guide moved to its own page — pick any champion (full roster, not just ones you've played) and see/edit full rune pages, patch, and notes for every matchup it has faced, or add one for a matchup you haven't played yet",
         "Rune picker is now a full click-through builder — primary tree, keystone, 3 minor rows, secondary tree, 2 secondary minors, and 3 stat shards, with real rune icons",
         "A matchup can hold more than one rune page (e.g. alternatives you're testing)",
-        "Champ guide is scoped per (your champion, opponent) instead of just the opponent — Gwen vs Darius and Camille vs Darius get separate guides",
-        "Matchups table links out to the Champ guide page for the selected \"My champion\" filter"
+        "Matchup guide is scoped per (your champion, opponent) instead of just the opponent — Gwen vs Darius and Camille vs Darius get separate guides",
+        "Matchups table links out to the Matchup guide page for the selected \"My champion\" filter"
       ]
     },
     {
       "version": "1.13.0",
       "date": "2026-07-15",
       "items": [
-        "Champ guide tab on matchups — record a rune keystone + secondary tree, patch version, and Markdown notes on how to play each matchup"
+        "Matchup guide tab on matchups — record a rune keystone + secondary tree, patch version, and Markdown notes on how to play each matchup"
       ]
     },
     {
