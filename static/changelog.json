@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.29.0",
+      "date": "2026-07-17",
+      "items": [
+        "\"Export everything\" and \"Import from a backup\" in Settings — every coaching session, block learning, matchup guide, champion note, item build, and Research entry, plus every uploaded clip and screenshot, as one .zip; import is meant for restoring onto a fresh/empty setup and refuses to overwrite anything already there"
+      ]
+    },
+    {
       "version": "1.28.0",
       "date": "2026-07-17",
       "items": [
