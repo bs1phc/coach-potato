@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.33.2",
+      "date": "2026-07-18",
+      "items": [
+        "Cooldown popup's \"💾 Save build\" moved to the top-right corner of the dialog, next to the view toggle, where it's easy to spot"
+      ]
+    },
+    {
       "version": "1.33.1",
       "date": "2026-07-18",
       "items": [

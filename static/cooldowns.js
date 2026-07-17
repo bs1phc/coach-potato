@@ -249,12 +249,6 @@ function cdSidePanel(sideKey, title) {
       <button type="button" class="preset icon-btn cd-haste-remove" data-side="${sideKey}" data-i="${i}"
         title="Remove" aria-label="Remove haste source">✕</button>
     </div>`).join("");
-  // compact save control lives in the skill-order header row (your side
-  // only) so both sides' grids stay vertically aligned
-  const saveBtn = sideKey === "me" && side.champ && cdState.sides.opp.champ
-    ? `<button type="button" class="preset cd-save-build"
-        title="Save this skill order to the champ guide (vs ${escapeHtml(displayName(cdState.sides.opp.champ))})">💾 Save</button>
-      <span class="muted cd-save-status"></span>` : "";
   return `<div class="cd-side">
     <div class="filter-label">${title}</div>
     <div class="cd-side-head">
@@ -271,7 +265,6 @@ function cdSidePanel(sideKey, title) {
       <span class="muted">${cdState.view === "matrix"
         ? "bubbles = cooldown from that level on; click cells to edit"
         : "click a cell to spend that level's point"}</span>
-      ${saveBtn}
     </div>
     <div class="cd-skillgrid" data-side="${sideKey}">${skillGridHtml(sideKey)}</div>
     <div class="cd-haste">
@@ -306,13 +299,21 @@ function renderCooldowns() {
   const box = $("#modal-box");
   const viewBtn = (view, label) => `<button type="button" data-view="${view}"
     class="${cdState.view === view ? "active" : ""}">${label}</button>`;
+  // save lives top-right in the dialog header so it's always in view
+  const saveBtn = cdState.sides.me.champ && cdState.sides.opp.champ
+    ? `<span class="muted cd-save-status"></span>
+      <button type="button" class="preset cd-save-build"
+        title="Save your skill order to the champ guide (${escapeHtml(displayName(cdState.sides.me.champ))} vs ${escapeHtml(displayName(cdState.sides.opp.champ))})">💾 Save build</button>` : "";
   box.innerHTML = `
     <div class="modal-head">
       <h3>Cooldown comparison</h3>
-      <div class="view-toggle cd-view-toggle" role="tablist">
-        ${viewBtn("levels", "At level")}${viewBtn("matrix", "Level matrix")}
+      <div class="modal-head-actions">
+        <div class="view-toggle cd-view-toggle" role="tablist">
+          ${viewBtn("levels", "At level")}${viewBtn("matrix", "Level matrix")}
+        </div>
+        ${saveBtn}
+        <button type="button" class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
       </div>
-      <button type="button" class="preset icon-btn" id="modal-close" title="Close" aria-label="Close">✕</button>
     </div>
     <div class="cd-grid ${cdState.view === "matrix" ? "cd-grid-stacked" : ""}">${
       cdSidePanel("me", "You")}${cdSidePanel("opp", "Opponent")}</div>`;
