@@ -249,12 +249,12 @@ function cdSidePanel(sideKey, title) {
       <button type="button" class="preset icon-btn cd-haste-remove" data-side="${sideKey}" data-i="${i}"
         title="Remove" aria-label="Remove haste source">✕</button>
     </div>`).join("");
+  // compact save control lives in the skill-order header row (your side
+  // only) so both sides' grids stay vertically aligned
   const saveBtn = sideKey === "me" && side.champ && cdState.sides.opp.champ
-    ? `<div class="cd-control-row">
-        <button type="button" class="preset cd-save-build">Save build to champ guide
-          (vs ${escapeHtml(displayName(cdState.sides.opp.champ))})</button>
-        <span class="muted cd-save-status"></span>
-      </div>` : "";
+    ? `<button type="button" class="preset cd-save-build"
+        title="Save this skill order to the champ guide (vs ${escapeHtml(displayName(cdState.sides.opp.champ))})">💾 Save</button>
+      <span class="muted cd-save-status"></span>` : "";
   return `<div class="cd-side">
     <div class="filter-label">${title}</div>
     <div class="cd-side-head">
@@ -266,14 +266,14 @@ function cdSidePanel(sideKey, title) {
       <label>Level <strong class="cd-level-value" data-side="${sideKey}">${side.level}</strong></label>
       <input type="range" class="cd-level" data-side="${sideKey}" min="1" max="18" value="${side.level}">
     </div>` : ""}
-    <div class="cd-control-row">
+    <div class="cd-control-row cd-skill-head">
       <span>Skill order</span>
       <span class="muted">${cdState.view === "matrix"
-        ? "bubbles = cooldown from that level on; click cells to edit the build"
+        ? "bubbles = cooldown from that level on; click cells to edit"
         : "click a cell to spend that level's point"}</span>
+      ${saveBtn}
     </div>
     <div class="cd-skillgrid" data-side="${sideKey}">${skillGridHtml(sideKey)}</div>
-    ${saveBtn}
     <div class="cd-haste">
       <div class="cd-control-row">
         <span>Haste sources</span>
@@ -372,6 +372,17 @@ function wireCooldowns(box) {
       });
     if (response.ok) {
       status.textContent = "saved ✓";
+      // keep an open Champ guide view in sync (guide.js loads before us)
+      if (typeof guideState !== "undefined" && guideState.myChampion === me) {
+        const entry = guideState.guide[opp]
+          || (guideState.guide[opp] = { notes: "", runes: [], patch_version: "", skill_order: [] });
+        entry.skill_order = [...cdState.sides.me.grid];
+        if (!guideState.matchups.some((m) => m.opp_champion === opp)) {
+          guideState.matchups.push({ opp_champion: opp, games: 0, winrate: null });
+        }
+        renderGuide();
+        updateGuideAddOptions();
+      }
     } else {
       const body = await response.json().catch(() => ({}));
       status.classList.add("status-error");

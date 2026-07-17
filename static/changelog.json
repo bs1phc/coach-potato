@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.33.1",
+      "date": "2026-07-18",
+      "items": [
+        "Champ guide reorganization: the guide editor now contains the skill order with nested edit/remove controls (read view shows it clean, no stray buttons); the cooldown popup's save is a compact 💾 Save in the skill-order header, fixing the misaligned Q/W/E/R rows between the two sides"
+      ]
+    },
+    {
       "version": "1.33.0",
       "date": "2026-07-18",
       "items": [

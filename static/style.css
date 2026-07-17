@@ -977,7 +977,9 @@ footer { margin-top: 36px; border-top: 1px solid var(--grid); padding-top: 10px;
 .cd-control-row {
   display: flex; align-items: center; gap: 8px; margin: 6px 0;
   font-size: 13px; flex-wrap: wrap;
+  min-height: 28px; /* rows match across sides even when only one has a button */
 }
+.cd-skill-head .cd-save-build { margin-left: auto; font-size: 12px; padding: 2px 8px; }
 .cd-control-row input[type="range"] { flex: 1; max-width: 180px; }
 
 /* 18×4 skill-order grid (levels × Q/W/E/R) */
@@ -1017,7 +1019,9 @@ footer { margin-top: 36px; border-top: 1px solid var(--grid); padding-top: 10px;
 .skill-grid-mini .sg-cell { width: 11px; height: 11px; cursor: default; border-radius: 2px; }
 .skill-grid-mini .sg-cell:hover { border-color: var(--border); }
 .guide-build { margin: 8px 0; }
-.guide-build h5 { margin: 0; font-size: 12px; color: var(--text-secondary); }
+.guide-build h5 { margin: 0 0 2px; font-size: 12px; color: var(--text-secondary); }
+.guide-build-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.icon-btn-sm { font-size: 12px; padding: 1px 7px; line-height: 1.4; }
 .cd-haste { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .cd-haste-row, .cd-haste-head {
   display: grid; grid-template-columns: 1fr 62px 62px 32px;

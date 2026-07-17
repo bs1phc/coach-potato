@@ -476,18 +476,23 @@ function guideRow(m) {
   const { notes, runes, patch_version, skill_order } = guideFor(champ);
   const hasBuild = skill_order && skill_order.some(Boolean);
   const hasAny = notes || (runes && runes.length) || patch_version || hasBuild;
-  const buildBlock = !editing && hasBuild
-    ? `<div class="guide-build">
-        <div class="mu-notes-head"><h5>Saved skill order</h5>
-          <button type="button" class="preset icon-btn guide-build-clear" data-opp="${escapeHtml(champ)}"
-            title="Remove saved build" aria-label="Remove saved build">✕</button>
-        </div>
-        ${skillGridMini(skill_order)}
-      </div>` : "";
   let body;
   if (editing) {
     const draft = guideState.draft;
+    // the skill order is edited (and saved) through the cooldown popup —
+    // here it just shows with its own nested edit/remove controls
     body = `${runePagesBuilder()}
+      <div class="guide-build">
+        <div class="guide-build-head">
+          <h5>Skill order</h5>
+          <button type="button" class="preset icon-btn-sm guide-cd-link" data-opp="${escapeHtml(champ)}"
+            title="Edit skill order in the cooldown comparison">✎ Edit</button>
+          ${hasBuild ? `<button type="button" class="preset icon-btn-sm guide-build-clear" data-opp="${escapeHtml(champ)}"
+            title="Remove saved skill order" aria-label="Remove saved skill order">🗑</button>` : ""}
+        </div>
+        ${hasBuild ? skillGridMini(skill_order)
+          : `<p class="muted">No saved skill order yet — ✎ Edit opens the cooldown view to build one.</p>`}
+      </div>
       <label class="filter-label" for="guide-patch">Patch</label>
       ${patchPicker(draft.patch_version)}
       <label class="filter-label" for="guide-notes">How to play this matchup (Markdown)</label>
@@ -499,6 +504,8 @@ function guideRow(m) {
         <span class="muted guide-status"></span>
       </div>`;
   } else if (hasAny) {
+    const buildBlock = hasBuild
+      ? `<div class="guide-build"><h5>Skill order</h5>${skillGridMini(skill_order)}</div>` : "";
     body = `${runePagesDisplay(runes, champ)}${buildBlock}${
       notes ? `<div class="md-body">${renderNotes(notes)}</div>` : ""}`;
   } else {
