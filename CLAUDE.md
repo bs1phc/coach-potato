@@ -223,6 +223,15 @@ single primary_keystone/secondary_tree columns collapsed into the `runes`
 list, across two migrations in `db._migrate` (SQLite can't ALTER a primary
 key, so both rebuild the table) — old rows land at `my_champion=''` since
 neither predecessor schema tracked which champion notes were written for.
+Those `my_champion=''` rows are unreachable from the guide UI, so on
+startup the app offers — once — to export them as Markdown (`GET
+/api/matchups/legacy-notes` for {count, prompted, notes}, `POST
+/api/matchups/legacy-notes/dismiss` flips the `legacy_notes_prompted`
+settings key; `maybeLegacyNotesPrompt` in app.js writes one .md per
+matchup via showDirectoryPicker, falling back to a combined .md download).
+Declining or completing the export dismisses it for good; cancelling the
+folder picker re-offers next launch. The rows themselves are never
+deleted.
 `champion_notes(champion PK, notes, updated_at_ms)` — general (non-matchup)
 Markdown notes for a champion (build order, itemization…), shown above the
 matchup list on the Champ guide page. `GET`/`PUT /api/champions/notes/

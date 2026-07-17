@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.24.0",
+      "date": "2026-07-17",
+      "items": [
+        "One-time prompt after updating: matchup notes written before the champ-guide update are no longer shown in the app — answer yes to export them as Markdown files to a folder of your choice",
+        "Champ-guide import now validates rune pages and file structure (clear errors instead of accepting malformed files), and export rejects invalid champion names"
+      ]
+    },
+    {
       "version": "1.23.0",
       "date": "2026-07-16",
       "items": [

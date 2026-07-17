@@ -644,6 +644,7 @@ def api_export_champ_guide(body: dict):
     my_champion = body.get("my_champion")
     if not my_champion:
         raise HTTPException(400, "provide my_champion")
+    _validate_champion(my_champion)
     password = body.get("password") or None
     conn = get_conn()
     try:
@@ -674,6 +675,7 @@ def api_export_champ_guide(body: dict):
 def api_export_champ_guide_pdf(my_champion: str):
     if not my_champion:
         raise HTTPException(400, "provide my_champion")
+    _validate_champion(my_champion)
     conn = get_conn()
     try:
         general_notes = db.get_champion_note(conn, my_champion)
@@ -705,6 +707,20 @@ def _decode_champ_guide_export(body):
             raise HTTPException(401, "wrong password or corrupt file")
     else:
         payload = {"general_notes": data.get("general_notes", ""), "guide": data.get("guide") or {}}
+    # Validate the payload shape here so both preview and import reject a
+    # malformed/hand-edited file with a 400 instead of a 500, and so import
+    # applies the same rune validation as the PUT endpoint.
+    guide = payload.get("guide") or {}
+    if not isinstance(guide, dict):
+        raise HTTPException(400, "guide must be an object of {opponent: entry}")
+    for opp_champion, entry in guide.items():
+        if entry is not None and not isinstance(entry, dict):
+            raise HTTPException(400, f"invalid guide entry for {opp_champion}")
+        runes = (entry or {}).get("runes") or []
+        if not isinstance(runes, list):
+            raise HTTPException(400, "runes must be a list of rune pages")
+        for page in runes:
+            _validate_rune_page(page)
     return my_champion, payload
 
 
@@ -744,6 +760,40 @@ def api_import_champ_guide(body: dict):
         return {"imported": len(guide)}
     finally:
         conn.close()
+
+
+# Matchup notes written before the champ-guide update (v1.14.0) migrated to
+# my_champion='' — preserved, but unreachable from the per-champion guide UI.
+# These endpoints back a one-time startup prompt offering to export them as
+# Markdown; `legacy_notes_prompted` (settings) records that the offer was made.
+
+
+@app.get("/api/matchups/legacy-notes")
+def api_legacy_notes():
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT opp_champion, notes, patch_version FROM matchup_notes
+               WHERE my_champion='' AND notes != '' ORDER BY opp_champion""").fetchall()
+        prompted = db.get_settings(conn).get("legacy_notes_prompted") == "1"
+    finally:
+        conn.close()
+    return {
+        "count": len(rows),
+        "prompted": prompted,
+        "notes": {r["opp_champion"]: {
+            "notes": r["notes"], "patch_version": r["patch_version"]} for r in rows},
+    }
+
+
+@app.post("/api/matchups/legacy-notes/dismiss")
+def api_legacy_notes_dismiss():
+    conn = get_conn()
+    try:
+        db.set_settings(conn, {"legacy_notes_prompted": "1"})
+    finally:
+        conn.close()
+    return {"dismissed": True}
 
 
 @app.get("/api/stats/rank-history")

@@ -1433,6 +1433,63 @@ async function loadDdragonVersion() {
   }
 }
 
+// ---------- legacy matchup-notes export (one-time, after the champ-guide update) ----------
+
+// Notes written before v1.14.0 migrated to my_champion='' and no longer
+// appear in the per-champion guide UI. Offer — once — to export them as
+// Markdown: one .md per matchup into a folder the user picks
+// (showDirectoryPicker, Chromium/WebView2), else a single combined .md
+// download. Declining, or completing the export, dismisses the offer for
+// good; cancelling the folder picker re-offers next launch so a mis-click
+// doesn't lose the only chance.
+async function maybeLegacyNotesPrompt() {
+  let info;
+  try {
+    info = await getJSON("/api/matchups/legacy-notes");
+  } catch {
+    return; // never block startup on this
+  }
+  if (info.prompted || !info.count) return;
+  const wants = confirm(
+    `Heads up: the champ-guide update tracks matchup notes per champion pair, ` +
+    `so your ${info.count} older matchup note(s) no longer appear in the app.\n\n` +
+    `Export them as Markdown files now? This offer is shown only once.`);
+  if (wants) {
+    const done = await exportLegacyNotes(info.notes);
+    if (!done) return;
+  }
+  fetch("/api/matchups/legacy-notes/dismiss", { method: "POST" });
+}
+
+function legacyNoteMd(champ, entry) {
+  return `# Matchup notes vs ${displayName(champ)}\n\n`
+    + (entry.patch_version ? `_Patch ${entry.patch_version}_\n\n` : "")
+    + entry.notes + "\n";
+}
+
+async function exportLegacyNotes(notes) {
+  const entries = Object.entries(notes);
+  if (window.showDirectoryPicker) {
+    let dir;
+    try {
+      dir = await showDirectoryPicker({ mode: "readwrite" });
+    } catch {
+      return false; // picker cancelled (or permission denied)
+    }
+    for (const [champ, entry] of entries) {
+      const handle = await dir.getFileHandle(`vs-${champ}.md`, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(legacyNoteMd(champ, entry));
+      await writable.close();
+    }
+    alert(`Exported ${entries.length} matchup note file(s).`);
+    return true;
+  }
+  const combined = entries.map(([champ, entry]) => legacyNoteMd(champ, entry)).join("\n---\n\n");
+  downloadBlob(new Blob([combined], { type: "text/markdown" }), "matchup-notes.md"); // guide.js
+  return true;
+}
+
 async function init(firstLoad = true) {
   state.players = await getJSON("/api/players");
   if (firstLoad) {
@@ -1447,6 +1504,7 @@ async function init(firstLoad = true) {
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);
+    maybeLegacyNotesPrompt();
     setInterval(autoCrawlTick, 10 * 60 * 1000);
   }
   if (!state.players.length) {

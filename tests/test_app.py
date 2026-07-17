@@ -808,6 +808,64 @@ def test_champ_guide_import_rejects_non_export_file(client):
     assert client.post("/api/matchups/notes/import", json={}).status_code == 400
 
 
+def test_champ_guide_import_validates_payload_shape(client):
+    # a hand-edited export with bad runes/entries must 400 (never 500 or
+    # store garbage) — import applies the same rune checks as the PUT
+    def export_with(guide):
+        return {"app": "coach-potato", "kind": "champ-guide-export", "version": 1,
+                "my_champion": "Gwen", "encrypted": False,
+                "general_notes": "", "guide": guide}
+    for bad_guide in (
+        "not-an-object",
+        {"Darius": "not-an-entry"},
+        {"Darius": {"runes": "not-a-list"}},
+        {"Darius": {"runes": ["not-a-page"]}},
+        {"Darius": {"runes": [{"keystone": "Not A Rune"}]}},
+    ):
+        body = {"data": export_with(bad_guide)}
+        assert client.post("/api/matchups/notes/import", json=body).status_code == 400
+        assert client.post("/api/matchups/notes/import/preview", json=body).status_code == 400
+
+
+def test_champ_guide_import_caps_pbkdf2_iterations(client):
+    _seed_champ_guide(client)
+    export = client.post("/api/matchups/notes/export",
+                          json={"my_champion": "Gwen", "password": "hunter2"}).json()
+    export["iterations"] = 10_000_000_000  # crafted file must not pin the CPU
+    r = client.post("/api/matchups/notes/import/preview",
+                    json={"data": export, "password": "hunter2"})
+    assert r.status_code == 401
+
+
+def test_champ_guide_export_validates_champion(client):
+    assert client.post("/api/matchups/notes/export",
+                       json={"my_champion": "NotAChamp"}).status_code == 400
+    assert client.get("/api/matchups/notes/export.pdf",
+                      params={"my_champion": "NotAChamp"}).status_code == 400
+
+
+def test_legacy_notes_status_and_dismiss(client):
+    # nothing legacy: count 0, not prompted
+    info = client.get("/api/matchups/legacy-notes").json()
+    assert info == {"count": 0, "prompted": False, "notes": {}}
+    # seed rows as the migration leaves them: my_champion=''
+    conn = db.connect(app_module.get_db_path())
+    db.set_matchup_note(conn, "", "Darius", notes="- care ghost timings")
+    db.set_matchup_note(conn, "", "Teemo", notes="ban it")
+    conn.close()
+    info = client.get("/api/matchups/legacy-notes").json()
+    assert info["count"] == 2
+    assert info["prompted"] is False
+    assert info["notes"]["Darius"] == {"notes": "- care ghost timings", "patch_version": ""}
+    # current-schema notes (real my_champion) are not "legacy"
+    client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "new-style"})
+    assert client.get("/api/matchups/legacy-notes").json()["count"] == 2
+    assert client.post("/api/matchups/legacy-notes/dismiss").json() == {"dismissed": True}
+    info = client.get("/api/matchups/legacy-notes").json()
+    assert info["prompted"] is True
+    assert info["count"] == 2  # notes stay in the db; only the prompt flag flips
+
+
 def test_close_block_rejects_empty_block(client):
     import os
     conn = db.connect(os.environ["LOL_DB_PATH"])
