@@ -533,16 +533,47 @@ def test_rank_history_endpoint(client, tmp_path, monkeypatch):
     assert data["sessions"] == [{"date": "2026-07-01", "title": "wave management"}]
 
 
+CONQ_PAGE = {
+    "label": "Standard", "primary_tree": "Precision", "keystone": "Conqueror",
+    "primary_runes": ["Triumph", "Legend: Alacrity", "Last Stand"],
+    "secondary_tree": "Resolve", "secondary_runes": ["Bone Plating", "Overgrowth"],
+    "shards": ["Adaptive Force", "Adaptive Force", "Health"],
+}
+GRASP_PAGE = {
+    "label": "vs poke", "primary_tree": "Resolve", "keystone": "Grasp of the Undying",
+    "primary_runes": ["Demolish", "Second Wind", "Overgrowth"],
+    "secondary_tree": "Inspiration", "secondary_runes": ["Biscuit Delivery", "Cosmic Insight"],
+    "shards": ["Health", "Armor", "Health"],
+}
+
+
 def test_matchup_notes_endpoints(client):
-    assert client.get("/api/matchups/notes").json() == {}
-    r = client.put("/api/matchups/notes/Darius", json={"notes": "- respect level 2"})
+    assert client.get("/api/matchups/notes?my_champion=Gwen").json() == {}
+    # a matchup can carry more than one rune page (e.g. alternatives being tested)
+    r = client.put("/api/matchups/notes/Gwen/Darius", json={
+        "notes": "- respect level 2", "runes": [CONQ_PAGE, GRASP_PAGE], "patch_version": "14.14"})
     assert r.status_code == 200
-    assert client.get("/api/matchups/notes").json() == {"Darius": "- respect level 2"}
-    client.put("/api/matchups/notes/Darius", json={"notes": ""})  # empty deletes
-    assert client.get("/api/matchups/notes").json() == {}
-    assert client.put("/api/matchups/notes/NotAChamp",
+    assert client.get("/api/matchups/notes?my_champion=Gwen").json() == {"Darius": {
+        "notes": "- respect level 2", "runes": [CONQ_PAGE, GRASP_PAGE], "patch_version": "14.14"}}
+    # a different "my champion" has its own, independent guide
+    assert client.get("/api/matchups/notes?my_champion=Camille").json() == {}
+    assert client.get("/api/matchups/notes").status_code == 422  # my_champion required
+    client.put("/api/matchups/notes/Gwen/Darius", json={
+        "notes": "", "runes": [], "patch_version": ""})
+    assert client.get("/api/matchups/notes?my_champion=Gwen").json() == {}  # all-blank deletes
+    assert client.put("/api/matchups/notes/Gwen/NotAChamp",
                       json={"notes": "x"}).status_code == 400
-    assert client.put("/api/matchups/notes/Darius", json={}).status_code == 400
+    assert client.put("/api/matchups/notes/NotAChamp/Darius",
+                      json={"notes": "x"}).status_code == 400
+    assert client.put("/api/matchups/notes/Gwen/Darius", json={}).status_code == 400
+    assert client.put("/api/matchups/notes/Gwen/Darius",
+                      json={"runes": [{"keystone": "Not A Rune"}]}).status_code == 400
+    assert client.put("/api/matchups/notes/Gwen/Darius",
+                      json={"runes": [{"primary_tree": "Not A Tree"}]}).status_code == 400
+    assert client.put("/api/matchups/notes/Gwen/Darius",
+                      json={"runes": [{"shards": ["Not A Shard"]}]}).status_code == 400
+    assert client.put("/api/matchups/notes/Gwen/Darius",
+                      json={"runes": "not-a-list"}).status_code == 400
 
 
 def _put_settings(client, **extra):
@@ -652,9 +683,129 @@ def test_close_block_endpoint(client):
 
 def test_matchup_notes_accept_match_v5_champion_spelling(client):
     # match-v5 says FiddleSticks; DDragon says Fiddlesticks — both must save
-    assert client.put("/api/matchups/notes/FiddleSticks",
+    assert client.put("/api/matchups/notes/Gwen/FiddleSticks",
                       json={"notes": "ban worthy"}).status_code == 200
-    assert client.get("/api/matchups/notes").json() == {"FiddleSticks": "ban worthy"}
+    assert client.get("/api/matchups/notes?my_champion=Gwen").json()["FiddleSticks"]["notes"] == "ban worthy"
+
+
+def test_champion_general_notes_endpoints(client):
+    assert client.get("/api/champions/notes/Gwen").json() == {"notes": ""}
+    r = client.put("/api/champions/notes/Gwen", json={"notes": "- always take Conqueror"})
+    assert r.status_code == 200
+    assert client.get("/api/champions/notes/Gwen").json() == {"notes": "- always take Conqueror"}
+    client.put("/api/champions/notes/Gwen", json={"notes": ""})  # blank deletes
+    assert client.get("/api/champions/notes/Gwen").json() == {"notes": ""}
+    assert client.put("/api/champions/notes/NotAChamp", json={"notes": "x"}).status_code == 400
+    assert client.put("/api/champions/notes/Gwen", json={}).status_code == 400
+
+
+def _seed_champ_guide(client):
+    client.put("/api/champions/notes/Gwen", json={"notes": "general Gwen tips"})
+    client.put("/api/matchups/notes/Gwen/Darius", json={
+        "notes": "respect level 2", "runes": [CONQ_PAGE], "patch_version": "14.14"})
+    client.put("/api/matchups/notes/Gwen/Renekton", json={"notes": "easy lane"})
+
+
+def test_champ_guide_export_plain(client):
+    _seed_champ_guide(client)
+    r = client.post("/api/matchups/notes/export", json={"my_champion": "Gwen"})
+    assert r.status_code == 200
+    assert "attachment" in r.headers["content-disposition"]
+    assert "champ-guide-gwen.json" in r.headers["content-disposition"]
+    data = r.json()
+    assert data["kind"] == "champ-guide-export"
+    assert data["my_champion"] == "Gwen"
+    assert data["encrypted"] is False
+    assert data["general_notes"] == "general Gwen tips"
+    assert data["guide"]["Darius"]["notes"] == "respect level 2"
+    assert data["guide"]["Renekton"]["notes"] == "easy lane"
+
+
+def test_champ_guide_export_encrypted_hides_plaintext(client):
+    _seed_champ_guide(client)
+    r = client.post("/api/matchups/notes/export",
+                     json={"my_champion": "Gwen", "password": "hunter2"})
+    data = r.json()
+    assert data["encrypted"] is True
+    assert "guide" not in data and "general_notes" not in data
+    assert "ciphertext" in data and "salt" in data
+    raw = r.text
+    assert "respect level 2" not in raw  # plaintext notes must not leak into the encrypted file
+
+
+def test_champ_guide_export_pdf(client, monkeypatch):
+    import httpx as httpx_module
+    from server import pdf_export as pdf_export_module
+
+    def fake_get(url, timeout=5.0):
+        return httpx_module.Response(200, content=b"", request=httpx_module.Request("GET", url))
+    monkeypatch.setattr(pdf_export_module.httpx, "get", fake_get)
+
+    _seed_champ_guide(client)
+    r = client.get("/api/matchups/notes/export.pdf", params={"my_champion": "Gwen"})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert "champ-guide-gwen.pdf" in r.headers["content-disposition"]
+    assert r.content.startswith(b"%PDF")
+
+
+def test_champ_guide_export_pdf_requires_my_champion(client):
+    assert client.get("/api/matchups/notes/export.pdf").status_code == 422  # missing query param
+    assert client.get("/api/matchups/notes/export.pdf", params={"my_champion": ""}).status_code == 400
+
+
+def test_champ_guide_import_plain_round_trip(client):
+    _seed_champ_guide(client)
+    export = client.post("/api/matchups/notes/export", json={"my_champion": "Gwen"}).json()
+    # import into a fresh champion to prove the round trip reproduces the data
+    export["my_champion"] = "Camille"
+    preview = client.post("/api/matchups/notes/import/preview", json={"data": export}).json()
+    assert preview["my_champion"] == "Camille"
+    assert sorted(preview["opponents"]) == ["Darius", "Renekton"]
+    assert preview["will_overwrite"] == []
+    assert preview["has_general_notes"] is True
+    r = client.post("/api/matchups/notes/import", json={"data": export})
+    assert r.status_code == 200
+    assert r.json() == {"imported": 2}
+    assert client.get("/api/champions/notes/Camille").json()["notes"] == "general Gwen tips"
+    guide = client.get("/api/matchups/notes?my_champion=Camille").json()
+    assert guide["Darius"]["runes"] == [CONQ_PAGE]
+    assert guide["Renekton"]["notes"] == "easy lane"
+
+
+def test_champ_guide_import_detects_overwrites(client):
+    _seed_champ_guide(client)
+    export = client.post("/api/matchups/notes/export", json={"my_champion": "Gwen"}).json()
+    client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "already had different notes"})
+    preview = client.post("/api/matchups/notes/import/preview", json={"data": export}).json()
+    # both matchups already existed for Gwen before the import (from the seed)
+    assert sorted(preview["will_overwrite"]) == ["Darius", "Renekton"]
+    client.post("/api/matchups/notes/import", json={"data": export})
+    assert client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]["notes"] == "respect level 2"
+
+
+def test_champ_guide_import_encrypted_requires_correct_password(client):
+    _seed_champ_guide(client)
+    export = client.post("/api/matchups/notes/export",
+                          json={"my_champion": "Gwen", "password": "hunter2"}).json()
+    export["my_champion"] = "Camille"
+    assert client.post("/api/matchups/notes/import/preview",
+                       json={"data": export}).status_code == 401  # no password
+    assert client.post("/api/matchups/notes/import/preview",
+                       json={"data": export, "password": "wrong"}).status_code == 401
+    r = client.post("/api/matchups/notes/import/preview",
+                    json={"data": export, "password": "hunter2"})
+    assert r.status_code == 200
+    assert sorted(r.json()["opponents"]) == ["Darius", "Renekton"]
+    assert client.post("/api/matchups/notes/import",
+                       json={"data": export, "password": "hunter2"}).json() == {"imported": 2}
+    assert client.get("/api/matchups/notes?my_champion=Camille").json()["Darius"]["runes"] == [CONQ_PAGE]
+
+
+def test_champ_guide_import_rejects_non_export_file(client):
+    assert client.post("/api/matchups/notes/import",
+                       json={"data": {"not": "an export"}}).status_code == 400
+    assert client.post("/api/matchups/notes/import", json={}).status_code == 400
 
 
 def test_close_block_rejects_empty_block(client):
@@ -687,9 +838,69 @@ def test_block_size_setting_endpoint(client):
     assert _put_settings(client, block_size=5).status_code == 200
     assert client.get("/api/settings").json()["block_size"] == 5
     assert client.get("/api/blocks").json()["block_size"] == 5
-    assert _put_settings(client, block_size=11).status_code == 400
+    assert _put_settings(client, block_size=25).status_code == 200
+    assert client.get("/api/settings").json()["block_size"] == 25
     assert _put_settings(client, block_size=0).status_code == 400
     assert _put_settings(client, block_size="3").status_code == 400
+
+
+def test_ui_opacity_setting_endpoint(client):
+    assert client.get("/api/settings").json()["ui_opacity"] == 100
+    assert _put_settings(client, ui_opacity=60).status_code == 200
+    assert client.get("/api/settings").json()["ui_opacity"] == 60
+    assert _put_settings(client, ui_opacity=19).status_code == 400
+    assert _put_settings(client, ui_opacity=101).status_code == 400
+    assert _put_settings(client, ui_opacity="60").status_code == 400
+
+
+def test_accent_color_setting_endpoint(client):
+    assert client.get("/api/settings").json()["accent_color"] is None
+    assert _put_settings(client, accent_color="#ff8800").status_code == 200
+    assert client.get("/api/settings").json()["accent_color"] == "#ff8800"
+    assert _put_settings(client, accent_color=None).status_code == 200
+    assert client.get("/api/settings").json()["accent_color"] is None
+    assert _put_settings(client, accent_color="ff8800").status_code == 400
+    assert _put_settings(client, accent_color="#fff").status_code == 400
+    assert _put_settings(client, accent_color=123).status_code == 400
+
+
+def test_background_image_upload_roundtrip(client):
+    assert client.get("/api/settings").json()["background_image"] is False
+    assert client.get("/api/settings/background/file").status_code == 404
+
+    resp = client.post("/api/settings/background",
+                        files={"file": ("bg.png", b"fake png bytes", "image/png")})
+    assert resp.status_code == 200
+    assert resp.json() == {"background_image": True}
+    assert client.get("/api/settings").json()["background_image"] is True
+
+    file_resp = client.get("/api/settings/background/file")
+    assert file_resp.status_code == 200
+    assert file_resp.content == b"fake png bytes"
+
+    # uploading again replaces the old file (only one lives on disk)
+    bg_dir = app_module.get_background_dir()
+    assert len(list(bg_dir.iterdir())) == 1
+    resp2 = client.post("/api/settings/background",
+                         files={"file": ("bg2.jpg", b"other bytes", "image/jpeg")})
+    assert resp2.status_code == 200
+    assert len(list(bg_dir.iterdir())) == 1
+    assert client.get("/api/settings/background/file").content == b"other bytes"
+
+    assert client.delete("/api/settings/background").json() == {"deleted": True}
+    assert client.get("/api/settings").json()["background_image"] is False
+    assert client.get("/api/settings/background/file").status_code == 404
+    assert len(list(bg_dir.iterdir())) == 0
+
+
+def test_background_image_rejects_bad_extension_and_oversize(client):
+    resp = client.post("/api/settings/background",
+                        files={"file": ("bg.exe", b"nope", "application/octet-stream")})
+    assert resp.status_code == 400
+    big = b"x" * (app_module.MAX_BACKGROUND_BYTES + 1)
+    resp = client.post("/api/settings/background",
+                        files={"file": ("bg.png", big, "image/png")})
+    assert resp.status_code == 413
 
 
 def _garen_and_kled(conn):
@@ -744,3 +955,101 @@ def test_block_gap_settings_validation(client):
     assert _put_settings(client, block_gap_hours=-1).status_code == 400
     assert _put_settings(client, block_gap_hours=999).status_code == 400
     assert _put_settings(client, block_gap_confirm="yes").status_code == 400
+
+
+# ---------- clips ----------
+
+def _make_session(client):
+    return client.post("/api/sessions", json={"date": "2026-06-28", "title": "waves"}).json()["id"]
+
+
+def _make_block_game_entry(client):
+    game = client.get("/api/stats/games").json()[0]
+    resp = client.post("/api/blocks/games",
+                       json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    block_id = resp.json()["block_id"]
+    entry = client.get("/api/blocks").json()["blocks"][0]["games"][0]
+    return entry["entry_id"], block_id
+
+
+def test_clip_link_roundtrip_for_session(client):
+    session_id = _make_session(client)
+    assert client.get(f"/api/clips?owner_type=session&owner_id={session_id}").json() == []
+    r = client.post("/api/clips", data={
+        "owner_type": "session", "owner_id": session_id,
+        "label": "wave management @14min", "url": "https://youtu.be/abc123",
+    })
+    assert r.status_code == 200
+    clip = r.json()
+    assert clip["kind"] == "link"
+    assert clip["play_url"] == "https://youtu.be/abc123"
+    assert clip["label"] == "wave management @14min"
+    clips = client.get(f"/api/clips?owner_type=session&owner_id={session_id}").json()
+    assert len(clips) == 1
+    assert client.delete(f"/api/clips/{clip['id']}").status_code == 200
+    assert client.get(f"/api/clips?owner_type=session&owner_id={session_id}").json() == []
+
+
+def test_clip_upload_roundtrip_for_block_game(client):
+    entry_id, _ = _make_block_game_entry(client)
+    r = client.post("/api/clips",
+                    data={"owner_type": "block_game", "owner_id": entry_id, "label": "dive call"},
+                    files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")})
+    assert r.status_code == 200
+    clip = r.json()
+    assert clip["kind"] == "upload"
+    assert clip["play_url"] == f"/api/clips/{clip['id']}/file"
+    file_resp = client.get(clip["play_url"])
+    assert file_resp.status_code == 200
+    assert file_resp.content == b"fake video bytes"
+    assert client.delete(f"/api/clips/{clip['id']}").status_code == 200
+    assert client.get(clip["play_url"]).status_code == 404  # file removed from disk too
+
+
+def test_clip_upload_rejects_oversize_and_bad_extension(client):
+    session_id = _make_session(client)
+    big = b"x" * (50 * 1024 * 1024 + 1)
+    r = client.post("/api/clips", data={"owner_type": "session", "owner_id": session_id},
+                    files={"file": ("clip.mp4", big, "video/mp4")})
+    assert r.status_code == 413
+    r = client.post("/api/clips", data={"owner_type": "session", "owner_id": session_id},
+                    files={"file": ("clip.exe", b"nope", "application/octet-stream")})
+    assert r.status_code == 400
+
+
+def test_clip_requires_exactly_one_of_file_or_url(client):
+    session_id = _make_session(client)
+    assert client.post("/api/clips",
+                       data={"owner_type": "session", "owner_id": session_id}).status_code == 400
+    assert client.post("/api/clips", data={
+        "owner_type": "session", "owner_id": session_id, "url": "https://x.test/a",
+    }, files={"file": ("clip.mp4", b"x", "video/mp4")}).status_code == 400
+
+
+def test_clip_rejects_unknown_owner(client):
+    assert client.post("/api/clips", data={
+        "owner_type": "session", "owner_id": 999, "url": "https://x.test/a",
+    }).status_code == 404
+    assert client.post("/api/clips", data={
+        "owner_type": "spaceship", "owner_id": 1, "url": "https://x.test/a",
+    }).status_code == 400
+
+
+def test_deleting_session_cleans_up_its_clips(client):
+    session_id = _make_session(client)
+    r = client.post("/api/clips",
+                    data={"owner_type": "session", "owner_id": session_id, "label": "x"},
+                    files={"file": ("clip.mp4", b"bytes", "video/mp4")})
+    play_url = r.json()["play_url"]
+    assert client.delete(f"/api/sessions/{session_id}").status_code == 200
+    assert client.get(play_url).status_code == 404
+
+
+def test_deleting_block_cleans_up_its_games_clips(client):
+    entry_id, block_id = _make_block_game_entry(client)
+    r = client.post("/api/clips",
+                    data={"owner_type": "block_game", "owner_id": entry_id, "label": "x"},
+                    files={"file": ("clip.mp4", b"bytes", "video/mp4")})
+    play_url = r.json()["play_url"]
+    assert client.delete(f"/api/blocks/{block_id}").status_code == 200
+    assert client.get(play_url).status_code == 404

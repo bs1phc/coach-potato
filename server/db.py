@@ -102,10 +102,39 @@ CREATE TABLE IF NOT EXISTS block_games (
 );
 
 CREATE TABLE IF NOT EXISTS matchup_notes (
-    opp_champion TEXT PRIMARY KEY,
+    my_champion TEXT NOT NULL,
+    opp_champion TEXT NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    runes TEXT NOT NULL DEFAULT '',
+    patch_version TEXT NOT NULL DEFAULT '',
+    updated_at_ms INTEGER,
+    PRIMARY KEY (my_champion, opp_champion)
+);
+
+CREATE TABLE IF NOT EXISTS champion_notes (
+    champion TEXT PRIMARY KEY,
     notes TEXT NOT NULL DEFAULT '',
     updated_at_ms INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS participant_runes (
+    match_id TEXT NOT NULL,
+    puuid TEXT NOT NULL,
+    runes TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (match_id, puuid)
+);
+
+CREATE TABLE IF NOT EXISTS clips (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type TEXT NOT NULL CHECK (owner_type IN ('session', 'block_game')),
+    owner_id INTEGER NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL CHECK (kind IN ('upload', 'link')),
+    file_name TEXT,
+    url TEXT,
+    created_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_clips_owner ON clips(owner_type, owner_id);
 
 CREATE TABLE IF NOT EXISTS rank_history (
     puuid TEXT NOT NULL,
@@ -162,6 +191,49 @@ def _migrate(conn):
             conn.execute("ALTER TABLE blocks ADD COLUMN end_ranks TEXT")
         if "closed_at_ms" not in block_columns:
             conn.execute("ALTER TABLE blocks ADD COLUMN closed_at_ms INTEGER")
+    matchup_notes_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matchup_notes)")}
+    if matchup_notes_columns and "my_champion" not in matchup_notes_columns:
+        # Pre-v1.14.0 shapes had opp_champion as the sole PK (no per-champion
+        # scoping) and, from v1.13.0 on, separate primary_keystone/
+        # secondary_tree columns instead of a single runes-list JSON blob.
+        # SQLite can't ALTER a primary key, so rebuild the table and copy
+        # rows forward: my_champion='' (the old schema didn't track which
+        # champion notes were written for), old keystone/tree columns folded
+        # into a one-page runes list.
+        has_old_runes = "primary_keystone" in matchup_notes_columns
+        has_patch = "patch_version" in matchup_notes_columns
+        select_cols = "opp_champion, notes, updated_at_ms"
+        if has_old_runes:
+            select_cols += ", primary_keystone, secondary_tree"
+        if has_patch:
+            select_cols += ", patch_version"
+        old_rows = conn.execute(f"SELECT {select_cols} FROM matchup_notes").fetchall()
+        conn.execute("ALTER TABLE matchup_notes RENAME TO matchup_notes_old")
+        conn.execute("""
+            CREATE TABLE matchup_notes (
+                my_champion TEXT NOT NULL,
+                opp_champion TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                runes TEXT NOT NULL DEFAULT '',
+                patch_version TEXT NOT NULL DEFAULT '',
+                updated_at_ms INTEGER,
+                PRIMARY KEY (my_champion, opp_champion)
+            )""")
+        for row in old_rows:
+            runes_json = ""
+            if has_old_runes and (row["primary_keystone"] or row["secondary_tree"]):
+                runes_json = json.dumps([{
+                    "label": "", "primary_tree": "", "keystone": row["primary_keystone"] or "",
+                    "primary_runes": [], "secondary_tree": row["secondary_tree"] or "",
+                    "secondary_runes": [], "shards": [],
+                }])
+            conn.execute(
+                """INSERT INTO matchup_notes
+                   (my_champion, opp_champion, notes, runes, patch_version, updated_at_ms)
+                   VALUES ('', ?, ?, ?, ?, ?)""",
+                (row["opp_champion"], row["notes"], runes_json,
+                 row["patch_version"] if has_patch else "", row["updated_at_ms"]))
+        conn.execute("DROP TABLE matchup_notes_old")
     conn.commit()
 
 
@@ -226,22 +298,63 @@ def get_player_rank(conn, puuid):
     return conn.execute("SELECT * FROM player_ranks WHERE puuid=?", (puuid,)).fetchone()
 
 
-def get_matchup_notes(conn):
-    """All non-empty matchup notes: {opp_champion: notes}."""
-    return {r["opp_champion"]: r["notes"] for r in conn.execute(
-        "SELECT opp_champion, notes FROM matchup_notes WHERE notes != ''")}
+def get_matchup_notes(conn, my_champion):
+    """Champ guide (notes, rune pages, patch) for every opponent matchup
+    my_champion has any field set for: {opp_champion: {notes, runes: [...],
+    patch_version}}. `runes` is a list — a matchup can carry more than one
+    rune page (e.g. alternatives being tested)."""
+    rows = conn.execute(
+        """SELECT opp_champion, notes, runes, patch_version
+           FROM matchup_notes
+           WHERE my_champion=? AND (notes != '' OR runes != '' OR patch_version != '')""",
+        (my_champion,))
+    return {r["opp_champion"]: {
+        "notes": r["notes"], "runes": json.loads(r["runes"]) if r["runes"] else [],
+        "patch_version": r["patch_version"],
+    } for r in rows}
 
 
-def set_matchup_note(conn, champion, notes):
-    """Upsert the notes for a matchup; empty notes delete the row."""
+def set_matchup_note(conn, my_champion, opp_champion, notes="", runes=None, patch_version=""):
+    """Upsert the champ guide for a (my_champion, opp_champion) matchup.
+    runes: list of rune-page dicts (label, primary_tree, keystone,
+    primary_runes[], secondary_tree, secondary_runes[], shards[]). All-blank
+    (no notes, no rune pages, no patch) deletes the row."""
+    runes_json = json.dumps(runes) if runes else ""
     with conn:
-        if not notes.strip():
-            conn.execute("DELETE FROM matchup_notes WHERE opp_champion=?", (champion,))
+        if not notes.strip() and not runes_json and not patch_version.strip():
+            conn.execute(
+                "DELETE FROM matchup_notes WHERE my_champion=? AND opp_champion=?",
+                (my_champion, opp_champion))
             return
         conn.execute(
-            f"""INSERT INTO matchup_notes (opp_champion, notes, updated_at_ms)
+            f"""INSERT INTO matchup_notes
+                (my_champion, opp_champion, notes, runes, patch_version, updated_at_ms)
+                VALUES (?, ?, ?, ?, ?, {_now_expr()})
+                ON CONFLICT(my_champion, opp_champion) DO UPDATE SET
+                  notes=excluded.notes,
+                  runes=excluded.runes,
+                  patch_version=excluded.patch_version,
+                  updated_at_ms=excluded.updated_at_ms""",
+            (my_champion, opp_champion, notes, runes_json, patch_version))
+
+
+def get_champion_note(conn, champion):
+    """General (not matchup-specific) Markdown notes for a champion."""
+    row = conn.execute(
+        "SELECT notes FROM champion_notes WHERE champion=?", (champion,)).fetchone()
+    return row["notes"] if row else ""
+
+
+def set_champion_note(conn, champion, notes):
+    """Upsert a champion's general notes; blank notes delete the row."""
+    with conn:
+        if not notes.strip():
+            conn.execute("DELETE FROM champion_notes WHERE champion=?", (champion,))
+            return
+        conn.execute(
+            f"""INSERT INTO champion_notes (champion, notes, updated_at_ms)
                 VALUES (?, ?, {_now_expr()})
-                ON CONFLICT(opp_champion) DO UPDATE SET
+                ON CONFLICT(champion) DO UPDATE SET
                   notes=excluded.notes, updated_at_ms=excluded.updated_at_ms""",
             (champion, notes))
 
@@ -303,6 +416,17 @@ def insert_participant_metrics(conn, match_id, puuid, values):
             f"VALUES ({placeholders})",
             {**values, "match_id": match_id, "puuid": puuid},
         )
+
+
+def insert_participant_runes(conn, match_id, puuid, runes):
+    """runes: a decoded rune-page dict (server.rune_data.decode_perks), or
+    None when the match had no usable perks data. Always inserts a row
+    (blank when None) so backfill_runes doesn't keep re-fetching matches
+    that genuinely have no perks data."""
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO participant_runes (match_id, puuid, runes) VALUES (?, ?, ?)",
+            (match_id, puuid, json.dumps(runes) if runes else ""))
 
 
 def tracked_ranks(conn):
@@ -370,19 +494,18 @@ def set_settings(conn, mapping):
 
 
 BLOCK_SIZE = 3  # default games per block
-MAX_BLOCK_SIZE = 10
 BLOCK_GAP_HOURS = 3.0  # default auto-close time gap; 0 disables
 MAX_BLOCK_GAP_HOURS = 168.0
 
 
 def get_block_size(conn):
-    """Games per block from settings, clamped to 1..MAX_BLOCK_SIZE."""
+    """Games per block from settings, floored at 1 (no upper bound)."""
     raw = get_settings(conn).get("block_size")
     try:
         size = int(raw)
     except (TypeError, ValueError):
         return BLOCK_SIZE
-    return max(1, min(MAX_BLOCK_SIZE, size))
+    return max(1, size)
 
 
 def get_block_gap_ms(conn):
@@ -598,3 +721,61 @@ def set_crawl_watermark(conn, puuid, queue_id, newest_ms, complete):
                  complete=excluded.complete""",
             (puuid, queue_id, newest_ms, int(complete)),
         )
+
+
+def add_clip(conn, owner_type, owner_id, label, kind, file_name=None, url=None):
+    """owner_type: 'session' | 'block_game'. kind: 'upload' (file_name set,
+    stored on disk by the caller — db.py has no filesystem knowledge) |
+    'link' (url set)."""
+    with conn:
+        cursor = conn.execute(
+            f"""INSERT INTO clips (owner_type, owner_id, label, kind, file_name, url, created_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, {_now_expr()})""",
+            (owner_type, owner_id, label, kind, file_name, url))
+    return cursor.lastrowid
+
+
+def list_clips(conn, owner_type, owner_id):
+    return conn.execute(
+        "SELECT * FROM clips WHERE owner_type=? AND owner_id=? ORDER BY created_at_ms",
+        (owner_type, owner_id)).fetchall()
+
+
+def get_clip(conn, clip_id):
+    return conn.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone()
+
+
+def delete_clip(conn, clip_id):
+    with conn:
+        cursor = conn.execute("DELETE FROM clips WHERE id=?", (clip_id,))
+    return cursor.rowcount > 0
+
+
+def delete_clips_for_owner(conn, owner_type, owner_id):
+    """Delete all clips for one session/block_game (its own record is being
+    deleted by the caller). Returns the file_names of any 'upload' clips so
+    the caller can unlink them from disk — db.py never touches the
+    filesystem beyond sqlite itself."""
+    rows = conn.execute(
+        "SELECT file_name FROM clips WHERE owner_type=? AND owner_id=? AND kind='upload'",
+        (owner_type, owner_id)).fetchall()
+    with conn:
+        conn.execute("DELETE FROM clips WHERE owner_type=? AND owner_id=?",
+                     (owner_type, owner_id))
+    return [r["file_name"] for r in rows if r["file_name"]]
+
+
+def delete_clips_for_block(conn, block_id):
+    """Delete all clips attached to any game in a block (the block and its
+    block_games rows are being deleted by the caller). Returns file_names of
+    any 'upload' clips to unlink."""
+    rows = conn.execute(
+        """SELECT c.file_name FROM clips c
+           JOIN block_games bg ON bg.id = c.owner_id
+           WHERE c.owner_type='block_game' AND bg.block_id=? AND c.kind='upload'""",
+        (block_id,)).fetchall()
+    with conn:
+        conn.execute(
+            """DELETE FROM clips WHERE owner_type='block_game' AND owner_id IN
+               (SELECT id FROM block_games WHERE block_id=?)""", (block_id,))
+    return [r["file_name"] for r in rows if r["file_name"]]

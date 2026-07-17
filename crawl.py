@@ -29,6 +29,8 @@ def main():
                         help="skip opponent rank enrichment")
     parser.add_argument("--backfill-metrics", action="store_true",
                         help="only backfill coaching metrics for stored matches, no crawl")
+    parser.add_argument("--backfill-runes", action="store_true",
+                        help="only backfill actual runes played for stored matches, no crawl")
     args = parser.parse_args()
 
     config = load_config()
@@ -48,6 +50,11 @@ def main():
         if args.backfill_metrics:
             print("Backfilling coaching metrics for stored matches ...")
             n = crawler.backfill_metrics(limit=args.limit)
+            print(f"  -> {n} matches re-fetched")
+            return
+        if args.backfill_runes:
+            print("Backfilling actual runes played for stored matches ...")
+            n = crawler.backfill_runes(limit=args.limit)
             print(f"  -> {n} matches re-fetched")
             return
         for game_name, tag_line in accounts:

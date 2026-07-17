@@ -1,17 +1,19 @@
 """FastAPI app: JSON API over the sqlite db + static frontend."""
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, stats
+from . import config, crypto, db, pdf_export, rune_data, stats
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING
@@ -34,6 +36,10 @@ def _champion_ids():
 
 CHAMPION_IDS = _champion_ids()
 
+
+RUNE_TREE_NAMES, RUNE_NAMES, RUNE_SHARD_NAMES = (
+    rune_data.TREE_NAMES, rune_data.RUNE_NAMES, rune_data.SHARD_NAMES)
+
 RANGE_PRESETS = {"7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
 
 
@@ -43,6 +49,32 @@ def get_db_path() -> Path:
 
 def get_conn():
     return db.connect(get_db_path())
+
+
+def get_clips_dir() -> Path:
+    d = get_db_path().parent / "clips"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+MAX_CLIP_BYTES = 50 * 1024 * 1024  # 50 MB
+ALLOWED_CLIP_EXTENSIONS = {".mp4", ".mov", ".webm", ".m4v"}
+CLIP_OWNER_TABLES = {"session": "coaching_sessions", "block_game": "block_games"}
+
+
+def get_background_dir() -> Path:
+    d = get_db_path().parent / "background"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+MAX_BACKGROUND_BYTES = 15 * 1024 * 1024  # 15 MB
+ALLOWED_BACKGROUND_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
+def _unlink_clip_files(file_names):
+    for name in file_names:
+        (get_clips_dir() / name).unlink(missing_ok=True)
 
 
 def parse_time_range(params: dict, now_ms: int | None = None):
@@ -85,7 +117,8 @@ def api_version():
     return {"version": config.app_version(), "repo": config.GITHUB_REPO}
 
 
-HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks"}
+HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "guide"}
+HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 def _hidden_views(conn):
@@ -108,6 +141,9 @@ def _extra_settings(conn):
         "block_size": db.get_block_size(conn),
         "block_gap_hours": db.get_block_gap_ms(conn) / 3_600_000,
         "block_gap_confirm": stored.get("block_gap_confirm") != "0",
+        "ui_opacity": int(stored.get("ui_opacity") or 100),
+        "background_image": bool(stored.get("background_image_file")),
+        "accent_color": stored.get("accent_color") or None,
     }
 
 
@@ -195,9 +231,8 @@ def api_put_settings(body: dict):
     if not isinstance(hide_my_rank, bool):
         raise HTTPException(400, "hide_my_rank must be a boolean")
     block_size = body.get("block_size", db.BLOCK_SIZE)
-    if (not isinstance(block_size, int) or isinstance(block_size, bool)
-            or not 1 <= block_size <= db.MAX_BLOCK_SIZE):
-        raise HTTPException(400, f"block_size must be 1..{db.MAX_BLOCK_SIZE}")
+    if not isinstance(block_size, int) or isinstance(block_size, bool) or block_size < 1:
+        raise HTTPException(400, "block_size must be a whole number >= 1")
     gap_hours = body.get("block_gap_hours", db.BLOCK_GAP_HOURS)
     if (isinstance(gap_hours, bool) or not isinstance(gap_hours, (int, float))
             or not 0 <= gap_hours <= db.MAX_BLOCK_GAP_HOURS):
@@ -205,6 +240,14 @@ def api_put_settings(body: dict):
     gap_confirm = body.get("block_gap_confirm", True)
     if not isinstance(gap_confirm, bool):
         raise HTTPException(400, "block_gap_confirm must be a boolean")
+    ui_opacity = body.get("ui_opacity", 100)
+    if (not isinstance(ui_opacity, int) or isinstance(ui_opacity, bool)
+            or not 20 <= ui_opacity <= 100):
+        raise HTTPException(400, "ui_opacity must be a whole number 20..100")
+    accent_color = body.get("accent_color")
+    if accent_color is not None and (not isinstance(accent_color, str)
+                                      or not HEX_COLOR_RE.match(accent_color)):
+        raise HTTPException(400, "accent_color must be a #rrggbb hex string or null")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -217,6 +260,8 @@ def api_put_settings(body: dict):
             "block_size": str(block_size),
             "block_gap_hours": str(gap_hours),
             "block_gap_confirm": "1" if gap_confirm else "0",
+            "ui_opacity": str(ui_opacity),
+            "accent_color": accent_color or "",
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -224,6 +269,59 @@ def api_put_settings(body: dict):
         return settings
     finally:
         conn.close()
+
+
+@app.post("/api/settings/background")
+async def api_set_background(file: UploadFile = File(...)):
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_BACKGROUND_EXTENSIONS:
+        raise HTTPException(
+            400, f"unsupported file type {ext or '(none)'} — "
+                 f"allowed: {', '.join(sorted(ALLOWED_BACKGROUND_EXTENSIONS))}")
+    data = await file.read(MAX_BACKGROUND_BYTES + 1)
+    if len(data) > MAX_BACKGROUND_BYTES:
+        raise HTTPException(413, "image exceeds the 15 MB limit")
+    conn = get_conn()
+    try:
+        old = db.get_settings(conn).get("background_image_file")
+        stored_name = f"{uuid.uuid4().hex}{ext}"
+        (get_background_dir() / stored_name).write_bytes(data)
+        db.set_settings(conn, {"background_image_file": stored_name})
+    finally:
+        conn.close()
+    if old:
+        (get_background_dir() / old).unlink(missing_ok=True)
+    return {"background_image": True}
+
+
+@app.get("/api/settings/background/file")
+def api_get_background_file():
+    conn = get_conn()
+    try:
+        name = db.get_settings(conn).get("background_image_file")
+    finally:
+        conn.close()
+    if not name:
+        raise HTTPException(404, "no background image set")
+    path = get_background_dir() / name
+    if not path.exists():
+        raise HTTPException(404, "background image missing on disk")
+    return FileResponse(path)
+
+
+@app.delete("/api/settings/background")
+def api_delete_background():
+    conn = get_conn()
+    try:
+        old = db.get_settings(conn).get("background_image_file")
+        if old:
+            with conn:
+                conn.execute("DELETE FROM settings WHERE key='background_image_file'")
+    finally:
+        conn.close()
+    if old:
+        (get_background_dir() / old).unlink(missing_ok=True)
+    return {"deleted": True}
 
 
 @app.get("/api/players")
@@ -352,8 +450,10 @@ def api_export_sessions():
 def api_delete_session(session_id: int):
     conn = get_conn()
     try:
+        freed = db.delete_clips_for_owner(conn, "session", session_id)
         if not db.delete_session(conn, session_id):
             raise HTTPException(404, "no such session")
+        _unlink_clip_files(freed)
         return {"deleted": True}
     finally:
         conn.close()
@@ -449,29 +549,199 @@ def api_trends(request: Request, bucket: str = "month"):
         conn.close()
 
 
-@app.get("/api/matchups/notes")
-def api_matchup_notes():
-    conn = get_conn()
-    try:
-        return db.get_matchup_notes(conn)
-    finally:
-        conn.close()
-
-
-@app.put("/api/matchups/notes/{champion}")
-def api_put_matchup_note(champion: str, body: dict):
-    notes = (body or {}).get("notes")
-    if notes is None:
-        raise HTTPException(400, "provide notes")
+def _validate_champion(champion: str):
     # match-v5 names differ in case from DDragon ids (FiddleSticks vs
     # Fiddlesticks) — validate case-insensitively, store the name as given
     # because reads key by the match-v5 spelling
     if CHAMPION_IDS and champion.lower() not in {c.lower() for c in CHAMPION_IDS}:
         raise HTTPException(400, f"not a champion: {champion}")
+
+
+@app.get("/api/matchups/notes")
+def api_matchup_notes(my_champion: str):
+    if not my_champion:
+        raise HTTPException(400, "provide my_champion")
     conn = get_conn()
     try:
-        db.set_matchup_note(conn, champion, str(notes))
+        return db.get_matchup_notes(conn, my_champion)
+    finally:
+        conn.close()
+
+
+def _validate_rune_page(page):
+    if not isinstance(page, dict):
+        raise HTTPException(400, "each rune page must be an object")
+    for key in ("primary_tree", "secondary_tree"):
+        value = page.get(key)
+        if value and RUNE_TREE_NAMES and value not in RUNE_TREE_NAMES:
+            raise HTTPException(400, f"not a rune tree: {value}")
+    keystone = page.get("keystone")
+    if keystone and RUNE_NAMES and keystone not in RUNE_NAMES:
+        raise HTTPException(400, f"not a rune: {keystone}")
+    for key in ("primary_runes", "secondary_runes"):
+        for value in page.get(key) or []:
+            if RUNE_NAMES and value not in RUNE_NAMES:
+                raise HTTPException(400, f"not a rune: {value}")
+    for value in page.get("shards") or []:
+        if RUNE_SHARD_NAMES and value not in RUNE_SHARD_NAMES:
+            raise HTTPException(400, f"not a stat shard: {value}")
+
+
+@app.put("/api/matchups/notes/{my_champion}/{opp_champion}")
+def api_put_matchup_note(my_champion: str, opp_champion: str, body: dict):
+    body = body or {}
+    if not any(k in body for k in ("notes", "runes", "patch_version")):
+        raise HTTPException(400, "provide at least one of: notes, runes, patch_version")
+    _validate_champion(my_champion)
+    _validate_champion(opp_champion)
+    runes = body.get("runes") or []
+    if not isinstance(runes, list):
+        raise HTTPException(400, "runes must be a list of rune pages")
+    for page in runes:
+        _validate_rune_page(page)
+    conn = get_conn()
+    try:
+        db.set_matchup_note(
+            conn, my_champion, opp_champion,
+            notes=str(body.get("notes") or ""),
+            runes=runes,
+            patch_version=str(body.get("patch_version") or ""))
         return {"saved": True}
+    finally:
+        conn.close()
+
+
+@app.get("/api/champions/notes/{champion}")
+def api_get_champion_note(champion: str):
+    conn = get_conn()
+    try:
+        return {"notes": db.get_champion_note(conn, champion)}
+    finally:
+        conn.close()
+
+
+@app.put("/api/champions/notes/{champion}")
+def api_put_champion_note(champion: str, body: dict):
+    body = body or {}
+    if "notes" not in body:
+        raise HTTPException(400, "provide notes")
+    _validate_champion(champion)
+    conn = get_conn()
+    try:
+        db.set_champion_note(conn, champion, str(body.get("notes") or ""))
+        return {"saved": True}
+    finally:
+        conn.close()
+
+
+EXPORT_KIND = "champ-guide-export"
+EXPORT_VERSION = 1
+
+
+@app.post("/api/matchups/notes/export")
+def api_export_champ_guide(body: dict):
+    body = body or {}
+    my_champion = body.get("my_champion")
+    if not my_champion:
+        raise HTTPException(400, "provide my_champion")
+    password = body.get("password") or None
+    conn = get_conn()
+    try:
+        payload = {
+            "general_notes": db.get_champion_note(conn, my_champion),
+            "guide": db.get_matchup_notes(conn, my_champion),
+        }
+    finally:
+        conn.close()
+    envelope = {
+        "app": "coach-potato", "kind": EXPORT_KIND, "version": EXPORT_VERSION,
+        "my_champion": my_champion, "exported_at_ms": int(time.time() * 1000),
+    }
+    if password:
+        envelope["encrypted"] = True
+        envelope.update(crypto.encrypt_payload(payload, password))
+    else:
+        envelope["encrypted"] = False
+        envelope.update(payload)
+    filename = f"champ-guide-{my_champion.lower()}.json"
+    return Response(
+        content=json.dumps(envelope, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.get("/api/matchups/notes/export.pdf")
+def api_export_champ_guide_pdf(my_champion: str):
+    if not my_champion:
+        raise HTTPException(400, "provide my_champion")
+    conn = get_conn()
+    try:
+        general_notes = db.get_champion_note(conn, my_champion)
+        guide = db.get_matchup_notes(conn, my_champion)
+    finally:
+        conn.close()
+    pdf_bytes = pdf_export.build_champion_guide_pdf(my_champion, general_notes, guide)
+    filename = f"champ-guide-{my_champion.lower()}.pdf"
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+def _decode_champ_guide_export(body):
+    data = body.get("data")
+    if not isinstance(data, dict) or data.get("kind") != EXPORT_KIND:
+        raise HTTPException(400, "not a champ-guide export file")
+    my_champion = data.get("my_champion")
+    if not my_champion:
+        raise HTTPException(400, "export file missing my_champion")
+    if data.get("encrypted"):
+        password = body.get("password")
+        if not password:
+            raise HTTPException(401, "password required")
+        try:
+            payload = crypto.decrypt_payload(
+                data.get("salt"), data.get("iterations"), data.get("ciphertext"), password)
+        except ValueError:
+            raise HTTPException(401, "wrong password or corrupt file")
+    else:
+        payload = {"general_notes": data.get("general_notes", ""), "guide": data.get("guide") or {}}
+    return my_champion, payload
+
+
+@app.post("/api/matchups/notes/import/preview")
+def api_import_champ_guide_preview(body: dict):
+    my_champion, payload = _decode_champ_guide_export(body or {})
+    conn = get_conn()
+    try:
+        existing = set(db.get_matchup_notes(conn, my_champion).keys())
+    finally:
+        conn.close()
+    opponents = list((payload.get("guide") or {}).keys())
+    return {
+        "my_champion": my_champion,
+        "opponents": opponents,
+        "will_overwrite": sorted(existing & set(opponents)),
+        "has_general_notes": bool(payload.get("general_notes")),
+    }
+
+
+@app.post("/api/matchups/notes/import")
+def api_import_champ_guide(body: dict):
+    my_champion, payload = _decode_champ_guide_export(body or {})
+    _validate_champion(my_champion)
+    conn = get_conn()
+    try:
+        if payload.get("general_notes"):
+            db.set_champion_note(conn, my_champion, payload["general_notes"])
+        guide = payload.get("guide") or {}
+        for opp_champion, entry in guide.items():
+            _validate_champion(opp_champion)
+            db.set_matchup_note(
+                conn, my_champion, opp_champion,
+                notes=str((entry or {}).get("notes") or ""),
+                runes=(entry or {}).get("runes") or [],
+                patch_version=str((entry or {}).get("patch_version") or ""))
+        return {"imported": len(guide)}
     finally:
         conn.close()
 
@@ -792,8 +1062,10 @@ def api_update_block_game(entry_id: int, body: dict):
 def api_delete_block_game(entry_id: int):
     conn = get_conn()
     try:
+        freed = db.delete_clips_for_owner(conn, "block_game", entry_id)
         if not db.delete_block_game(conn, entry_id):
             raise HTTPException(404, "no such block game")
+        _unlink_clip_files(freed)
         return {"deleted": True}
     finally:
         conn.close()
@@ -803,11 +1075,100 @@ def api_delete_block_game(entry_id: int):
 def api_delete_block(block_id: int):
     conn = get_conn()
     try:
+        freed = db.delete_clips_for_block(conn, block_id)
         if not db.delete_block(conn, block_id):
             raise HTTPException(404, "no such block")
+        _unlink_clip_files(freed)
         return {"deleted": True}
     finally:
         conn.close()
+
+
+def _clip_dict(row):
+    d = dict(row)
+    if d["kind"] == "upload":
+        d["play_url"] = f"/api/clips/{d['id']}/file"
+    else:
+        d["play_url"] = d["url"]
+    return d
+
+
+@app.get("/api/clips")
+def api_list_clips(owner_type: str, owner_id: int):
+    if owner_type not in CLIP_OWNER_TABLES:
+        raise HTTPException(400, f"owner_type must be one of {sorted(CLIP_OWNER_TABLES)}")
+    conn = get_conn()
+    try:
+        return [_clip_dict(r) for r in db.list_clips(conn, owner_type, owner_id)]
+    finally:
+        conn.close()
+
+
+@app.post("/api/clips")
+async def api_add_clip(owner_type: str = Form(...), owner_id: int = Form(...),
+                        label: str = Form(""), url: str | None = Form(None),
+                        file: UploadFile | None = File(None)):
+    if owner_type not in CLIP_OWNER_TABLES:
+        raise HTTPException(400, f"owner_type must be one of {sorted(CLIP_OWNER_TABLES)}")
+    if bool(file) == bool(url):
+        raise HTTPException(400, "provide exactly one of: file, url")
+    conn = get_conn()
+    try:
+        owner_exists = conn.execute(
+            f"SELECT 1 FROM {CLIP_OWNER_TABLES[owner_type]} WHERE id=?", (owner_id,)
+        ).fetchone()
+        if not owner_exists:
+            raise HTTPException(404, f"no such {owner_type}")
+        if file:
+            ext = Path(file.filename or "").suffix.lower()
+            if ext not in ALLOWED_CLIP_EXTENSIONS:
+                raise HTTPException(
+                    400, f"unsupported file type {ext or '(none)'} — "
+                         f"allowed: {', '.join(sorted(ALLOWED_CLIP_EXTENSIONS))}")
+            data = await file.read(MAX_CLIP_BYTES + 1)
+            if len(data) > MAX_CLIP_BYTES:
+                raise HTTPException(413, "clip exceeds the 50 MB limit")
+            stored_name = f"{uuid.uuid4().hex}{ext}"
+            (get_clips_dir() / stored_name).write_bytes(data)
+            clip_id = db.add_clip(conn, owner_type, owner_id, label, "upload",
+                                  file_name=stored_name)
+        else:
+            if not url.startswith(("http://", "https://")):
+                raise HTTPException(400, "url must start with http:// or https://")
+            clip_id = db.add_clip(conn, owner_type, owner_id, label, "link", url=url)
+        return _clip_dict(db.get_clip(conn, clip_id))
+    finally:
+        conn.close()
+
+
+@app.get("/api/clips/{clip_id}/file")
+def api_clip_file(clip_id: int):
+    conn = get_conn()
+    try:
+        clip = db.get_clip(conn, clip_id)
+    finally:
+        conn.close()
+    if not clip or clip["kind"] != "upload":
+        raise HTTPException(404, "clip not found")
+    path = get_clips_dir() / clip["file_name"]
+    if not path.exists():
+        raise HTTPException(404, "clip file missing on disk")
+    return FileResponse(path)
+
+
+@app.delete("/api/clips/{clip_id}")
+def api_delete_clip(clip_id: int):
+    conn = get_conn()
+    try:
+        clip = db.get_clip(conn, clip_id)
+        if not clip:
+            raise HTTPException(404, "clip not found")
+        db.delete_clip(conn, clip_id)
+    finally:
+        conn.close()
+    if clip["kind"] == "upload" and clip["file_name"]:
+        _unlink_clip_files([clip["file_name"]])
+    return {"deleted": True}
 
 
 def _run_crawl():

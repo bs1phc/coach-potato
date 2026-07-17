@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="bg-image"></div>
 <header>
   <h1>Coach Potato</h1>
   <div class="view-toggle" id="main-view-toggle" role="tablist">
@@ -16,6 +17,7 @@
     <button id="nav-progress" role="tab">Coaching progress</button>
     <button id="nav-trends" role="tab">Trends</button>
     <button id="nav-blocks" role="tab">Blocks</button>
+    <button id="nav-guide" role="tab">Champ guide</button>
   </div>
   <details id="account-select" class="col-picker hidden" aria-label="Accounts">
     <summary id="account-select-btn" class="preset">All accounts ▾</summary>
@@ -129,8 +131,8 @@
     <h3 class="settings-group-head">Blocks</h3>
     <div class="settings-field">
       <label class="filter-label" for="setting-block-size">Block size (games per block)</label>
-      <input type="number" id="setting-block-size" min="1" max="10" step="1" value="3" style="width:6em">
-      <p class="muted">Blocks auto-advance after this many games (1–10). Changing it
+      <input type="number" id="setting-block-size" min="1" step="1" value="3" style="width:6em">
+      <p class="muted">Blocks auto-advance after this many games. Changing it
         applies to the current and future blocks; finished blocks keep their size.</p>
     </div>
     <div class="settings-field">
@@ -155,6 +157,7 @@
         <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
         <label><input type="checkbox" class="view-toggle-cb" value="trends" checked> Trends</label>
         <label><input type="checkbox" class="view-toggle-cb" value="blocks" checked> Blocks</label>
+        <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Champ guide</label>
       </div>
       <p class="muted">Untick views you don't use to hide them from the top bar
         (data collection is unaffected).</p>
@@ -164,6 +167,34 @@
       <p class="muted">Hides your own solo-queue rank and LP everywhere — summary
         tile, account tabs, rank chart, coaching/block rank columns. Rank history
         keeps being recorded and reappears when you untick this.</p>
+    </div>
+
+    <h3 class="settings-group-head">Appearance</h3>
+    <div class="settings-field">
+      <label class="filter-label" for="setting-accent-color">Accent color</label>
+      <div class="accent-color-row">
+        <input type="color" id="setting-accent-color" value="#2a78d6">
+        <button id="setting-accent-reset" class="preset hidden" type="button">Reset to default</button>
+      </div>
+      <p class="muted">Used for buttons, active tabs, links, and chart lines.</p>
+    </div>
+    <div class="settings-field">
+      <label class="filter-label" for="setting-ui-opacity">Opacity</label>
+      <div class="opacity-row">
+        <input type="range" id="setting-ui-opacity" min="20" max="100" step="5" value="100">
+        <span id="setting-ui-opacity-value" class="muted">100%</span>
+      </div>
+      <p class="muted">Makes panels and the page background see-through, like a
+        translucent terminal — lower it to let a background picture show through.</p>
+    </div>
+    <div class="settings-field">
+      <span class="filter-label">Background picture</span>
+      <div class="bg-image-row">
+        <input type="file" id="setting-bg-file" accept="image/png,image/jpeg,image/webp,image/gif">
+        <button id="setting-bg-remove" class="preset hidden" type="button">Remove</button>
+      </div>
+      <span id="setting-bg-status" class="muted"></span>
+      <p class="muted">Uploads and applies immediately (up to 15 MB).</p>
     </div>
 
     <div class="settings-savebar">
@@ -266,8 +297,59 @@
       <button id="mu-view-rank" role="tab">Grouped by opponent rank</button>
     </div>
   </div>
-  <p class="muted">Expand a matchup for the win/loss timeline and your notes on it.</p>
+  <p class="muted">Expand a matchup for the win/loss timeline and block notes. Pick a
+    "My champion" filter to jump to its Champ guide (📖) for runes, patch, and
+    notes on how to play the matchup.</p>
   <div id="mu-table"></div>
+</section>
+</div>
+
+<div id="guide-view" class="hidden">
+<section class="filter-row" aria-label="Champ guide filters">
+  <div class="filter-group">
+    <label class="filter-label" for="guide-champion">My champion</label>
+    <select id="guide-champion"></select>
+  </div>
+  <span class="muted">Runes, patch, and Markdown notes for each matchup this champion faces.</span>
+  <div class="head-actions">
+    <details class="col-picker">
+      <summary class="preset" title="Export this champion's guide">Export</summary>
+      <div class="col-menu">
+        <label><input type="checkbox" id="guide-export-password-toggle"> Password protect</label>
+        <input type="password" id="guide-export-password" class="hidden" placeholder="password" style="width:100%">
+        <button type="button" id="guide-export-btn">Download .json</button>
+        <button type="button" id="guide-export-pdf-btn">Download .pdf</button>
+        <span id="guide-export-pdf-status" class="muted"></span>
+      </div>
+    </details>
+    <details class="col-picker">
+      <summary class="preset" title="Import a champ guide export">Import</summary>
+      <div class="col-menu">
+        <input type="file" id="guide-import-file" accept="application/json">
+        <input type="password" id="guide-import-password" placeholder="password (if protected)" style="width:100%">
+        <button type="button" id="guide-import-btn">Import</button>
+        <span id="guide-import-status" class="muted"></span>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section>
+  <div id="guide-general-notes"></div>
+</section>
+
+<section>
+  <h2>Champ guide</h2>
+  <div id="guide-list"></div>
+  <form id="guide-add-form" class="filter-row" style="margin-top:10px">
+    <div class="filter-group" style="flex:1">
+      <label class="filter-label" for="guide-add-input">Add a matchup</label>
+      <input type="text" id="guide-add-input" list="champ-list"
+        placeholder="opponent champion…" style="width:100%">
+    </div>
+    <button type="submit" class="preset">Add</button>
+    <span id="guide-add-status" class="muted"></span>
+  </form>
 </section>
 </div>
 
@@ -366,5 +448,6 @@
 <script src="matchups.js"></script>
 <script src="trends.js"></script>
 <script src="blocks.js"></script>
+<script src="guide.js"></script>
 </body>
 </html>

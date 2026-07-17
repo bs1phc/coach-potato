@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from server import db
@@ -173,6 +175,70 @@ def test_crawl_stores_metrics_for_tracked_participant(conn):
     assert row["time_dead"] == 120
     # opponents don't get metric rows
     assert conn.execute("SELECT COUNT(*) c FROM participant_metrics").fetchone()["c"] == 1
+
+
+PERKS = {
+    "statPerks": {"offense": 5008, "flex": 5002, "defense": 5011},
+    "styles": [
+        {"description": "primaryStyle", "style": 8000, "selections": [
+            {"perk": 8010}, {"perk": 9111}, {"perk": 9104}, {"perk": 8299}]},
+        {"description": "subStyle", "style": 8400, "selections": [
+            {"perk": 8473}, {"perk": 8451}]},
+    ],
+}
+
+
+def test_crawl_stores_runes_for_tracked_participant_and_lane_opponent(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)  # opp_pos defaults to TOP, shares the lane
+    tracked = next(p for p in match["info"]["participants"]
+                   if p["puuid"] == TRACKED_PUUID)
+    tracked["perks"] = PERKS
+    client = FakeClient([match])
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        "SELECT runes FROM participant_runes WHERE match_id='EUW1_1' AND puuid=?",
+        (TRACKED_PUUID,)).fetchone()
+    runes = json.loads(row["runes"])
+    assert runes["primary_tree"] == "Precision"
+    assert runes["keystone"] == "Conqueror"
+    assert runes["secondary_tree"] == "Resolve"
+    # the lane opponent (same teamPosition, other team) also gets a row —
+    # blank here since this fixture doesn't set perks for them
+    opp_row = conn.execute(
+        "SELECT runes FROM participant_runes WHERE match_id='EUW1_1' AND puuid='opp-1'").fetchone()
+    assert opp_row["runes"] == ""
+    # only the tracked participant + their lane opponent — not all 10 players
+    assert conn.execute("SELECT COUNT(*) c FROM participant_runes").fetchone()["c"] == 2
+
+
+def test_crawl_stores_blank_runes_row_when_no_perks_data(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)  # no perks field at all
+    client = FakeClient([match])
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        "SELECT runes FROM participant_runes WHERE match_id='EUW1_1' AND puuid=?",
+        (TRACKED_PUUID,)).fetchone()
+    assert row["runes"] == ""  # row exists (blank) so backfill won't keep re-fetching it
+
+
+def test_backfill_runes_fetches_missing_only(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)
+    m2 = match_json("EUW1_2", 1_700_000_100_000)
+    for m in (m1, m2):
+        p = next(q for q in m["info"]["participants"] if q["puuid"] == TRACKED_PUUID)
+        p["perks"] = PERKS
+    client = FakeClient([m1, m2])
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))  # runes stored inline
+    client.detail_calls = 0
+    assert crawler.backfill_runes() == 0             # nothing missing
+    assert client.detail_calls == 0
+    conn.execute("DELETE FROM participant_runes WHERE match_id='EUW1_1'")
+    conn.commit()
+    assert crawler.backfill_runes() == 1             # only the missing match refetched
+    assert client.detail_calls == 1
+    # 2 rows per match (tracked + lane opponent) x 2 matches
+    assert conn.execute("SELECT COUNT(*) c FROM participant_runes").fetchone()["c"] == 4
 
 
 def test_backfill_metrics_fetches_missing_only(conn):

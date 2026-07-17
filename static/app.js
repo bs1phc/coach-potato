@@ -56,6 +56,10 @@ function fmtDate(ms) {
   return new Date(ms).toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" });
 }
 
+function fmtDateTime(ms) {
+  return `${fmtDate(ms)} ${new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+}
+
 function titleCase(tier) {
   return tier === "UNKNOWN" ? "Unknown rank" : tier.charAt(0) + tier.slice(1).toLowerCase();
 }
@@ -365,6 +369,20 @@ function renderChampionTable(byChampion) {
     <tbody>${body}</tbody></table></div>`;
 }
 
+const recentUi = { runesOpen: new Set() };
+
+function runesCompareCol(champ, runes, whose) {
+  const body = runes
+    ? `<div class="recent-runes-cell-inner">${
+        runePageIcons(runes, { keystoneSize: 22, minorSize: 16, treeSize: 18, shardSize: 13 })}</div>`
+    : `<p class="muted">Not recorded — crawl again or run
+        <code>./crawl.sh --backfill-runes</code>.</p>`;
+  return `<div class="runes-compare-col">
+    <h5>${champIcon(champ)}${displayName(champ)} <span class="muted">(${whose})</span></h5>
+    ${body}
+  </div>`;
+}
+
 function renderRecent(recent) {
   const target = $("#recent-list");
   if (!recent.length) {
@@ -372,9 +390,14 @@ function renderRecent(recent) {
     return;
   }
   const multi = selectedPuuids().length > 1;
+  const colCount = 10 + (multi ? 1 : 0);
   const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
-  const body = recent.map((g) => `<tr>
-      <td>${fmtDate(g.game_creation_ms)}</td>
+  const body = recent.map((g) => {
+    const gkey = `${g.match_id}:${g.my_puuid}`;
+    const open = recentUi.runesOpen.has(gkey);
+    const hasRunes = g.runes || g.opp_runes;
+    let html = `<tr>
+      <td>${fmtDateTime(g.game_creation_ms)}</td>
       ${multi ? `<td>${escapeHtml(names.get(g.my_puuid) ?? "?")}</td>` : ""}
       <td>${QUEUE_NAMES[g.queue_id] ?? g.queue_id}</td>
       <td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>
@@ -383,14 +406,32 @@ function renderRecent(recent) {
       <td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>
       <td>${g.kills}/${g.deaths}/${g.assists}</td>
       <td>${fmtDuration(g.game_duration_s)}</td>
+      <td>${hasRunes
+        ? `<button class="preset seg-toggle runes-toggle" data-gkey="${gkey}"
+             aria-expanded="${open}" title="Runes">${open ? "▾" : "▸"} Runes</button>`
+        : `<span class="muted">–</span>`}</td>
       <td><button class="preset promote-btn" data-match="${g.match_id}"
         data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
-    </tr>`).join("");
+    </tr>`;
+    if (open) {
+      html += `<tr class="games-row"><td colspan="${colCount}"><div class="runes-compare">${
+        runesCompareCol(g.my_champion, g.runes, "you")}${
+        g.opp_champion ? runesCompareCol(g.opp_champion, g.opp_runes, "opponent") : ""
+      }</div></td></tr>`;
+    }
+    return html;
+  }).join("");
   target.innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th>Date</th>${multi ? "<th>Account</th>" : ""}<th>Queue</th><th>Me</th><th>Opponent</th><th>Opp. rank</th>
-    <th>Result</th><th>K/D/A</th><th>Length</th><th></th></tr></thead>
+    <th>Result</th><th>K/D/A</th><th>Length</th><th>Runes</th><th></th></tr></thead>
     <tbody>${body}</tbody></table></div>`;
   wirePromoteButtons(target);
+  target.querySelectorAll(".runes-toggle").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const gkey = btn.dataset.gkey;
+      recentUi.runesOpen.has(gkey) ? recentUi.runesOpen.delete(gkey) : recentUi.runesOpen.add(gkey);
+      renderRecent(recent);
+    }));
 }
 
 function wirePromoteButtons(container) {
@@ -689,7 +730,7 @@ function renderProgress(segments) {
   wirePromoteButtons(target);
 }
 
-const sessionUi = { expanded: new Set(), editing: null };
+const sessionUi = { expanded: new Set(), editing: null, clips: new Map() };
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g,
@@ -700,6 +741,73 @@ function renderNotes(notes) {
   if (!notes) return `<p class="muted">No notes yet — click edit to add some.</p>`;
   if (typeof marked !== "undefined") return marked.parse(notes);
   return `<pre>${escapeHtml(notes)}</pre>`; // fallback if vendor lib missing
+}
+
+// ---------- clips (shared by coaching sessions and block games) ----------
+
+function clipsSection(ownerType, ownerId, clips) {
+  const items = clips === undefined
+    ? `<p class="muted">Loading…</p>`
+    : (clips.length ? clips.map((c) => `<div class="clip-item">
+        <div class="clip-item-head">
+          <span class="clip-label">${c.label ? escapeHtml(c.label) : `<span class="muted">clip</span>`}</span>
+          <button class="preset icon-btn clip-delete" data-id="${c.id}"
+            title="Delete clip" aria-label="Delete clip">🗑</button>
+        </div>
+        ${c.kind === "upload"
+          ? `<video controls preload="metadata" src="${escapeHtml(c.play_url)}"></video>`
+          : `<a href="${escapeHtml(c.play_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(c.play_url)}</a>`}
+      </div>`).join("") : `<p class="muted">No clips yet.</p>`);
+  return `<div class="clips-section" data-owner-type="${ownerType}" data-owner-id="${ownerId}">
+    <h5>Clips</h5>
+    <div class="clips-list">${items}</div>
+    <form class="clip-add-form">
+      <input type="text" class="clip-label-input" placeholder='Label (optional) — e.g. "wave management @14min"'>
+      <div class="clip-add-row">
+        <input type="file" class="clip-file-input" accept=".mp4,.mov,.webm,.m4v,video/mp4,video/quicktime,video/webm">
+        <span class="muted">or</span>
+        <input type="url" class="clip-url-input" placeholder="paste a link (YouTube, Twitch…)">
+        <button type="submit" class="preset">Add clip</button>
+      </div>
+      <span class="muted clip-add-status"></span>
+    </form>
+  </div>`;
+}
+
+// reload(ownerType, ownerId): async callback the caller supplies to refetch
+// that owner's clips into its own cache and re-render its view
+function wireClipsSection(container, reload) {
+  container.querySelectorAll(".clip-delete").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("Delete this clip?")) return;
+      await fetch(`/api/clips/${btn.dataset.id}`, { method: "DELETE" });
+      const section = btn.closest(".clips-section");
+      await reload(section.dataset.ownerType, section.dataset.ownerId);
+    }));
+  container.querySelectorAll(".clip-add-form").forEach((form) =>
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const section = form.closest(".clips-section");
+      const status = form.querySelector(".clip-add-status");
+      const label = form.querySelector(".clip-label-input").value;
+      const file = form.querySelector(".clip-file-input").files[0];
+      const url = form.querySelector(".clip-url-input").value.trim();
+      if (!file && !url) { status.textContent = "add a file or a link"; return; }
+      if (file && url) { status.textContent = "choose either a file or a link, not both"; return; }
+      const fd = new FormData();
+      fd.set("owner_type", section.dataset.ownerType);
+      fd.set("owner_id", section.dataset.ownerId);
+      fd.set("label", label);
+      if (file) fd.set("file", file); else fd.set("url", url);
+      status.textContent = "adding…";
+      const response = await fetch("/api/clips", { method: "POST", body: fd });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        status.textContent = body.detail || `error ${response.status}`;
+        return;
+      }
+      await reload(section.dataset.ownerType, section.dataset.ownerId);
+    }));
 }
 
 function sessionCard(s) {
@@ -720,6 +828,8 @@ function sessionCard(s) {
   } else if (expanded) {
     body = `<div class="session-body md-body">${renderNotes(s.notes)}</div>`;
   }
+  const clips = (expanded || editing)
+    ? clipsSection("session", s.id, sessionUi.clips.get(s.id)) : "";
   return `<div class="session-card">
     <div class="session-head">
       <button class="preset session-toggle" data-id="${s.id}" aria-expanded="${expanded}">
@@ -732,7 +842,13 @@ function sessionCard(s) {
       </span>
     </div>
     ${body}
+    ${clips}
   </div>`;
+}
+
+async function ensureSessionClips(id) {
+  if (sessionUi.clips.has(id)) return;
+  sessionUi.clips.set(id, await getJSON(`/api/clips?owner_type=session&owner_id=${id}`));
 }
 
 function renderSessions(sessionRows) {
@@ -743,16 +859,26 @@ function renderSessions(sessionRows) {
   }
   target.innerHTML = sessionRows.map(sessionCard).join("");
   target.querySelectorAll(".session-toggle").forEach((btn) =>
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const id = +btn.dataset.id;
-      sessionUi.expanded.has(id) ? sessionUi.expanded.delete(id) : sessionUi.expanded.add(id);
-      if (sessionUi.editing === id) sessionUi.editing = null;
+      if (sessionUi.expanded.has(id)) {
+        sessionUi.expanded.delete(id);
+        if (sessionUi.editing === id) sessionUi.editing = null;
+        renderSessions(sessionRows);
+        return;
+      }
+      sessionUi.expanded.add(id);
+      renderSessions(sessionRows); // show "Loading…" immediately
+      await ensureSessionClips(id);
       renderSessions(sessionRows);
     }));
   target.querySelectorAll(".session-edit").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      sessionUi.editing = +btn.dataset.id;
-      sessionUi.expanded.add(+btn.dataset.id);
+    btn.addEventListener("click", async () => {
+      const id = +btn.dataset.id;
+      sessionUi.editing = id;
+      sessionUi.expanded.add(id);
+      renderSessions(sessionRows);
+      await ensureSessionClips(id);
       renderSessions(sessionRows);
     }));
   target.querySelectorAll(".session-cancel").forEach((btn) =>
@@ -782,6 +908,11 @@ function renderSessions(sessionRows) {
       await fetch(`/api/sessions/${btn.dataset.id}`, { method: "DELETE" });
       loadProgress();
     }));
+  wireClipsSection(target, async (ownerType, ownerId) => {
+    sessionUi.clips.delete(+ownerId);
+    await ensureSessionClips(+ownerId);
+    renderSessions(sessionRows);
+  });
 }
 
 async function unionFilterOptions() {
@@ -835,10 +966,10 @@ function setMainView(view) {
   state.mainView = view;
   if (history.replaceState) {
     const hash = { matchups: "#matchups", progress: "#progress",
-                   trends: "#trends", blocks: "#blocks" }[view] || "#";
+                   trends: "#trends", blocks: "#blocks", guide: "#guide" }[view] || "#";
     history.replaceState(null, "", hash);
   }
-  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "settings"]) {
+  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "settings"]) {
     $(`#nav-${v}`).classList.toggle("active", view === v);
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
@@ -846,6 +977,7 @@ function setMainView(view) {
   if (view === "progress") loadProgressFilterOptions().then(loadProgress);
   if (view === "trends") initTrends();
   if (view === "blocks") initBlocks();
+  if (view === "guide") initGuide();
   if (view === "settings") initSettings();
 }
 
@@ -878,13 +1010,42 @@ function renderAccountChips() {
     }));
 }
 
+function rgbToHex(colorString) {
+  const nums = colorString.match(/\d+/g);
+  if (!nums) return colorString.trim();
+  return "#" + nums.slice(0, 3).map((n) => (+n).toString(16).padStart(2, "0")).join("");
+}
+
+function applyAppearance(data) {
+  if (data.ui_opacity !== undefined) {
+    document.documentElement.style.setProperty("--ui-opacity", data.ui_opacity / 100);
+  }
+  if ("accent_color" in data) {
+    if (data.accent_color) {
+      document.documentElement.style.setProperty("--series-1", data.accent_color);
+    } else {
+      document.documentElement.style.removeProperty("--series-1");
+    }
+  }
+  if ("background_image" in data) {
+    const bg = $("#bg-image");
+    if (data.background_image) {
+      bg.style.backgroundImage = `url(/api/settings/background/file?v=${Date.now()})`;
+      bg.classList.add("active");
+    } else {
+      bg.style.backgroundImage = "";
+      bg.classList.remove("active");
+    }
+  }
+}
+
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
-  for (const view of ["overview", "matchups", "progress", "trends", "blocks"]) {
+  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide"]) {
     $(`#nav-${view}`).classList.toggle("hidden", state.hiddenViews.includes(view));
   }
   if (state.hiddenViews.includes(state.mainView)) {
-    const fallback = ["overview", "matchups", "progress", "trends", "blocks"]
+    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide"]
       .find((view) => !state.hiddenViews.includes(view));
     setMainView(fallback || "settings");
   }
@@ -908,9 +1069,53 @@ async function initSettings() {
   $("#setting-block-gap").value = data.block_gap_hours;
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
+  $("#setting-accent-color").value = data.accent_color
+    || rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
+  $("#setting-accent-reset").classList.toggle("hidden", !data.accent_color);
+  $("#setting-ui-opacity").value = data.ui_opacity;
+  $("#setting-ui-opacity-value").textContent = `${data.ui_opacity}%`;
+  $("#setting-bg-remove").classList.toggle("hidden", !data.background_image);
+  applyAppearance(data);
   $("#settings-banner").classList.toggle("hidden", data.configured);
   if (settingsUi.wired) return;
   settingsUi.wired = true;
+  $("#setting-accent-color").addEventListener("input", (e) => {
+    document.documentElement.style.setProperty("--series-1", e.target.value);
+    $("#setting-accent-reset").classList.remove("hidden");
+  });
+  $("#setting-accent-reset").addEventListener("click", () => {
+    document.documentElement.style.removeProperty("--series-1");
+    $("#setting-accent-color").value =
+      rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
+    $("#setting-accent-reset").classList.add("hidden");
+  });
+  $("#setting-ui-opacity").addEventListener("input", (e) => {
+    $("#setting-ui-opacity-value").textContent = `${e.target.value}%`;
+    document.documentElement.style.setProperty("--ui-opacity", e.target.value / 100);
+  });
+  $("#setting-bg-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    $("#setting-bg-status").textContent = "uploading…";
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch("/api/settings/background", { method: "POST", body: formData });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) {
+      $("#setting-bg-status").textContent = "saved ✓";
+      $("#setting-bg-remove").classList.remove("hidden");
+      applyAppearance({ background_image: true });
+    } else {
+      $("#setting-bg-status").textContent = body.detail || `error ${response.status}`;
+    }
+    e.target.value = "";
+  });
+  $("#setting-bg-remove").addEventListener("click", async () => {
+    await fetch("/api/settings/background", { method: "DELETE" });
+    $("#setting-bg-remove").classList.add("hidden");
+    $("#setting-bg-status").textContent = "";
+    applyAppearance({ background_image: false });
+  });
   $("#key-reveal").addEventListener("click", () => {
     const input = $("#setting-key");
     const hidden = input.type === "password";
@@ -953,10 +1158,13 @@ async function initSettings() {
         platform: $("#setting-platform").value,
         hidden_views: hiddenViews,
         auto_crawl_hours: Math.max(0, parseInt($("#setting-auto-crawl").value, 10) || 0),
-        block_size: Math.min(10, Math.max(1, parseInt($("#setting-block-size").value, 10) || 3)),
+        block_size: Math.max(1, parseInt($("#setting-block-size").value, 10) || 3),
         block_gap_hours: Math.min(168, Math.max(0, parseFloat($("#setting-block-gap").value) || 0)),
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
         hide_my_rank: $("#setting-hide-rank").checked,
+        ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
+        accent_color: $("#setting-accent-reset").classList.contains("hidden")
+          ? null : $("#setting-accent-color").value,
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -966,6 +1174,7 @@ async function initSettings() {
         init(false); // re-pull data so the redaction change applies everywhere
       }
       applyHiddenViews(body.hidden_views);
+      applyAppearance(body);
       $("#settings-banner").classList.add("hidden");
       if (settingsUi.wasUnconfigured && body.configured) {
         settingsUi.wasUnconfigured = false;
@@ -986,6 +1195,7 @@ function wireProgress() {
   $("#nav-progress").addEventListener("click", () => setMainView("progress"));
   $("#nav-trends").addEventListener("click", () => setMainView("trends"));
   $("#nav-blocks").addEventListener("click", () => setMainView("blocks"));
+  $("#nav-guide").addEventListener("click", () => setMainView("guide"));
   $("#nav-settings").addEventListener("click", () => setMainView("settings"));
   $("#progress-champion").addEventListener("change", (e) => {
     state.progressChampion = e.target.value; loadProgress();
@@ -1235,6 +1445,7 @@ async function init(firstLoad = true) {
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
     applyHiddenViews(settings.hidden_views);
+    applyAppearance(settings);
     maybeStartupCrawl(settings);
     setInterval(autoCrawlTick, 10 * 60 * 1000);
   }
@@ -1258,12 +1469,16 @@ async function init(firstLoad = true) {
     if (!state.accounts.length) state.accounts = null;
   }
   renderAccountSelector();
-  await loadFilterOptions();
+  // loadRuneTrees (guide.js) is idempotent — populates RUNE_TREES/SHARD_ROWS
+  // for the recent-games rune icons on this Overview tab too, even if the
+  // user never visits the Champ guide tab
+  await Promise.all([loadFilterOptions(), loadRuneTrees()]);
   await refresh();
   if (firstLoad && location.hash === "#matchups") setMainView("matchups");
   if (firstLoad && location.hash === "#progress") setMainView("progress");
   if (firstLoad && location.hash === "#trends") setMainView("trends");
   if (firstLoad && location.hash === "#blocks") setMainView("blocks");
+  if (firstLoad && location.hash === "#guide") setMainView("guide");
   if (firstLoad && location.hash === "#settings") setMainView("settings");
 }
 

@@ -1,6 +1,108 @@
 {
   "entries": [
     {
+      "version": "1.23.0",
+      "date": "2026-07-16",
+      "items": [
+        "Champ guide can be exported as a printable PDF — general notes, patch, rune pages (with icons), and notes for every matchup"
+      ]
+    },
+    {
+      "version": "1.22.0",
+      "date": "2026-07-16",
+      "items": [
+        "Accent color customization in Settings — pick any color for buttons, active tabs, links, and chart lines"
+      ]
+    },
+    {
+      "version": "1.21.0",
+      "date": "2026-07-16",
+      "items": [
+        "Appearance settings — adjustable opacity (see-through panels, like a translucent terminal) and an optional background picture",
+        "Runes actually played now show in a block game's expanded stats panel too, mirroring Overview and Champ guide"
+      ]
+    },
+    {
+      "version": "1.20.0",
+      "date": "2026-07-16",
+      "items": [
+        "Removed the 10-game cap on block size — set any block size in Settings",
+        "Recent games (Overview and Champ guide) now show the game's time, not just the date"
+      ]
+    },
+    {
+      "version": "1.19.1",
+      "date": "2026-07-15",
+      "items": [
+        "Fixed the packaged Windows app crashing on launch (AttributeError from uvicorn's logging setup touching a None stderr in the windowed/no-console build)"
+      ]
+    },
+    {
+      "version": "1.19.0",
+      "date": "2026-07-15",
+      "items": [
+        "Overview tab's Recent games now records and shows the opponent's runes too, not just yours — click the ▸ Runes toggle on a game to compare both side by side",
+        "Crawler now also captures the lane opponent's runes (not just tracked accounts); run ./crawl.sh --backfill-runes again to fill in opponent runes for matches crawled before this update"
+      ]
+    },
+    {
+      "version": "1.18.0",
+      "date": "2026-07-15",
+      "items": [
+        "Overview tab's Recent games table now shows the runes actually played per game",
+        "Attach short clips (upload a local video, or paste a YouTube/Twitch link) to a specific part of a coaching session or a specific game in a block — each clip gets its own label"
+      ]
+    },
+    {
+      "version": "1.17.0",
+      "date": "2026-07-15",
+      "items": [
+        "Champ guide matchups are collapsed by default — click a matchup to expand its notes, runes, and recent games, instead of everything loading open at once",
+        "Recent games now only fetch when you expand a matchup, not for every matchup up front"
+      ]
+    },
+    {
+      "version": "1.16.1",
+      "date": "2026-07-15",
+      "items": [
+        "Recent games in the Champ guide now show the full rune page actually played (keystone, minors, secondary tree, shards), not just the keystone"
+      ]
+    },
+    {
+      "version": "1.16.0",
+      "date": "2026-07-15",
+      "items": [
+        "Champ guide's matchup rows show a \"Recent games\" column on the right — real games vs that opponent, with the runes you actually played in each one",
+        "Crawler now records the actual rune page played per game for tracked accounts; run `./crawl.sh --backfill-runes` to fill it in for matches crawled before this update"
+      ]
+    },
+    {
+      "version": "1.15.0",
+      "date": "2026-07-15",
+      "items": [
+        "General notes section on the Champ guide page, for champion-wide tips that aren't tied to one matchup",
+        "Export/import a champion's whole guide as a JSON file, with an optional password (real encryption, not just obfuscation) — Export/Import menus on the Champ guide page"
+      ]
+    },
+    {
+      "version": "1.14.0",
+      "date": "2026-07-15",
+      "items": [
+        "Champ guide moved to its own page — pick any champion (full roster, not just ones you've played) and see/edit full rune pages, patch, and notes for every matchup it has faced, or add one for a matchup you haven't played yet",
+        "Rune picker is now a full click-through builder — primary tree, keystone, 3 minor rows, secondary tree, 2 secondary minors, and 3 stat shards, with real rune icons",
+        "A matchup can hold more than one rune page (e.g. alternatives you're testing)",
+        "Champ guide is scoped per (your champion, opponent) instead of just the opponent — Gwen vs Darius and Camille vs Darius get separate guides",
+        "Matchups table links out to the Champ guide page for the selected \"My champion\" filter"
+      ]
+    },
+    {
+      "version": "1.13.0",
+      "date": "2026-07-15",
+      "items": [
+        "Champ guide tab on matchups — record a rune keystone + secondary tree, patch version, and Markdown notes on how to play each matchup"
+      ]
+    },
+    {
       "version": "1.12.0",
       "date": "2026-07-15",
       "items": [

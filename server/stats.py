@@ -119,6 +119,8 @@ SELECT m.match_id, m.game_creation_ms, m.game_duration_s, m.queue_id,
        opp.champion_name AS opp_champion, opp.puuid AS opp_puuid,
        COALESCE(pr.solo_tier, 'UNKNOWN') AS rank_tier,
        pm.match_id AS pm_match_id,
+       myr.runes AS my_runes_json,
+       oppr.runes AS opp_runes_json,
        """ + _METRIC_SELECT + """
 FROM participants me
 JOIN matches m ON m.match_id = me.match_id
@@ -127,6 +129,10 @@ LEFT JOIN participants opp ON opp.match_id = me.match_id
 LEFT JOIN player_ranks pr ON pr.puuid = opp.puuid
 LEFT JOIN participant_metrics pm
     ON pm.match_id = me.match_id AND pm.puuid = me.puuid
+LEFT JOIN participant_runes myr
+    ON myr.match_id = me.match_id AND myr.puuid = me.puuid
+LEFT JOIN participant_runes oppr
+    ON oppr.match_id = me.match_id AND oppr.puuid = opp.puuid
 WHERE me.puuid IN ({puuid_slots}) AND me.team_position = 'TOP'
   AND m.game_duration_s >= :remake_s
 """
@@ -239,15 +245,12 @@ def summary(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
             {**params, "min_games": min_games},
         )
     ]
-    recent = [
-        dict(r) for r in conn.execute(
-            f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id,
-                       my_puuid, my_champion, opp_champion, rank_tier, win,
-                       kills, deaths, assists, cs
-                FROM ({base}) ORDER BY game_creation_ms DESC LIMIT 20""",
-            params,
-        )
-    ]
+    recent = [_decode_game_runes(r) for r in conn.execute(
+        f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id,
+                   my_puuid, my_champion, opp_champion, rank_tier, win,
+                   kills, deaths, assists, cs, my_runes_json, opp_runes_json
+            FROM ({base}) ORDER BY game_creation_ms DESC LIMIT 20""",
+        params)]
     result = dict(totals) if totals["games"] else {"games": 0, "wins": 0, "winrate": None}
     result["by_champion"] = by_champion
     result["recent"] = recent
@@ -395,7 +398,9 @@ def block_games_detailed(conn):
                   me.champion_name AS my_champion, me.win,
                   me.kills, me.deaths, me.assists, me.cs,
                   pm.lane_adv_early, pm.lane_adv_late,
-                  opp.champion_name AS opp_champion
+                  opp.champion_name AS opp_champion,
+                  myr.runes AS my_runes_json,
+                  oppr.runes AS opp_runes_json
            FROM block_games bg
            JOIN participants me ON me.match_id = bg.match_id AND me.puuid = bg.puuid
            JOIN matches m ON m.match_id = bg.match_id
@@ -403,9 +408,24 @@ def block_games_detailed(conn):
                AND opp.team_id != me.team_id AND opp.team_position = 'TOP'
            LEFT JOIN participant_metrics pm
                ON pm.match_id = bg.match_id AND pm.puuid = bg.puuid
+           LEFT JOIN participant_runes myr
+               ON myr.match_id = bg.match_id AND myr.puuid = bg.puuid
+           LEFT JOIN participant_runes oppr
+               ON oppr.match_id = bg.match_id AND oppr.puuid = opp.puuid
            ORDER BY m.game_creation_ms"""
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [_decode_game_runes(r) for r in rows]
+
+
+def _decode_game_runes(row):
+    """Row from a query selecting my_runes_json/opp_runes_json -> dict with
+    'runes' (mine) and 'opp_runes' (lane opponent's) decoded, or None."""
+    game = dict(row)
+    my_runes = game.pop("my_runes_json")
+    opp_runes = game.pop("opp_runes_json")
+    game["runes"] = json.loads(my_runes) if my_runes else None
+    game["opp_runes"] = json.loads(opp_runes) if opp_runes else None
+    return game
 
 
 def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues=None,
@@ -418,10 +438,11 @@ def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues
     sql = f"""
         SELECT match_id, game_creation_ms, game_duration_s, queue_id, my_puuid,
                my_champion, opp_champion, rank_tier, win,
-               kills, deaths, assists, cs, lane_adv_early, lane_adv_late
+               kills, deaths, assists, cs, lane_adv_early, lane_adv_late,
+               my_runes_json, opp_runes_json
         FROM ({base}) ORDER BY game_creation_ms DESC
     """
-    return [dict(r) for r in conn.execute(sql, params)]
+    return [_decode_game_runes(r) for r in conn.execute(sql, params)]
 
 
 def filter_options(conn, puuid):

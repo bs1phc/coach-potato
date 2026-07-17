@@ -1,22 +1,25 @@
 :root {
-  --surface-1: #fcfcfb;
-  --page: #f9f9f7;
+  --ui-opacity: 1;          /* 0.2–1, set inline from the ui_opacity setting */
+  --surface-1-solid: #fcfcfb;
+  --page-solid: #f9f9f7;
+  --surface-1: color-mix(in srgb, var(--surface-1-solid) calc(var(--ui-opacity) * 100%), transparent);
+  --page: color-mix(in srgb, var(--page-solid) calc(var(--ui-opacity) * 100%), transparent);
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
   --muted: #898781;
   --grid: #e1e0d9;
   --baseline: #c3c2b7;
   --border: rgba(11, 11, 11, 0.10);
-  --series-1: #2a78d6;      /* winrate bars */
+  --series-1: #2a78d6;      /* winrate bars; overridable via the accent_color setting */
   --good: #0ca30c;
   --critical: #d03b3b;
   --good-text: #006300;
-  --accent-wash: rgba(42, 120, 214, 0.10);
+  --accent-wash: color-mix(in srgb, var(--series-1) 10%, transparent);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --surface-1: #1a1a19;
-    --page: #0d0d0d;
+    --surface-1-solid: #1a1a19;
+    --page-solid: #0d0d0d;
     --text-primary: #ffffff;
     --text-secondary: #c3c2b7;
     --muted: #898781;
@@ -27,11 +30,22 @@
     --good: #0ca30c;
     --critical: #d03b3b;
     --good-text: #0ca30c;
-    --accent-wash: rgba(57, 135, 229, 0.16);
+    --accent-wash: color-mix(in srgb, var(--series-1) 16%, transparent);
   }
 }
 
 * { box-sizing: border-box; }
+html { background: transparent; }
+#bg-image {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: none;
+}
+#bg-image.active { display: block; }
 body {
   margin: 0 auto;
   max-width: 1080px;
@@ -177,6 +191,16 @@ th, td {
 }
 thead th { border-top: none; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
 th:first-child, td:first-child { text-align: left; }
+.runes-compare { display: flex; gap: 28px; flex-wrap: wrap; padding: 6px 0; text-align: left; }
+.runes-compare-col { min-width: 220px; }
+.runes-compare-col h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.runes-compare-col h5 img { width: 20px; height: 20px; border-radius: 4px; vertical-align: middle; margin-right: 4px; }
+.recent-runes-cell-inner {
+  display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+}
+.recent-runes-cell-inner img { border-radius: 50%; background: var(--surface-1); }
+.recent-runes-cell-inner .rune-page-minors { gap: 1px; }
+.recent-runes-cell-inner .rune-page-shards { gap: 1px; margin-left: 3px; }
 tr.rank-header td {
   text-align: left;
   background: var(--accent-wash);
@@ -470,7 +494,7 @@ td.notes-cell { text-align: left; white-space: normal; }
   font-weight: 600;
   white-space: nowrap;
 }
-.chip-main { background: rgba(42, 120, 214, 0.13); border: 1px solid var(--series-1); }
+.chip-main { background: color-mix(in srgb, var(--series-1) 13%, transparent); border: 1px solid var(--series-1); }
 .chip-core { background: rgba(27, 175, 122, 0.13); border: 1px solid #1baf7a; }
 .chip-counter { background: rgba(237, 161, 0, 0.16); border: 1px solid #c98500; }
 .chip-plain { background: var(--accent-wash); border: 1px solid var(--border); }
@@ -500,6 +524,10 @@ td.notes-cell { text-align: left; white-space: normal; }
   white-space: nowrap;
 }
 .col-menu label { display: flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
+.col-menu input[type="password"], .col-menu input[type="file"] {
+  width: 100%; max-width: 220px; box-sizing: border-box; font-size: 12px;
+}
+.col-menu button { margin-top: 2px; }
 td.rank-cell { font-size: 12px; line-height: 1.5; }
 
 .welcome-banner {
@@ -576,6 +604,22 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   border: 1px solid var(--grid);
   border-radius: 4px;
   padding: 0 3px;
+}
+
+.opacity-row, .bg-image-row, .accent-color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#setting-ui-opacity { flex: 1; max-width: 260px; }
+#setting-accent-color {
+  width: 44px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-1);
+  cursor: pointer;
 }
 
 /* ---------- settings layout ---------- */
@@ -703,7 +747,95 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .mu-notes-head { display: flex; align-items: center; gap: 8px; }
 .mu-notes-head h4 { margin: 0; }
 .mu-notes textarea { width: 100%; margin-top: 6px; }
+.mu-guide-patch { font-size: 12px; margin-bottom: 4px; }
 .mu-block-notes { margin-top: 16px; max-width: 720px; }
+
+/* ---------- champ guide view ---------- */
+.mu-guide-link { font-size: 14px; }
+#guide-list .guide-row {
+  max-width: 1200px; margin: 0 0 18px; padding-bottom: 14px;
+  border-bottom: 1px solid var(--grid);
+}
+#guide-list .guide-row:last-child { border-bottom: none; }
+#guide-list .guide-row-collapsed { margin: 0; padding: 4px 0; }
+#guide-list .mu-notes-head h4 { display: flex; align-items: center; gap: 6px; }
+.guide-stat { margin-left: auto; font-size: 12px; }
+.guide-toggle { margin-right: 2px; }
+.guide-row-grid {
+  display: grid; grid-template-columns: minmax(280px, 1fr) minmax(260px, 340px);
+  gap: 20px; align-items: start; margin-top: 8px;
+}
+@media (max-width: 900px) { .guide-row-grid { grid-template-columns: 1fr; } }
+.guide-row-side h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.guide-game-entry { padding: 4px 0; border-bottom: 1px solid var(--grid); }
+.guide-game-entry:last-child { border-bottom: none; }
+.guide-game-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.guide-game-row .result-pill { transform: scale(0.85); }
+.guide-game-runes {
+  display: flex; align-items: center; gap: 2px; flex-wrap: wrap; margin-top: 3px;
+}
+.guide-game-runes img { border-radius: 50%; background: var(--surface-1); }
+.guide-game-runes .rune-page-minors { gap: 1px; }
+.guide-game-runes .rune-page-shards { gap: 1px; margin-left: 3px; }
+
+/* rune page builder (edit mode) */
+.rune-pages-builder { margin: 10px 0 14px; }
+.rune-pages-builder h4 { margin: 0 0 6px; font-size: 14px; }
+.rune-page-add { margin-top: 4px; }
+.rune-page-chip {
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px;
+  border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px;
+}
+.rune-page-chip-icons { display: flex; align-items: center; position: relative; }
+.rune-page-chip-icons img { border-radius: 50%; background: var(--surface-1); }
+.rune-page-chip-icons img.rune-page-chip-secondary { margin-left: -8px; border: 2px solid var(--surface-0, var(--bg)); }
+.rune-page-chip-text { display: flex; flex-direction: column; flex: 1; gap: 1px; font-size: 13px; }
+.rune-page-chip-text .muted { font-size: 12px; }
+.rune-page-editor {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+  margin-bottom: 6px; background: var(--surface-1);
+}
+.rune-page-label {
+  width: 100%; margin-bottom: 10px; font: inherit; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+  background: var(--surface-0, transparent); color: var(--text-primary);
+}
+.rune-page-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .rune-page-cols { grid-template-columns: 1fr; } }
+.rune-tree-col h5, .rune-page-editor > h5 { margin: 10px 0 6px; font-size: 12px; color: var(--text-secondary); }
+.rune-tree-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.rune-tree-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px;
+  background: transparent; cursor: pointer; font-size: 10px; color: var(--text-secondary);
+}
+.rune-tree-btn img { border-radius: 50%; }
+.rune-tree-btn.active { background: var(--accent-wash); border-color: var(--series-1); color: var(--text-primary); }
+.rune-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.rune-row-keystone .rune-btn img { width: 32px; height: 32px; }
+.rune-btn {
+  border: 2px solid transparent; border-radius: 50%; padding: 2px;
+  background: var(--surface-1); cursor: pointer; line-height: 0;
+}
+.rune-btn img { border-radius: 50%; display: block; }
+.rune-btn.active { border-color: var(--series-1); background: var(--accent-wash); }
+.rune-btn.shard-btn { padding: 3px; }
+.rune-hint { font-size: 11px; margin: 2px 0 4px; }
+
+/* read-only rune page display */
+.rune-pages-display { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0 10px; }
+.rune-page-card {
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  min-width: 220px;
+}
+.rune-page-title { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.rune-page-display { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.rune-page-display img { border-radius: 50%; background: var(--surface-1); }
+.rune-page-minors { display: flex; gap: 2px; }
+.rune-page-shards { display: flex; gap: 2px; margin-left: 4px; }
+.rune-keystone-icon { margin-right: 2px; }
+.rune-tree-icon { margin: 0 2px 0 6px; }
+
 .bn-all-label { font-size: 12px; font-weight: 400; }
 .bn-item { margin: 10px 0; padding-left: 10px; border-left: 3px solid var(--grid); }
 .bn-meta { font-size: 12px; margin-bottom: 2px; }
@@ -763,3 +895,26 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   color: var(--muted);
 }
 footer { margin-top: 36px; border-top: 1px solid var(--grid); padding-top: 10px; }
+
+/* ---------- clips (coaching sessions + block games) ---------- */
+.clips-section { margin-top: 14px; max-width: 520px; }
+.clips-section h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+.clips-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.clip-item {
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  background: var(--surface-1);
+}
+.clip-item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.clip-label { font-size: 13px; font-weight: 600; flex: 1; }
+.clip-item video { width: 100%; max-height: 260px; border-radius: 6px; display: block; }
+.clip-item a { font-size: 13px; word-break: break-all; }
+.clip-add-form { display: flex; flex-direction: column; gap: 6px; }
+.clip-add-form input[type="text"], .clip-add-form input[type="url"] {
+  font: inherit; font-size: 13px; padding: 4px 8px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-1); color: var(--text-primary);
+}
+.clip-add-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.clip-add-row input[type="file"] { font-size: 12px; max-width: 200px; }
+.clip-add-row input[type="url"] { flex: 1; min-width: 160px; }
+.clip-add-status { font-size: 12px; }

@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from server import db
@@ -396,16 +398,104 @@ def test_crawl_watermark_round_trip(conn):
     assert db.get_crawl_watermark(conn, "pu1", 440) == (None, False)
 
 
+CONQ_PAGE = {
+    "label": "Standard", "primary_tree": "Precision", "keystone": "Conqueror",
+    "primary_runes": ["Triumph", "Legend: Alacrity", "Last Stand"],
+    "secondary_tree": "Resolve", "secondary_runes": ["Bone Plating", "Overgrowth"],
+    "shards": ["Adaptive Force", "Adaptive Force", "Health"],
+}
+GRASP_PAGE = {
+    "label": "vs poke", "primary_tree": "Resolve", "keystone": "Grasp of the Undying",
+    "primary_runes": ["Demolish", "Second Wind", "Overgrowth"],
+    "secondary_tree": "Inspiration", "secondary_runes": ["Biscuit Delivery", "Cosmic Insight"],
+    "shards": ["Health", "Armor", "Health"],
+}
+
+
 def test_matchup_notes_roundtrip(conn):
-    assert db.get_matchup_notes(conn) == {}
-    db.set_matchup_note(conn, "Darius", "- care ghost timings")
-    db.set_matchup_note(conn, "Teemo", "ban it")
-    assert db.get_matchup_notes(conn) == {
-        "Darius": "- care ghost timings", "Teemo": "ban it"}
-    db.set_matchup_note(conn, "Darius", "updated")
-    assert db.get_matchup_notes(conn)["Darius"] == "updated"
-    db.set_matchup_note(conn, "Teemo", "  ")  # blank deletes
-    assert "Teemo" not in db.get_matchup_notes(conn)
+    assert db.get_matchup_notes(conn, "Gwen") == {}
+    db.set_matchup_note(conn, "Gwen", "Darius", notes="- care ghost timings",
+                         runes=[CONQ_PAGE], patch_version="14.14")
+    db.set_matchup_note(conn, "Gwen", "Teemo", notes="ban it")
+    assert db.get_matchup_notes(conn, "Gwen") == {
+        "Darius": {"notes": "- care ghost timings", "runes": [CONQ_PAGE],
+                    "patch_version": "14.14"},
+        "Teemo": {"notes": "ban it", "runes": [], "patch_version": ""},
+    }
+    # a different "my champion" has its own, independent guide for the same opponent
+    db.set_matchup_note(conn, "Camille", "Darius", notes="camille vs darius is easier")
+    assert db.get_matchup_notes(conn, "Camille") == {
+        "Darius": {"notes": "camille vs darius is easier", "runes": [], "patch_version": ""}}
+    assert db.get_matchup_notes(conn, "Gwen")["Darius"]["notes"] == "- care ghost timings"
+    db.set_matchup_note(conn, "Gwen", "Darius", notes="updated")
+    assert db.get_matchup_notes(conn, "Gwen")["Darius"]["notes"] == "updated"
+    # a matchup can carry more than one rune page (e.g. alternatives being tested)
+    db.set_matchup_note(conn, "Gwen", "Renekton", runes=[CONQ_PAGE, GRASP_PAGE])
+    assert db.get_matchup_notes(conn, "Gwen")["Renekton"]["runes"] == [CONQ_PAGE, GRASP_PAGE]
+    db.set_matchup_note(conn, "Gwen", "Teemo", notes="  ")  # all-blank deletes
+    assert "Teemo" not in db.get_matchup_notes(conn, "Gwen")
+
+
+def test_matchup_notes_pk_migration_preserves_data(tmp_path):
+    """Upgrading from the original pre-champ-guide schema (opp_champion-only
+    PK, no my_champion or rune columns at all) must preserve existing notes —
+    moved to my_champion='' since the old schema didn't track which champion
+    they were written for."""
+    path = tmp_path / "pre_guide.sqlite"
+    raw = sqlite3.connect(path)
+    raw.execute("""CREATE TABLE matchup_notes (
+        opp_champion TEXT PRIMARY KEY,
+        notes TEXT NOT NULL DEFAULT '',
+        updated_at_ms INTEGER
+    )""")
+    raw.execute("INSERT INTO matchup_notes (opp_champion, notes, updated_at_ms) "
+                "VALUES ('Darius', 'old note', 1700000000000)")
+    raw.commit()
+    raw.close()
+    c = db.connect(path)  # "upgrade": _migrate rebuilds the table with the new PK
+    assert db.get_matchup_notes(c, "")["Darius"]["notes"] == "old note"
+    c.close()
+
+
+def test_matchup_notes_migration_from_single_keystone_shape(tmp_path):
+    """Upgrading from the v1.13.0 shape (opp_champion-only PK, separate
+    primary_keystone/secondary_tree columns instead of a runes-list JSON
+    blob) must fold the old single keystone/tree pick into a one-page runes
+    list, still scoped to my_champion=''."""
+    path = tmp_path / "v1_13_0.sqlite"
+    raw = sqlite3.connect(path)
+    raw.execute("""CREATE TABLE matchup_notes (
+        opp_champion TEXT PRIMARY KEY,
+        notes TEXT NOT NULL DEFAULT '',
+        primary_keystone TEXT NOT NULL DEFAULT '',
+        secondary_tree TEXT NOT NULL DEFAULT '',
+        patch_version TEXT NOT NULL DEFAULT '',
+        updated_at_ms INTEGER
+    )""")
+    raw.execute("""INSERT INTO matchup_notes
+        (opp_champion, notes, primary_keystone, secondary_tree, patch_version, updated_at_ms)
+        VALUES ('Darius', 'old note', 'Conqueror', 'Resolve', '14.14', 1700000000000)""")
+    raw.commit()
+    raw.close()
+    c = db.connect(path)
+    guide = db.get_matchup_notes(c, "")["Darius"]
+    assert guide["notes"] == "old note"
+    assert guide["patch_version"] == "14.14"
+    assert guide["runes"] == [{
+        "label": "", "primary_tree": "", "keystone": "Conqueror",
+        "primary_runes": [], "secondary_tree": "Resolve", "secondary_runes": [], "shards": [],
+    }]
+    c.close()
+
+
+def test_champion_note_roundtrip(conn):
+    assert db.get_champion_note(conn, "Gwen") == ""
+    db.set_champion_note(conn, "Gwen", "- always take Conqueror\n- build Nashor's first")
+    assert db.get_champion_note(conn, "Gwen") == "- always take Conqueror\n- build Nashor's first"
+    db.set_champion_note(conn, "Gwen", "updated")
+    assert db.get_champion_note(conn, "Gwen") == "updated"
+    db.set_champion_note(conn, "Gwen", "  ")  # blank deletes
+    assert db.get_champion_note(conn, "Gwen") == ""
 
 
 def test_close_block_early_and_next_game_starts_new_block(conn):
@@ -429,7 +519,8 @@ def test_close_block_refused_when_naturally_complete(conn):
 
 def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     """Simulate an app upgrade: reconnecting to an existing db must never
-    clear user content (sessions, block notes, learnings, matchup notes)."""
+    clear user content (sessions, block notes, learnings, matchup notes,
+    champion notes)."""
     path = tmp_path / "old.sqlite"
     c = db.connect(path)
     db.upsert_player(c, "p1", "PlayerOne", "EUW", is_tracked=True)
@@ -439,7 +530,8 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     entry = c.execute("SELECT id FROM block_games").fetchone()["id"]
     db.update_block_game(c, entry, "game note")
     db.update_block(c, 1, learnings="learned things")
-    db.set_matchup_note(c, "Darius", "matchup note")
+    db.set_matchup_note(c, "Gwen", "Darius", notes="matchup note", runes=[CONQ_PAGE])
+    db.set_champion_note(c, "Gwen", "general champion note")
     # drop a column added by a later version to mimic an older schema
     c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
     c.commit()
@@ -448,7 +540,9 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     assert db.list_sessions(c)[0]["notes"] == "# keep me"
     assert c.execute("SELECT notes FROM block_games").fetchone()["notes"] == "game note"
     assert c.execute("SELECT learnings FROM blocks").fetchone()["learnings"] == "learned things"
-    assert db.get_matchup_notes(c) == {"Darius": "matchup note"}
+    assert db.get_matchup_notes(c, "Gwen") == {"Darius": {
+        "notes": "matchup note", "runes": [CONQ_PAGE], "patch_version": ""}}
+    assert db.get_champion_note(c, "Gwen") == "general champion note"
     assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None
     c.close()
 
@@ -458,7 +552,9 @@ def test_block_size_setting_clamped_and_respected(conn):
     db.set_settings(conn, {"block_size": "2"})
     assert db.get_block_size(conn) == 2
     db.set_settings(conn, {"block_size": "99"})
-    assert db.get_block_size(conn) == 10  # clamped to MAX_BLOCK_SIZE
+    assert db.get_block_size(conn) == 99  # no upper bound
+    db.set_settings(conn, {"block_size": "0"})
+    assert db.get_block_size(conn) == 1  # floored at 1
     db.set_settings(conn, {"block_size": "junk"})
     assert db.get_block_size(conn) == 3
     # auto-advance follows the setting

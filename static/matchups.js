@@ -1,9 +1,12 @@
 "use strict";
-/* Matchups view: matchup table with per-matchup notes and a tabbed expansion
-   (overview: win/loss timeline + notes; games: per-game list).
+/* Matchups view: matchup table with a tabbed expansion (overview: win/loss
+   timeline + block notes; games: per-game list). When a specific "My
+   champion" filter is active, each row also links out to that champion's
+   entry on the standalone Champ guide page (guide.js) for runes/patch/notes.
    Uses globals from app.js: state, $, getJSON, QUEUE_NAMES, escapeHtml,
    displayName, champIcon, fmt, pct, wrCell, fmtDate, fmtDuration, titleCase,
-   renderNotes, metricGroupsPanel, wirePromoteButtons. */
+   renderNotes, metricGroupsPanel, wirePromoteButtons. Uses openGuide from
+   guide.js. */
 
 const muState = {
   wired: false,
@@ -14,8 +17,7 @@ const muState = {
   minGames: 1,
   view: "flat", // flat | rank
   rows: [],
-  notes: {},            // opp_champion -> markdown
-  editingNotes: null,   // matchup key currently in note-edit mode
+  guideFlags: new Set(), // opp_champion set with a champ guide for muState.champion
   expanded: new Set(),
   tab: new Map(),       // matchup key -> "overview" | "games"
   games: new Map(),     // matchup key -> games list
@@ -89,16 +91,17 @@ async function loadMatchups() {
   muState.blockNotes.clear();
   muState.statsOpen.clear();
   muState.statsCache.clear();
-  muState.editingNotes = null;
   const url = muState.view === "rank"
     ? `/api/stats/matchups_by_rank?${muQuery()}` : `/api/stats/matchups?${muQuery()}`;
-  const [rows, notes, blockNoted] = await Promise.all([
+  const [rows, blockNoted, guide] = await Promise.all([
     getJSON(url),
-    getJSON("/api/matchups/notes"),
     getJSON("/api/blocks/noted-champions"),
+    muState.champion
+      ? getJSON(`/api/matchups/notes?my_champion=${encodeURIComponent(muState.champion)}`)
+      : Promise.resolve({}),
   ]);
   if (seq !== muState.seq) return; // superseded by a newer load
-  muState.notes = notes;
+  muState.guideFlags = new Set(Object.keys(guide));
   muState.blockNoted = new Set(blockNoted);
   renderMU(rows);
   // re-hydrate games for anything the user had expanded
@@ -217,32 +220,6 @@ function laneTrendGraph(games) {
   </div>`;
 }
 
-function matchupNotesBlock(row) {
-  const key = muKey(row);
-  const champ = row.opp_champion;
-  const notes = muState.notes[champ] || "";
-  if (muState.editingNotes === key) {
-    return `<div class="mu-notes">
-      <div class="mu-notes-head"><h4>Notes vs ${displayName(champ)}</h4></div>
-      <textarea id="mu-notes-input" rows="8"
-        placeholder="Markdown supported — game plan, power spikes, bans…">${escapeHtml(notes)}</textarea>
-      <div class="session-actions">
-        <button class="preset mu-notes-save" data-key="${escapeHtml(key)}">Save</button>
-        <button class="preset mu-notes-cancel">Cancel</button>
-        <span class="muted mu-notes-status"></span>
-      </div>
-    </div>`;
-  }
-  const body = notes
-    ? `<div class="md-body">${renderNotes(notes)}</div>`
-    : `<p class="muted">No notes for this matchup yet.</p>`;
-  return `<div class="mu-notes">
-    <div class="mu-notes-head"><h4>Notes vs ${displayName(champ)}</h4>
-      <button class="preset icon-btn mu-notes-edit" data-key="${escapeHtml(key)}"
-        title="Edit matchup notes" aria-label="Edit matchup notes">✎</button>
-    </div>${body}</div>`;
-}
-
 function blockNotesBlock(row) {
   const key = muKey(row);
   const all = muState.blockNotes.get(row.opp_champion);
@@ -319,7 +296,7 @@ function matchupPanel(row) {
   const body = tab === "games"
     ? matchupGamesTable(key)
     : `<div class="mu-overview-grid">
-        <div>${matchupNotesBlock(row)}${blockNotesBlock(row)}</div>
+        <div>${blockNotesBlock(row)}</div>
         <div>${winLossStrip(games, key)}${laneTrendGraph(games)}</div>
       </div>`;
   return `<div class="mu-panel">
@@ -344,13 +321,20 @@ const MU_COLS = 11;
 function matchupRow(row) {
   const key = muKey(row);
   const expanded = muState.expanded.has(key);
-  const hasNotes = Boolean(muState.notes[row.opp_champion]);
   const hasBlockNotes = muState.blockNoted && muState.blockNoted.has(row.opp_champion);
+  // only meaningful once a specific "My champion" is selected — guides are
+  // scoped per (my champion, opponent), so "All" has no single guide to show
+  const guideLink = muState.champion
+    ? `<button class="preset icon-btn mu-guide-link" data-my="${escapeHtml(muState.champion)}"
+        data-opp="${escapeHtml(row.opp_champion)}"
+        title="${muState.guideFlags.has(row.opp_champion) ? "Open champ guide" : "Write a champ guide"}"
+        aria-label="Open champ guide">${muState.guideFlags.has(row.opp_champion) ? "📖" : "📖+"}</button>`
+    : "";
   let html = `<tr>
     <td><button class="preset seg-toggle matchup-toggle" data-key="${escapeHtml(key)}"
       aria-expanded="${expanded}" title="Matchup details">${expanded ? "▾" : "▸"}</button></td>
     <td><span class="champ-cell">${champIcon(row.opp_champion)}${displayName(row.opp_champion)}</span></td>
-    <td>${hasNotes ? `<span class="note-flag" title="Has matchup notes">📝</span>` : ""}${
+    <td>${guideLink}${
       hasBlockNotes ? `<span class="note-flag" title="Has block notes">🧱</span>` : ""}</td>
     <td>${row.games}</td>
     <td>${row.wins}–${row.games - row.wins}</td>
@@ -401,7 +385,6 @@ function wireMUHandlers(target) {
       const key = btn.dataset.key;
       if (muState.expanded.has(key)) {
         muState.expanded.delete(key);
-        if (muState.editingNotes === key) muState.editingNotes = null;
       } else {
         muState.expanded.add(key);
         const row = rowFor(key);
@@ -426,38 +409,8 @@ function wireMUHandlers(target) {
       muState.tab.set(btn.dataset.key, btn.dataset.tab);
       renderMU(muState.rows);
     }));
-  target.querySelectorAll(".mu-notes-edit").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      muState.editingNotes = btn.dataset.key;
-      renderMU(muState.rows);
-    }));
-  target.querySelectorAll(".mu-notes-cancel").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      muState.editingNotes = null;
-      renderMU(muState.rows);
-    }));
-  target.querySelectorAll(".mu-notes-save").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      const row = rowFor(btn.dataset.key);
-      if (!row) return;
-      const notes = $("#mu-notes-input").value;
-      const response = await fetch(
-        `/api/matchups/notes/${encodeURIComponent(row.opp_champion)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ notes }),
-        });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        btn.parentElement.querySelector(".mu-notes-status").textContent =
-          body.detail || `error ${response.status}`;
-        return;
-      }
-      if (notes.trim()) muState.notes[row.opp_champion] = notes;
-      else delete muState.notes[row.opp_champion];
-      muState.editingNotes = null;
-      renderMU(muState.rows);
-    }));
+  target.querySelectorAll(".mu-guide-link").forEach((btn) =>
+    btn.addEventListener("click", () => openGuide(btn.dataset.my, btn.dataset.opp)));
   target.querySelectorAll(".mg-stats-toggle").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const gkey = btn.dataset.gkey;
