@@ -449,6 +449,17 @@ function runePagesDisplay(runes, opp) {
 
 // ---------- matchup rows ----------
 
+// per-row indicator column: 📝 notes, 🔮 rune pages. Always rendered (even
+// empty) so the collapsed list's grid columns line up like a table.
+function guideFlags(champ) {
+  const g = guideState.guide[champ];
+  const notesFlag = g && g.notes
+    ? `<span class="note-flag" title="Has matchup notes">📝</span>` : "";
+  const runesFlag = g && g.runes && g.runes.length
+    ? `<span class="note-flag" title="Has rune pages">🔮</span>` : "";
+  return `<span class="guide-flags">${notesFlag}${runesFlag}</span>`;
+}
+
 function guideRow(m) {
   const champ = m.opp_champion;
   const expanded = guideState.expanded.has(champ);
@@ -459,12 +470,11 @@ function guideRow(m) {
   const toggleBtn = `<button class="preset seg-toggle guide-toggle" data-opp="${escapeHtml(champ)}"
       aria-expanded="${expanded}" title="${expanded ? "Collapse" : "Expand"} matchup">${expanded ? "▾" : "▸"}</button>`;
   if (!expanded) {
-    const hasGuide = Boolean(guideState.guide[champ]);
     return `<div class="mu-notes mu-guide guide-row guide-row-collapsed" data-opp="${escapeHtml(champ)}">
       <div class="mu-notes-head">
         ${toggleBtn}
         <h4>${champIcon(champ)}${displayName(champ)}</h4>
-        ${hasGuide ? `<span class="note-flag" title="Has champ guide">📝</span>` : ""}
+        ${guideFlags(champ)}
         ${statLine}
       </div>
     </div>`;

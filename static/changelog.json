@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.27.0",
+      "date": "2026-07-17",
+      "items": [
+        "Champ guide list is table-like: aligned columns, row hover, and separate indicators for matchup notes (📝) and rune pages (🔮)"
+      ]
+    },
+    {
       "version": "1.26.1",
       "date": "2026-07-17",
       "items": [
