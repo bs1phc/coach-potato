@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.32.0",
+      "date": "2026-07-17",
+      "items": [
+        "Opponent ability cooldown table on the Matchup guide has an ability haste dropdown (0-100) — recalculates their cooldowns live so you can judge how fast their kit actually comes back"
+      ]
+    },
+    {
       "version": "1.31.0",
       "date": "2026-07-17",
       "items": [

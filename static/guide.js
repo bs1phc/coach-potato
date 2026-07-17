@@ -24,6 +24,7 @@ const guideState = {
   games: new Map(), // opp_champion -> recent games list (each may carry a "runes" field)
   expanded: new Set(), // opp_champions currently expanded (collapsed by default)
   openRunePages: new Set(), // "opp:index" rune pages expanded in read-only view
+  abilityHaste: new Map(), // opp_champion -> selected ability haste (0-100, ephemeral)
   editing: null,  // opp_champion whose editor is open
   draft: null,    // working copy of the guide being edited: {notes, patch_version, runes}
   openRuneIndex: null, // index into draft.runes currently expanded in the picker
@@ -125,7 +126,17 @@ function fmtCooldown(seconds) {
   return Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1);
 }
 
-function abilityCooldownTableHtml(abilities) {
+const ABILITY_HASTE_OPTIONS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+function abilityHasteSelectHtml(champ, selected) {
+  const opts = ABILITY_HASTE_OPTIONS.map((v) =>
+    `<option value="${v}" ${v === selected ? "selected" : ""}>${v}</option>`).join("");
+  return `<label class="filter-label" for="ability-haste-${escapeHtml(champ)}">Ability haste</label>
+    <select id="ability-haste-${escapeHtml(champ)}" class="ability-haste-select"
+      data-opp="${escapeHtml(champ)}">${opts}</select>`;
+}
+
+function abilityCooldownTableHtml(abilities, haste = 0) {
   if (!abilities || !abilities.length) {
     return `<p class="muted">Ability data unavailable (offline?).</p>`;
   }
@@ -134,7 +145,8 @@ function abilityCooldownTableHtml(abilities) {
     const cells = ABILITY_CD_LEVELS.map((level) => {
       const rank = abilityRankAtLevel(a.key, level);
       if (rank === 0 || !a.cooldowns.length) return `<td class="muted">–</td>`;
-      const cd = a.cooldowns[Math.min(rank, a.cooldowns.length) - 1];
+      const baseCd = a.cooldowns[Math.min(rank, a.cooldowns.length) - 1];
+      const cd = haste ? baseCd / (1 + haste / 100) : baseCd;
       return `<td>${fmtCooldown(cd)}</td>`;
     }).join("");
     return `<tr><th>${a.key}</th>${cells}</tr>`;
@@ -144,7 +156,8 @@ function abilityCooldownTableHtml(abilities) {
     <tbody>${rows}</tbody>
   </table></div>
   <p class="muted ability-cd-note">Levels follow a standard reference skill order
-    (max Q → W → E, ult at 6/11/16) — not necessarily the actual build.</p>`;
+    (max Q → W → E, ult at 6/11/16) — not necessarily the actual build.${
+    haste ? ` Cooldowns reduced for ${haste} ability haste.` : ""}</p>`;
 }
 
 async function ensureAbilityCooldowns(champ) {
@@ -254,6 +267,7 @@ async function loadGuide() {
   guideState.expanded = new Set();
   guideState.editingItemBuild = false;
   guideState.openRunePages = new Set();
+  guideState.abilityHaste = new Map();
   if (!guideState.myChampion) {
     guideState.matchups = [];
     guideState.guide = {};
@@ -639,8 +653,11 @@ function guideRow(m) {
       <button type="button" class="link-btn guide-edit" data-opp="${escapeHtml(champ)}">click here to create one</button>.</p>`;
   }
   if (!editing && ABILITY_CACHE.has(champ)) {
-    body += `<h5>${displayName(champ)} ability cooldowns</h5>${
-      abilityCooldownTableHtml(ABILITY_CACHE.get(champ))}`;
+    const haste = guideState.abilityHaste.get(champ) || 0;
+    body += `<div class="ability-cd-head">
+      <h5>${displayName(champ)} ability cooldowns</h5>
+      ${abilityHasteSelectHtml(champ, haste)}
+    </div>${abilityCooldownTableHtml(ABILITY_CACHE.get(champ), haste)}`;
   }
   const patchBadge = !editing && patch_version
     ? `<span class="guide-patch-badge" title="Written for this patch">Patch ${escapeHtml(patch_version)}</span>` : "";
@@ -781,6 +798,11 @@ function wireGuideHandlers(target) {
       const key = btn.dataset.key;
       guideState.openRunePages.has(key)
         ? guideState.openRunePages.delete(key) : guideState.openRunePages.add(key);
+      renderGuide();
+    }));
+  target.querySelectorAll(".ability-haste-select").forEach((sel) =>
+    sel.addEventListener("change", () => {
+      guideState.abilityHaste.set(sel.dataset.opp, parseInt(sel.value, 10) || 0);
       renderGuide();
     }));
   target.querySelectorAll(".rune-page-add").forEach((btn) =>
