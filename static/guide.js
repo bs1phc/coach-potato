@@ -107,7 +107,7 @@ async function initGuide() {
     guideState.pendingFocus = null;
     addOrFocusMatchup(champ);
     renderGuide();
-    await ensureMatchupGames(champ);
+    await ensureGuideMatchupGames(champ);
     renderGuide();
   }
 }
@@ -174,7 +174,7 @@ function updateGuideAddOptions() {
 
 // fetch a matchup's recent games on first expand only (collapsed rows never
 // pay for this — see .guide-toggle in wireGuideHandlers)
-async function ensureMatchupGames(champ) {
+async function ensureGuideMatchupGames(champ) {
   if (guideState.games.has(champ)) return;
   const m = guideState.matchups.find((x) => x.opp_champion === champ);
   if (!m || m.games <= 0) return;
@@ -193,7 +193,7 @@ async function addGuideMatchup() {
   $("#guide-add-status").textContent = "";
   addOrFocusMatchup(champ);
   renderGuide();
-  await ensureMatchupGames(champ);
+  await ensureGuideMatchupGames(champ);
   renderGuide();
 }
 
@@ -597,14 +597,14 @@ function wireGuideHandlers(target) {
       }
       guideState.expanded.add(champ);
       renderGuide(); // show "Loading…" immediately
-      await ensureMatchupGames(champ);
+      await ensureGuideMatchupGames(champ);
       renderGuide();
     }));
   target.querySelectorAll(".guide-edit").forEach((btn) =>
     btn.addEventListener("click", async () => {
       startEditing(btn.dataset.opp);
       renderGuide();
-      await ensureMatchupGames(btn.dataset.opp);
+      await ensureGuideMatchupGames(btn.dataset.opp);
       renderGuide();
     }));
   target.querySelectorAll(".guide-cancel").forEach((btn) =>

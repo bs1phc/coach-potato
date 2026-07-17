@@ -95,6 +95,14 @@ Esc closes) wrapping `#modal-box`. A feature renders its content into
 not inherit the translucency setting. Head pattern: `.modal-head` with an
 `h3` and an `icon-btn` ✕.
 
+## One global namespace
+
+There is no build step: every `static/*.js` file's top-level declarations
+share the page's global scope, and a later `<script>` silently overwrites
+an earlier one's function of the same name. Prefix view-specific helpers
+with their view (`ensureGuideMatchupGames`, not `ensureMatchupGames`).
+`tests/test_static_js.py` fails the suite on any duplicate top-level name.
+
 ## Drag-to-reorder
 
 Ordered chip lists (champion pool, skill priority) use native HTML5 DnD:

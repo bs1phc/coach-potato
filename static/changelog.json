@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.33.3",
+      "date": "2026-07-18",
+      "items": [
+        "Fixed Matchups rows getting stuck on \"Loading…\" when expanded (a function-name clash with the Champ guide silently broke the games fetch)"
+      ]
+    },
+    {
       "version": "1.33.2",
       "date": "2026-07-18",
       "items": [
