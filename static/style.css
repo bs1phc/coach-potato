@@ -791,6 +791,11 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .item-picker-close { margin-top: 6px; }
 
 /* ---------- ability cooldowns ---------- */
+.ability-cd-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 8px 0 4px;
+}
+.ability-cd-head h5 { margin: 0; }
 .ability-cd-table { border-collapse: collapse; font-size: 12px; }
 .ability-cd-table th, .ability-cd-table td {
   padding: 3px 8px; text-align: center; border-bottom: 1px solid var(--grid);
