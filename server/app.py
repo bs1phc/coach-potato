@@ -144,7 +144,6 @@ def _extra_settings(conn):
         "ui_opacity": int(stored.get("ui_opacity") or 100),
         "background_image": bool(stored.get("background_image_file")),
         "accent_color": stored.get("accent_color") or None,
-        "default_champion": stored.get("default_champion") or None,
     }
 
 
@@ -249,11 +248,6 @@ def api_put_settings(body: dict):
     if accent_color is not None and (not isinstance(accent_color, str)
                                       or not HEX_COLOR_RE.match(accent_color)):
         raise HTTPException(400, "accent_color must be a #rrggbb hex string or null")
-    default_champion = body.get("default_champion")
-    if default_champion is not None:
-        if not isinstance(default_champion, str):
-            raise HTTPException(400, "default_champion must be a champion name or null")
-        _validate_champion(default_champion)
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -268,7 +262,6 @@ def api_put_settings(body: dict):
             "block_gap_confirm": "1" if gap_confirm else "0",
             "ui_opacity": str(ui_opacity),
             "accent_color": accent_color or "",
-            "default_champion": default_champion or "",
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)

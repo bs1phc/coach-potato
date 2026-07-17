@@ -149,7 +149,11 @@ change, not a crawler change.
   `stats.trend_buckets` (day/week/month; week = Monday date) feed
   `/api/stats/metrics` and `/api/stats/trends` (both include `meta`).
 - Block learnings: `champion_pool` (role main_blind/core/counter, replaced
-  wholesale), `blocks` + `block_games` (UNIQUE match_id+puuid). Current block
+  wholesale, `sort` column = user-set priority order via drag'n'drop chips;
+  the EDITOR lives in Settings — `#pool-card`, wired by `initSettings`,
+  functions in blocks.js — while the Blocks view shows a read-only summary
+  with a ✎-to-Settings shortcut), `blocks` + `block_games` (UNIQUE
+  match_id+puuid). Current block
   = newest; block size is a setting (`db.get_block_size`, >=1, no upper
   bound, default `db.BLOCK_SIZE`=3); complete = closed early, pool-snapshot stamped
   (finalized under an earlier size), or ≥size games;
@@ -242,9 +246,12 @@ validated everywhere it's written (`PATCH_VERSION_RE`, e.g. 16.14 or
 16.14.1, or empty); the guide editor offers a patch dropdown built from
 DDragon versions.json (cached in `state.ddragonVersions` by
 `loadDdragonVersion`, major.minor deduped), defaulting to the current
-patch. `default_champion` (settings key, validated champion or unset)
-pre-selects the Champ guide's "My champion" — reuse it for any future
-your-champion-scoped feature (`state.defaultChampion` client-side).
+patch. "Your champion" defaults (Champ guide pre-selection, cooldown
+popup, legacy-migrate select) come from the champion pool's first entry —
+`poolChampionOrder()` in app.js (flattened main→core→counter, cached,
+reset on pool save); use it for any future your-champion-scoped feature.
+A `default_champion` settings key existed briefly (v1.25–v1.30) and may
+linger in old dbs — it's ignored.
 `champion_notes(champion PK, notes, updated_at_ms)` — general (non-matchup)
 Markdown notes for a champion (build order, itemization…), shown above the
 matchup list on the Champ guide page. `GET`/`PUT /api/champions/notes/

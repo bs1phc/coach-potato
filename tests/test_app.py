@@ -911,16 +911,6 @@ def test_legacy_notes_delete(client):
     assert client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]["notes"] == "keep me"
 
 
-def test_default_champion_setting_endpoint(client):
-    assert client.get("/api/settings").json()["default_champion"] is None
-    assert _put_settings(client, default_champion="Gwen").status_code == 200
-    assert client.get("/api/settings").json()["default_champion"] == "Gwen"
-    assert _put_settings(client, default_champion=None).status_code == 200
-    assert client.get("/api/settings").json()["default_champion"] is None
-    assert _put_settings(client, default_champion="NotAChamp").status_code == 400
-    assert _put_settings(client, default_champion=123).status_code == 400
-
-
 def test_patch_version_validation(client):
     ok = {"notes": "x", "patch_version": "16.14"}
     assert client.put("/api/matchups/notes/Gwen/Darius", json=ok).status_code == 200

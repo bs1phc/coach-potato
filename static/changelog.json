@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.31.0",
+      "date": "2026-07-17",
+      "items": [
+        "Champion pool management moved to Settings (replacing the separate \"My champion\" setting — your pool's first pick is your default champion now); the Blocks view shows a read-only pool summary with an edit shortcut into Settings"
+      ]
+    },
+    {
       "version": "1.30.0",
       "date": "2026-07-17",
       "items": [

@@ -456,12 +456,14 @@ td.notes-cell { text-align: left; white-space: normal; }
   gap: 14px;
   align-items: start;
   padding: 12px 14px;
-  margin-top: 16px;
+  margin-top: 6px;
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 10px;
 }
 @media (max-width: 900px) { #pool-card { grid-template-columns: 1fr; } }
+.pool-summary-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#pool-summary-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .pool-group { display: flex; flex-direction: column; gap: 5px; }
 .pool-actions { display: flex; flex-direction: column; gap: 6px; align-self: end; }
 .chip-box {

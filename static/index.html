@@ -169,13 +169,36 @@
         keeps being recorded and reappears when you untick this.</p>
     </div>
     <div class="settings-field">
-      <label class="filter-label" for="setting-default-champion">My champion</label>
-      <select id="setting-default-champion" style="max-width:16em">
-        <option value="">– none –</option>
-      </select>
-      <p class="muted">Pre-selects this champion on the Champ guide page (and in
-        future champion-specific features). "– none –" falls back to your
-        most-played champion.</p>
+      <span class="filter-label">Champion pool</span>
+      <div id="pool-card" aria-label="Champion pool">
+        <div class="pool-group">
+          <span class="filter-label">Main Blind</span>
+          <div class="chip-box" data-role="main_blind">
+            <input class="chip-input" list="champ-list" placeholder="champion…" aria-label="Main blind pick">
+          </div>
+        </div>
+        <div class="pool-group">
+          <span class="filter-label">Core Pool</span>
+          <div class="chip-box" data-role="core">
+            <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Core pool">
+          </div>
+        </div>
+        <div class="pool-group">
+          <span class="filter-label">Counter Picks</span>
+          <div class="chip-box" data-role="counter">
+            <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Counter picks">
+          </div>
+        </div>
+        <div class="pool-actions">
+          <button id="pool-save" class="preset">Save pool</button>
+          <span id="pool-status" class="muted"></span>
+        </div>
+        <datalist id="champ-list"></datalist>
+      </div>
+      <p class="muted">Ordered — drag chips to reorder; the first champion is
+        your main and acts as your default (Champ guide, cooldown comparison).
+        The pool is grouped on top of champion dropdowns and stamped onto
+        completed blocks. Saves immediately with "Save pool".</p>
     </div>
 
     <h3 class="settings-group-head">Appearance</h3>
@@ -228,31 +251,13 @@
 </div>
 
 <div id="blocks-view" class="hidden">
-  <section id="pool-card" aria-label="Champion pool">
-    <div class="pool-group">
-      <span class="filter-label">Main Blind</span>
-      <div class="chip-box" data-role="main_blind">
-        <input class="chip-input" list="champ-list" placeholder="champion…" aria-label="Main blind pick">
-      </div>
+  <section id="pool-summary" aria-label="Champion pool">
+    <div class="pool-summary-row">
+      <span class="filter-label">Champion pool</span>
+      <div id="pool-summary-chips"></div>
+      <button id="pool-edit-btn" class="preset icon-btn" title="Edit pool in Settings"
+        aria-label="Edit pool in Settings">✎</button>
     </div>
-    <div class="pool-group">
-      <span class="filter-label">Core Pool</span>
-      <div class="chip-box" data-role="core">
-        <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Core pool">
-      </div>
-    </div>
-    <div class="pool-group">
-      <span class="filter-label">Counter Picks</span>
-      <div class="chip-box" data-role="counter">
-        <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Counter picks">
-      </div>
-    </div>
-    <div class="pool-actions">
-      <button id="pool-save" class="preset">Save pool</button>
-      <span id="pool-status" class="muted"></span>
-      <span class="muted">Drag champions to reorder — first = highest priority.</span>
-    </div>
-    <datalist id="champ-list"></datalist>
   </section>
 
   <section>

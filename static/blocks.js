@@ -54,7 +54,13 @@ const POOL_ROLES = {
 async function initBlocks() {
   if (!blockState.wired) {
     blockState.wired = true;
-    $("#pool-save").addEventListener("click", savePool);
+    // the pool editor itself lives in Settings (wired by initSettings) —
+    // Blocks only shows the read-only summary with an edit shortcut
+    $("#pool-edit-btn").addEventListener("click", () => {
+      setMainView("settings");
+      requestAnimationFrame(() =>
+        $("#pool-card").scrollIntoView({ block: "center", behavior: "smooth" }));
+    });
     $("#copy-discord").addEventListener("click", () => {
       copyDiscordMarkdown(blockState.blocks);
       closeMenus();
@@ -65,7 +71,6 @@ async function initBlocks() {
     });
     renderColPicker($("#blocks-cols"), "cp-cols-blocks", BLOCK_COLS, blockCols,
       () => renderBlocks());
-    wireChipBoxes();
     await loadChampionRoster();
   }
   await Promise.all([loadPool(), loadBlocks()]);
@@ -239,6 +244,15 @@ function wireChipBoxes() {
   });
 }
 
+// read-only chips at the top of the Blocks view (the editor is in Settings)
+function renderPoolSummary() {
+  const target = $("#pool-summary-chips");
+  const chips = ["main_blind", "core", "counter"].flatMap((role) =>
+    blockState.pool[role].map((c) => poolChip(role, c, false)));
+  target.innerHTML = chips.join("")
+    || `<span class="muted">No champion pool yet — add one in Settings.</span>`;
+}
+
 async function loadPool() {
   const pool = await getJSON("/api/pool");
   blockState.pool = {
@@ -247,6 +261,7 @@ async function loadPool() {
     counter: pool.counter,
   };
   renderPoolEditor();
+  renderPoolSummary();
 }
 
 async function savePool() {
@@ -261,7 +276,10 @@ async function savePool() {
   });
   $("#pool-status").textContent = response.ok ? "saved" : "save failed";
   setTimeout(() => { $("#pool-status").textContent = ""; }, 2000);
-  if (response.ok) state.poolOrder = null; // champion dropdowns regroup on next build
+  if (response.ok) {
+    state.poolOrder = null; // champion dropdowns regroup on next build
+    renderPoolSummary();
+  }
   loadBlocks(); // a just-completed block may have been stamped with this pool
 }
 

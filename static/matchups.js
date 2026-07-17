@@ -414,10 +414,11 @@ function wireMUHandlers(target) {
   target.querySelectorAll(".mu-guide-link").forEach((btn) =>
     btn.addEventListener("click", () => openGuide(btn.dataset.my, btn.dataset.opp)));
   target.querySelectorAll(".mu-cd-link").forEach((btn) =>
-    btn.addEventListener("click", () =>
-      // your side prefers the active "My champion" filter, then the Settings
-      // default; the popup lets you pick either side freely anyway
-      openCooldowns(muState.champion || state.defaultChampion || "", btn.dataset.opp)));
+    btn.addEventListener("click", async () =>
+      // your side prefers the active "My champion" filter, then the pool's
+      // first pick; the popup lets you pick either side freely anyway
+      openCooldowns(muState.champion || (await poolChampionOrder())[0] || "",
+                    btn.dataset.opp)));
   target.querySelectorAll(".mg-stats-toggle").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const gkey = btn.dataset.gkey;

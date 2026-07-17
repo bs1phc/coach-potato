@@ -15,7 +15,6 @@ const state = {
   progressQueue: "",
   ddragonVersion: null,
   ddragonVersions: [], // recent DDragon versions, newest first (patch picker)
-  defaultChampion: null, // Champ guide's pre-selected champion (settings)
   poolOrder: null, // champion pool flattened in priority order; null = not fetched
 };
 
@@ -1132,7 +1131,7 @@ async function refreshLegacySection() {
     `champion, or delete them.`;
   const select = $("#legacy-migrate-champion");
   if (!select.options.length) {
-    select.innerHTML = await championOptions(state.defaultChampion || "");
+    select.innerHTML = await championOptions((await poolChampionOrder())[0] || "");
   }
 }
 
@@ -1154,8 +1153,8 @@ async function initSettings() {
   $("#setting-block-gap").value = data.block_gap_hours;
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
-  $("#setting-default-champion").innerHTML =
-    await championOptions(data.default_champion || "", "– none –");
+  await loadChampionRoster(); // pool chips + legacy select need display names
+  loadPool(); // blocks.js — hydrates the pool editor now hosted in Settings
   refreshLegacySection();
   $("#setting-accent-color").value = data.accent_color
     || rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
@@ -1167,6 +1166,8 @@ async function initSettings() {
   $("#settings-banner").classList.toggle("hidden", data.configured);
   if (settingsUi.wired) return;
   settingsUi.wired = true;
+  $("#pool-save").addEventListener("click", savePool); // blocks.js
+  wireChipBoxes(); // blocks.js — chip add/remove/drag inside #pool-card
   $("#setting-accent-color").addEventListener("input", (e) => {
     document.documentElement.style.setProperty("--series-1", e.target.value);
     $("#setting-accent-reset").classList.remove("hidden");
@@ -1281,7 +1282,6 @@ async function initSettings() {
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
         accent_color: $("#setting-accent-reset").classList.contains("hidden")
           ? null : $("#setting-accent-color").value,
-        default_champion: $("#setting-default-champion").value || null,
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -1290,7 +1290,6 @@ async function initSettings() {
         state.hideMyRank = body.hide_my_rank;
         init(false); // re-pull data so the redaction change applies everywhere
       }
-      state.defaultChampion = body.default_champion || null;
       applyHiddenViews(body.hidden_views);
       applyAppearance(body);
       $("#settings-banner").classList.add("hidden");
@@ -1567,7 +1566,6 @@ async function init(firstLoad = true) {
     checkForUpdates();
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
-    state.defaultChampion = settings.default_champion || null;
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);
