@@ -6,7 +6,7 @@
    Uses globals from app.js: state, $, getJSON, QUEUE_NAMES, escapeHtml,
    displayName, champIcon, fmt, pct, wrCell, fmtDate, fmtDuration, titleCase,
    renderNotes, metricGroupsPanel, wirePromoteButtons. Uses openGuide from
-   guide.js. */
+   guide.js and openCooldowns from cooldowns.js. */
 
 const muState = {
   wired: false,
@@ -330,11 +330,13 @@ function matchupRow(row) {
         title="${muState.guideFlags.has(row.opp_champion) ? "Open matchup guide" : "Write a matchup guide"}"
         aria-label="Open matchup guide">${muState.guideFlags.has(row.opp_champion) ? "📖" : "📖+"}</button>`
     : "";
+  const cdLink = `<button class="preset icon-btn mu-cd-link" data-opp="${escapeHtml(row.opp_champion)}"
+      title="Compare ability cooldowns" aria-label="Compare ability cooldowns">⏱</button>`;
   let html = `<tr>
     <td><button class="preset seg-toggle matchup-toggle" data-key="${escapeHtml(key)}"
       aria-expanded="${expanded}" title="Matchup details">${expanded ? "▾" : "▸"}</button></td>
     <td><span class="champ-cell">${champIcon(row.opp_champion)}${displayName(row.opp_champion)}</span></td>
-    <td>${guideLink}${
+    <td>${guideLink}${cdLink}${
       hasBlockNotes ? `<span class="note-flag" title="Has block notes">🧱</span>` : ""}</td>
     <td>${row.games}</td>
     <td>${row.wins}–${row.games - row.wins}</td>
@@ -411,6 +413,12 @@ function wireMUHandlers(target) {
     }));
   target.querySelectorAll(".mu-guide-link").forEach((btn) =>
     btn.addEventListener("click", () => openGuide(btn.dataset.my, btn.dataset.opp)));
+  target.querySelectorAll(".mu-cd-link").forEach((btn) =>
+    btn.addEventListener("click", async () =>
+      // your side prefers the active "My champion" filter, then the pool's
+      // first pick; the popup lets you pick either side freely anyway
+      openCooldowns(muState.champion || (await poolChampionOrder())[0] || "",
+                    btn.dataset.opp)));
   target.querySelectorAll(".mg-stats-toggle").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const gkey = btn.dataset.gkey;

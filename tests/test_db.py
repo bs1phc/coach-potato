@@ -419,20 +419,35 @@ def test_matchup_notes_roundtrip(conn):
     db.set_matchup_note(conn, "Gwen", "Teemo", notes="ban it")
     assert db.get_matchup_notes(conn, "Gwen") == {
         "Darius": {"notes": "- care ghost timings", "runes": [CONQ_PAGE],
-                    "patch_version": "14.14"},
-        "Teemo": {"notes": "ban it", "runes": [], "patch_version": ""},
+                    "patch_version": "14.14", "skill_order": []},
+        "Teemo": {"notes": "ban it", "runes": [], "patch_version": "", "skill_order": []},
     }
     # a different "my champion" has its own, independent guide for the same opponent
     db.set_matchup_note(conn, "Camille", "Darius", notes="camille vs darius is easier")
     assert db.get_matchup_notes(conn, "Camille") == {
-        "Darius": {"notes": "camille vs darius is easier", "runes": [], "patch_version": ""}}
+        "Darius": {"notes": "camille vs darius is easier", "runes": [],
+                    "patch_version": "", "skill_order": []}}
     assert db.get_matchup_notes(conn, "Gwen")["Darius"]["notes"] == "- care ghost timings"
+    # partial update: fields not passed keep their stored value
     db.set_matchup_note(conn, "Gwen", "Darius", notes="updated")
     assert db.get_matchup_notes(conn, "Gwen")["Darius"]["notes"] == "updated"
+    assert db.get_matchup_notes(conn, "Gwen")["Darius"]["runes"] == [CONQ_PAGE]
     # a matchup can carry more than one rune page (e.g. alternatives being tested)
     db.set_matchup_note(conn, "Gwen", "Renekton", runes=[CONQ_PAGE, GRASP_PAGE])
     assert db.get_matchup_notes(conn, "Gwen")["Renekton"]["runes"] == [CONQ_PAGE, GRASP_PAGE]
-    db.set_matchup_note(conn, "Gwen", "Teemo", notes="  ")  # all-blank deletes
+    # skill order saves alone without touching the rest, and clears alone too
+    order = ["Q", "W", "E", "Q", "Q", "R"] + [""] * 12
+    db.set_matchup_note(conn, "Gwen", "Darius", skill_order=order)
+    darius = db.get_matchup_notes(conn, "Gwen")["Darius"]
+    assert darius["skill_order"] == order
+    assert darius["notes"] == "updated"
+    db.set_matchup_note(conn, "Gwen", "Darius", skill_order=[])
+    assert db.get_matchup_notes(conn, "Gwen")["Darius"]["skill_order"] == []
+    # a row whose only content was a build is deleted when the build clears
+    db.set_matchup_note(conn, "Gwen", "Aatrox", skill_order=order)
+    db.set_matchup_note(conn, "Gwen", "Aatrox", skill_order=[])
+    assert "Aatrox" not in db.get_matchup_notes(conn, "Gwen")
+    db.set_matchup_note(conn, "Gwen", "Teemo", notes="  ")  # notes-only row: blank deletes
     assert "Teemo" not in db.get_matchup_notes(conn, "Gwen")
 
 
@@ -485,6 +500,34 @@ def test_matchup_notes_migration_from_single_keystone_shape(tmp_path):
         "label": "", "primary_tree": "", "keystone": "Conqueror",
         "primary_runes": [], "secondary_tree": "Resolve", "secondary_runes": [], "shards": [],
     }]
+    c.close()
+
+
+def test_matchup_notes_skill_order_column_migration(tmp_path):
+    """Upgrading from the v1.14-v1.31 shape (my_champion PK, no skill_order
+    column) must add the column and preserve existing rows."""
+    path = tmp_path / "v1_31.sqlite"
+    raw = sqlite3.connect(path)
+    raw.execute("""CREATE TABLE matchup_notes (
+        my_champion TEXT NOT NULL,
+        opp_champion TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        runes TEXT NOT NULL DEFAULT '',
+        patch_version TEXT NOT NULL DEFAULT '',
+        updated_at_ms INTEGER,
+        PRIMARY KEY (my_champion, opp_champion)
+    )""")
+    raw.execute("INSERT INTO matchup_notes (my_champion, opp_champion, notes) "
+                "VALUES ('Gwen', 'Darius', 'keep me')")
+    raw.commit()
+    raw.close()
+    c = db.connect(path)
+    guide = db.get_matchup_notes(c, "Gwen")["Darius"]
+    assert guide["notes"] == "keep me"
+    assert guide["skill_order"] == []
+    order = ["Q"] + [""] * 17
+    db.set_matchup_note(c, "Gwen", "Darius", skill_order=order)
+    assert db.get_matchup_notes(c, "Gwen")["Darius"]["skill_order"] == order
     c.close()
 
 
@@ -581,7 +624,8 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     assert c.execute("SELECT notes FROM block_games").fetchone()["notes"] == "game note"
     assert c.execute("SELECT learnings FROM blocks").fetchone()["learnings"] == "learned things"
     assert db.get_matchup_notes(c, "Gwen") == {"Darius": {
-        "notes": "matchup note", "runes": [CONQ_PAGE], "patch_version": ""}}
+        "notes": "matchup note", "runes": [CONQ_PAGE], "patch_version": "",
+        "skill_order": []}}
     assert db.get_champion_note(c, "Gwen") == "general champion note"
     assert db.get_item_build(c, "Gwen") == {
         "core": ["Riftmaker"], "situational": [{"label": "vs AP", "items": ["Zhonya's Hourglass"]}]}

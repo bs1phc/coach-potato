@@ -24,7 +24,6 @@ const guideState = {
   games: new Map(), // opp_champion -> recent games list (each may carry a "runes" field)
   expanded: new Set(), // opp_champions currently expanded (collapsed by default)
   openRunePages: new Set(), // "opp:index" rune pages expanded in read-only view
-  abilityHaste: new Map(), // opp_champion -> selected ability haste (0-100, ephemeral)
   editing: null,  // opp_champion whose editor is open
   draft: null,    // working copy of the guide being edited: {notes, patch_version, runes}
   openRuneIndex: null, // index into draft.runes currently expanded in the picker
@@ -79,91 +78,6 @@ async function loadItemData() {
 function itemByName(name) { return ITEMS.find((i) => i.name === name); }
 function itemIconUrl(icon) { return `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/item/${icon}`; }
 
-// ---------- ability cooldowns ----------
-
-const ABILITY_CACHE = new Map(); // champion id -> [{key, cooldowns}] | null (fetch failed)
-
-async function loadAbilityCooldowns(champ) {
-  if (!champ || !state.ddragonVersion) return null;
-  if (ABILITY_CACHE.has(champ)) return ABILITY_CACHE.get(champ);
-  const cacheKey = `ability-cds-${state.ddragonVersion}-${champ}`;
-  try {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      ABILITY_CACHE.set(champ, parsed);
-      return parsed;
-    }
-    const data = await getJSON(
-      `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/data/en_US/champion/${champ}.json`);
-    const spells = (data.data[champ] || {}).spells || [];
-    const keys = ["Q", "W", "E", "R"];
-    const abilities = spells.map((s, i) => ({ key: keys[i] || s.id, cooldowns: s.cooldown || [] }));
-    localStorage.setItem(cacheKey, JSON.stringify(abilities));
-    ABILITY_CACHE.set(champ, abilities);
-    return abilities;
-  } catch {
-    ABILITY_CACHE.set(champ, null); // offline / fetch failed — table just shows unavailable
-    return null;
-  }
-}
-
-// Standard reference skill order (NOT any real game's order) used only to
-// map ability rank -> level for the cooldown table below, matching the
-// convention most build sites/wikis use for this exact table: max Q first,
-// then W, then E, ult at 6/11/16.
-const ABILITY_SKILL_ORDER = [
-  "Q", "W", "Q", "E", "Q", "R", "Q", "W", "Q", "W", "R", "W", "E", "E", "W", "R", "E", "E"];
-const ABILITY_CD_LEVELS = [1, 3, 6, 9, 11, 13, 16, 18];
-
-function abilityRankAtLevel(key, level) {
-  let rank = 0;
-  for (let i = 0; i < level; i++) if (ABILITY_SKILL_ORDER[i] === key) rank++;
-  return rank;
-}
-
-function fmtCooldown(seconds) {
-  return Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1);
-}
-
-const ABILITY_HASTE_OPTIONS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-
-function abilityHasteSelectHtml(champ, selected) {
-  const opts = ABILITY_HASTE_OPTIONS.map((v) =>
-    `<option value="${v}" ${v === selected ? "selected" : ""}>${v}</option>`).join("");
-  return `<label class="filter-label" for="ability-haste-${escapeHtml(champ)}">Ability haste</label>
-    <select id="ability-haste-${escapeHtml(champ)}" class="ability-haste-select"
-      data-opp="${escapeHtml(champ)}">${opts}</select>`;
-}
-
-function abilityCooldownTableHtml(abilities, haste = 0) {
-  if (!abilities || !abilities.length) {
-    return `<p class="muted">Ability data unavailable (offline?).</p>`;
-  }
-  const headCells = ABILITY_CD_LEVELS.map((l) => `<th>${l}</th>`).join("");
-  const rows = abilities.map((a) => {
-    const cells = ABILITY_CD_LEVELS.map((level) => {
-      const rank = abilityRankAtLevel(a.key, level);
-      if (rank === 0 || !a.cooldowns.length) return `<td class="muted">–</td>`;
-      const baseCd = a.cooldowns[Math.min(rank, a.cooldowns.length) - 1];
-      const cd = haste ? baseCd / (1 + haste / 100) : baseCd;
-      return `<td>${fmtCooldown(cd)}</td>`;
-    }).join("");
-    return `<tr><th>${a.key}</th>${cells}</tr>`;
-  }).join("");
-  return `<div class="table-wrap"><table class="ability-cd-table">
-    <thead><tr><th>Ability</th>${headCells}</tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div>
-  <p class="muted ability-cd-note">Levels follow a standard reference skill order
-    (max Q → W → E, ult at 6/11/16) — not necessarily the actual build.${
-    haste ? ` Cooldowns reduced for ${haste} ability haste.` : ""}</p>`;
-}
-
-async function ensureAbilityCooldowns(champ) {
-  await loadAbilityCooldowns(champ);
-}
-
 function runeIconUrl(icon) { return `https://ddragon.leagueoflegends.com/cdn/img/${icon}`; }
 function shardIconUrl(icon) {
   return `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/${icon}`;
@@ -184,7 +98,7 @@ function runeIcon(name, tree) {
   return rune ? rune.icon : "";
 }
 
-function emptyGuide() { return { notes: "", runes: [], patch_version: "" }; }
+function emptyGuide() { return { notes: "", runes: [], patch_version: "", skill_order: [] }; }
 function emptyRunePage() {
   return { label: "", primary_tree: "", keystone: "", primary_runes: ["", "", ""],
            secondary_tree: "", secondary_runes: [], shards: ["", "", ""] };
@@ -231,30 +145,23 @@ async function initGuide() {
     guideState.pendingFocus = null;
     addOrFocusMatchup(champ);
     renderGuide();
-    await Promise.all([ensureMatchupGames(champ), ensureAbilityCooldowns(champ)]);
+    await ensureGuideMatchupGames(champ);
     renderGuide();
   }
 }
 
 async function loadGuideChampionOptions() {
-  // full roster, so you can prep a guide for a champion you haven't (or
-  // haven't yet) played — default the initial selection to the configured
-  // default champion (Settings), else one you have played, when available,
-  // so the page opens on real data
-  const all = [...roster.nameById.keys()].sort(
-    (a, b) => champDisplay(a).localeCompare(champDisplay(b)));
+  // full roster (pool grouped on top), so you can prep a guide for a champion
+  // you haven't played — the initial selection is the pool's first pick
+  // (your main), else one you have played
   if (!guideState.myChampion) {
-    if (state.defaultChampion && roster.nameById.has(state.defaultChampion)) {
-      guideState.myChampion = state.defaultChampion;
-    } else {
-      const played = await getJSON(`/api/filters?${accountParams()}`);
-      guideState.myChampion = played.champions[0] || all[0] || "";
-    }
+    const [pool, played] = await Promise.all([
+      poolChampionOrder(), getJSON(`/api/filters?${accountParams()}`)]);
+    guideState.myChampion = pool[0] || played.champions[0]
+      || [...roster.nameById.keys()][0] || "";
   }
-  $("#guide-champion").innerHTML = all.length
-    ? all.map((c) =>
-        `<option value="${c}" ${c === guideState.myChampion ? "selected" : ""}>${escapeHtml(champDisplay(c))}</option>`).join("")
-    : `<option value="">No champions found</option>`;
+  const options = await championOptions(guideState.myChampion);
+  $("#guide-champion").innerHTML = options || `<option value="">No champions found</option>`;
   updateGuideChampionIcon();
 }
 
@@ -265,9 +172,8 @@ function updateGuideChampionIcon() {
 async function loadGuide() {
   guideState.games = new Map();
   guideState.expanded = new Set();
-  guideState.editingItemBuild = false;
   guideState.openRunePages = new Set();
-  guideState.abilityHaste = new Map();
+  guideState.editingItemBuild = false;
   if (!guideState.myChampion) {
     guideState.matchups = [];
     guideState.guide = {};
@@ -276,8 +182,6 @@ async function loadGuide() {
     renderGuide();
     renderGuideGeneral();
     renderGuideItemBuild();
-    renderGuideAbilityCooldowns();
-    updateGuideAddOptions();
     return;
   }
   const [matchups, guide, general, itemBuild] = await Promise.all([
@@ -301,18 +205,7 @@ async function loadGuide() {
   renderGuide();
   renderGuideGeneral();
   renderGuideItemBuild();
-  renderGuideAbilityCooldowns(); // fire-and-forget — own network fetch to ddragon
   updateGuideAddOptions();
-}
-
-async function renderGuideAbilityCooldowns() {
-  const target = $("#guide-ability-cooldowns");
-  const champ = guideState.myChampion;
-  if (!champ) { target.innerHTML = ""; return; }
-  target.innerHTML = `<div class="mu-notes"><h4>${displayName(champ)} ability cooldowns</h4><p class="muted">Loading…</p></div>`;
-  const abilities = await loadAbilityCooldowns(champ);
-  if (guideState.myChampion !== champ) return; // champion changed while this was in flight
-  target.innerHTML = `<div class="mu-notes"><h4>${displayName(champ)} ability cooldowns</h4>${abilityCooldownTableHtml(abilities)}</div>`;
 }
 
 // "Add a matchup" dropdown: full roster minus opponents that already have a
@@ -330,7 +223,7 @@ function updateGuideAddOptions() {
 
 // fetch a matchup's recent games on first expand only (collapsed rows never
 // pay for this — see .guide-toggle in wireGuideHandlers)
-async function ensureMatchupGames(champ) {
+async function ensureGuideMatchupGames(champ) {
   if (guideState.games.has(champ)) return;
   const m = guideState.matchups.find((x) => x.opp_champion === champ);
   if (!m || m.games <= 0) return;
@@ -349,7 +242,7 @@ async function addGuideMatchup() {
   $("#guide-add-status").textContent = "";
   addOrFocusMatchup(champ);
   renderGuide();
-  await Promise.all([ensureMatchupGames(champ), ensureAbilityCooldowns(champ)]);
+  await ensureGuideMatchupGames(champ);
   renderGuide();
 }
 
@@ -629,12 +522,26 @@ function guideRow(m) {
       </div>
     </div>`;
   }
-  const { notes, runes, patch_version } = guideFor(champ);
-  const hasAny = notes || (runes && runes.length) || patch_version;
+  const { notes, runes, patch_version, skill_order } = guideFor(champ);
+  const hasBuild = skill_order && skill_order.some(Boolean);
+  const hasAny = notes || (runes && runes.length) || patch_version || hasBuild;
   let body;
   if (editing) {
     const draft = guideState.draft;
+    // the skill order is edited (and saved) through the cooldown popup —
+    // here it just shows with its own nested edit/remove controls
     body = `${runePagesBuilder()}
+      <div class="guide-build">
+        <div class="guide-build-head">
+          <h5>Skill order</h5>
+          <button type="button" class="preset icon-btn-sm guide-cd-link" data-opp="${escapeHtml(champ)}"
+            title="Edit skill order in the cooldown comparison">✎ Edit</button>
+          ${hasBuild ? `<button type="button" class="preset icon-btn-sm guide-build-clear" data-opp="${escapeHtml(champ)}"
+            title="Remove saved skill order" aria-label="Remove saved skill order">🗑</button>` : ""}
+        </div>
+        ${hasBuild ? skillGridMini(skill_order)
+          : `<p class="muted">No saved skill order yet — ✎ Edit opens the cooldown view to build one.</p>`}
+      </div>
       <label class="filter-label" for="guide-patch">Patch</label>
       ${patchPicker(draft.patch_version)}
       <label class="filter-label" for="guide-notes">How to play this matchup (Markdown)</label>
@@ -646,18 +553,13 @@ function guideRow(m) {
         <span class="muted guide-status"></span>
       </div>`;
   } else if (hasAny) {
-    body = `${runePagesDisplay(runes, champ)}${
+    const buildBlock = hasBuild
+      ? `<div class="guide-build"><h5>Skill order</h5>${skillGridMini(skill_order)}</div>` : "";
+    body = `${runePagesDisplay(runes, champ)}${buildBlock}${
       notes ? `<div class="md-body">${renderNotes(notes)}</div>` : ""}`;
   } else {
     body = `<p class="muted">No guide yet —
       <button type="button" class="link-btn guide-edit" data-opp="${escapeHtml(champ)}">click here to create one</button>.</p>`;
-  }
-  if (!editing && ABILITY_CACHE.has(champ)) {
-    const haste = guideState.abilityHaste.get(champ) || 0;
-    body += `<div class="ability-cd-head">
-      <h5>${displayName(champ)} ability cooldowns</h5>
-      ${abilityHasteSelectHtml(champ, haste)}
-    </div>${abilityCooldownTableHtml(ABILITY_CACHE.get(champ), haste)}`;
   }
   const patchBadge = !editing && patch_version
     ? `<span class="guide-patch-badge" title="Written for this patch">Patch ${escapeHtml(patch_version)}</span>` : "";
@@ -669,6 +571,10 @@ function guideRow(m) {
       <h4>${champIcon(champ)}${displayName(champ)}</h4>
       ${patchBadge}
       ${statLine}
+      <button class="preset icon-btn guide-op-link" data-opp="${escapeHtml(champ)}"
+        title="One Pager — full-screen quick reference" aria-label="One Pager">📄</button>
+      <button class="preset icon-btn guide-cd-link" data-opp="${escapeHtml(champ)}"
+        title="Compare ability cooldowns" aria-label="Compare ability cooldowns">⏱</button>
       ${editing || !hasAny ? "" : `<button class="preset icon-btn guide-edit" data-opp="${escapeHtml(champ)}"
         title="Edit matchup guide" aria-label="Edit matchup guide">✎</button>`}
     </div>
@@ -742,15 +648,14 @@ function wireGuideHandlers(target) {
       }
       guideState.expanded.add(champ);
       renderGuide(); // show "Loading…" immediately
-      await Promise.all([ensureMatchupGames(champ), ensureAbilityCooldowns(champ)]);
+      await ensureGuideMatchupGames(champ);
       renderGuide();
     }));
   target.querySelectorAll(".guide-edit").forEach((btn) =>
     btn.addEventListener("click", async () => {
       startEditing(btn.dataset.opp);
       renderGuide();
-      await Promise.all([
-        ensureMatchupGames(btn.dataset.opp), ensureAbilityCooldowns(btn.dataset.opp)]);
+      await ensureGuideMatchupGames(btn.dataset.opp);
       renderGuide();
     }));
   target.querySelectorAll(".guide-cancel").forEach((btn) =>
@@ -781,12 +686,42 @@ function wireGuideHandlers(target) {
         status.textContent = `Save failed — ${body.detail || `error ${response.status}`}`;
         return;
       }
-      const hasAny = payload.notes.trim() || payload.runes.length || payload.patch_version.trim();
-      if (hasAny) guideState.guide[opp] = payload;
+      // the editor doesn't touch skill_order (saved from the cooldown popup)
+      // — the server keeps it (partial update), so keep it client-side too
+      const keptBuild = guideFor(opp).skill_order;
+      const hasAny = payload.notes.trim() || payload.runes.length
+        || payload.patch_version.trim() || keptBuild.some(Boolean);
+      if (hasAny) guideState.guide[opp] = { ...payload, skill_order: keptBuild };
       else delete guideState.guide[opp];
       guideState.editing = null;
       guideState.draft = null;
       guideState.openRuneIndex = null;
+      renderGuide();
+      updateGuideAddOptions();
+    }));
+  target.querySelectorAll(".guide-cd-link").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      openCooldowns(guideState.myChampion, btn.dataset.opp))); // cooldowns.js
+  target.querySelectorAll(".guide-op-link").forEach((btn) =>
+    btn.addEventListener("click", () => openOnePager(btn.dataset.opp)));
+  target.querySelectorAll(".guide-build-clear").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const opp = btn.dataset.opp;
+      if (!confirm("Remove the saved skill order for this matchup?")) return;
+      const response = await fetch(
+        `/api/matchups/notes/${encodeURIComponent(guideState.myChampion)}/${encodeURIComponent(opp)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ skill_order: [] }),
+        });
+      if (!response.ok) return;
+      const entry = guideState.guide[opp];
+      if (entry) {
+        entry.skill_order = [];
+        if (!entry.notes && !(entry.runes || []).length && !entry.patch_version) {
+          delete guideState.guide[opp]; // server deleted the all-blank row too
+        }
+      }
       renderGuide();
       updateGuideAddOptions();
     }));
@@ -798,11 +733,6 @@ function wireGuideHandlers(target) {
       const key = btn.dataset.key;
       guideState.openRunePages.has(key)
         ? guideState.openRunePages.delete(key) : guideState.openRunePages.add(key);
-      renderGuide();
-    }));
-  target.querySelectorAll(".ability-haste-select").forEach((sel) =>
-    sel.addEventListener("change", () => {
-      guideState.abilityHaste.set(sel.dataset.opp, parseInt(sel.value, 10) || 0);
       renderGuide();
     }));
   target.querySelectorAll(".rune-page-add").forEach((btn) =>
@@ -1263,3 +1193,63 @@ function wireExportImport() {
     }
   });
 }
+
+// ---------- One Pager (second-screen quick reference) ----------
+
+// Full-screen, distraction-free summary of ONE matchup: runes, skill order,
+// item build, matchup notes, general champion notes. Deliberately no
+// history/stats — it's meant to sit on a second screen during a game.
+function openOnePager(opp) {
+  const my = guideState.myChampion;
+  const { notes, runes, patch_version, skill_order } = guideFor(opp);
+  const build = guideState.itemBuild || { core: [], situational: [] };
+  const sections = [];
+  if (runes && runes.length) {
+    sections.push(`<section><h3>Runes</h3><div class="op-runes">${
+      runes.map((page, i) => `<div class="op-rune-page">
+        <div class="rune-page-title${page.label ? "" : " muted"}">${escapeHtml(page.label || `Page ${i + 1}`)}</div>
+        <div class="rune-page-display">${
+          runePageIcons(page, { keystoneSize: 44, minorSize: 28, treeSize: 32, shardSize: 20 })}</div>
+      </div>`).join("")}</div></section>`);
+  }
+  if (skill_order && skill_order.some(Boolean)) {
+    sections.push(`<section><h3>Skill order</h3>
+      <div class="op-skill">${skillGridMini(skill_order)}</div></section>`);
+  }
+  const buildSections = [
+    itemBuildSectionView("Core build", build.core || []),
+    ...(build.situational || []).map((s) => itemBuildSectionView(s.label || "Situational", s.items || [])),
+  ].join("");
+  if (buildSections) sections.push(`<section><h3>Item build</h3>${buildSections}</section>`);
+  if (notes) {
+    sections.push(`<section><h3>How to play vs ${escapeHtml(displayName(opp))}</h3>
+      <div class="md-body">${renderNotes(notes)}</div></section>`);
+  }
+  if (guideState.generalNotes) {
+    sections.push(`<section><h3>General ${escapeHtml(displayName(my))} notes</h3>
+      <div class="md-body">${renderNotes(guideState.generalNotes)}</div></section>`);
+  }
+  $("#onepager-body").innerHTML = `
+    <div class="op-head">
+      <div class="op-title">
+        ${champIcon(my)}<strong>${escapeHtml(displayName(my))}</strong>
+        <span class="muted">vs</span>
+        ${champIcon(opp)}<strong>${escapeHtml(displayName(opp))}</strong>
+        ${patch_version ? `<span class="guide-patch-badge">Patch ${escapeHtml(patch_version)}</span>` : ""}
+      </div>
+      <button type="button" class="preset icon-btn" id="onepager-close"
+        title="Close (Esc)" aria-label="Close">✕</button>
+    </div>
+    ${sections.join("") || `<p class="muted">Nothing recorded for this matchup yet —
+      add runes, a build, or notes in the Matchup guide first.</p>`}`;
+  $("#onepager-overlay").classList.remove("hidden");
+  $("#onepager-close").addEventListener("click", closeOnePager);
+}
+
+function closeOnePager() {
+  $("#onepager-overlay").classList.add("hidden");
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#onepager-overlay").classList.contains("hidden")) closeOnePager();
+});

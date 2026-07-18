@@ -171,13 +171,36 @@
         keeps being recorded and reappears when you untick this.</p>
     </div>
     <div class="settings-field">
-      <label class="filter-label" for="setting-default-champion">Default champion</label>
-      <select id="setting-default-champion" style="max-width:16em">
-        <option value="">– none –</option>
-      </select>
-      <p class="muted">Pre-selects this champion on the Matchup guide page (and in
-        future champion-specific features). "– none –" falls back to your
-        most-played champion.</p>
+      <span class="filter-label">Champion pool</span>
+      <div id="pool-card" aria-label="Champion pool">
+        <div class="pool-group">
+          <span class="filter-label">Main Blind</span>
+          <div class="chip-box" data-role="main_blind">
+            <input class="chip-input" list="champ-list" placeholder="champion…" aria-label="Main blind pick">
+          </div>
+        </div>
+        <div class="pool-group">
+          <span class="filter-label">Core Pool</span>
+          <div class="chip-box" data-role="core">
+            <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Core pool">
+          </div>
+        </div>
+        <div class="pool-group">
+          <span class="filter-label">Counter Picks</span>
+          <div class="chip-box" data-role="counter">
+            <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Counter picks">
+          </div>
+        </div>
+        <div class="pool-actions">
+          <button id="pool-save" class="preset">Save pool</button>
+          <span id="pool-status" class="muted"></span>
+        </div>
+        <datalist id="champ-list"></datalist>
+      </div>
+      <p class="muted">Ordered — drag chips to reorder; the first champion is
+        your main and acts as your default (Matchup guide, cooldown comparison).
+        The pool is grouped on top of champion dropdowns and stamped onto
+        completed blocks. Saves immediately with "Save pool".</p>
     </div>
 
     <h3 class="settings-group-head">Appearance</h3>
@@ -250,30 +273,13 @@
 </div>
 
 <div id="blocks-view" class="hidden">
-  <section id="pool-card" aria-label="Champion pool">
-    <div class="pool-group">
-      <span class="filter-label">Main Blind</span>
-      <div class="chip-box" data-role="main_blind">
-        <input class="chip-input" list="champ-list" placeholder="champion…" aria-label="Main blind pick">
-      </div>
+  <section id="pool-summary" aria-label="Champion pool">
+    <div class="pool-summary-row">
+      <span class="filter-label">Champion pool</span>
+      <div id="pool-summary-chips"></div>
+      <button id="pool-edit-btn" class="preset icon-btn" title="Edit pool in Settings"
+        aria-label="Edit pool in Settings">✎</button>
     </div>
-    <div class="pool-group">
-      <span class="filter-label">Core Pool</span>
-      <div class="chip-box" data-role="core">
-        <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Core pool">
-      </div>
-    </div>
-    <div class="pool-group">
-      <span class="filter-label">Counter Picks</span>
-      <div class="chip-box" data-role="counter">
-        <input class="chip-input" list="champ-list" placeholder="add champion…" aria-label="Counter picks">
-      </div>
-    </div>
-    <div class="pool-actions">
-      <button id="pool-save" class="preset">Save pool</button>
-      <span id="pool-status" class="muted"></span>
-    </div>
-    <datalist id="champ-list"></datalist>
   </section>
 
   <section>
@@ -352,10 +358,8 @@
 <section class="filter-row" aria-label="Matchup guide filters">
   <div class="filter-group">
     <label class="filter-label" for="guide-champion">My champion</label>
-    <div class="champ-select-row">
-      <span id="guide-champion-icon"></span>
-      <select id="guide-champion"></select>
-    </div>
+    <span id="guide-champion-icon"></span>
+    <select id="guide-champion"></select>
   </div>
   <span class="muted">Runes, patch, and Markdown notes for each matchup this champion faces.</span>
   <div class="head-actions">
@@ -387,10 +391,6 @@
 
 <section>
   <div id="guide-item-build"></div>
-</section>
-
-<section>
-  <div id="guide-ability-cooldowns"></div>
 </section>
 
 <section>
@@ -536,10 +536,20 @@
 
 <script src="vendor/marked.min.js"></script>
 <script src="app.js"></script>
+<div id="modal-overlay" class="hidden" aria-modal="true" role="dialog">
+  <div id="modal-box"></div>
+</div>
+
+<div id="onepager-overlay" class="hidden" aria-modal="true" role="dialog"
+  aria-label="Matchup one pager">
+  <div id="onepager-body"></div>
+</div>
+
 <script src="matchups.js"></script>
 <script src="trends.js"></script>
 <script src="blocks.js"></script>
 <script src="guide.js"></script>
+<script src="cooldowns.js"></script>
 <script src="research.js"></script>
 </body>
 </html>

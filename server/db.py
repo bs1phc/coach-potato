@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS matchup_notes (
     notes TEXT NOT NULL DEFAULT '',
     runes TEXT NOT NULL DEFAULT '',
     patch_version TEXT NOT NULL DEFAULT '',
+    skill_order TEXT NOT NULL DEFAULT '',
     updated_at_ms INTEGER,
     PRIMARY KEY (my_champion, opp_champion)
 );
@@ -243,6 +244,7 @@ def _migrate(conn):
                 notes TEXT NOT NULL DEFAULT '',
                 runes TEXT NOT NULL DEFAULT '',
                 patch_version TEXT NOT NULL DEFAULT '',
+                skill_order TEXT NOT NULL DEFAULT '',
                 updated_at_ms INTEGER,
                 PRIMARY KEY (my_champion, opp_champion)
             )""")
@@ -261,6 +263,10 @@ def _migrate(conn):
                 (row["opp_champion"], row["notes"], runes_json,
                  row["patch_version"] if has_patch else "", row["updated_at_ms"]))
         conn.execute("DROP TABLE matchup_notes_old")
+    elif matchup_notes_columns and "skill_order" not in matchup_notes_columns:
+        # v1.14.0..v1.31.x shape — saved skill-order builds added in v1.32.0
+        conn.execute(
+            "ALTER TABLE matchup_notes ADD COLUMN skill_order TEXT NOT NULL DEFAULT ''")
     conn.commit()
 
 
@@ -326,43 +332,64 @@ def get_player_rank(conn, puuid):
 
 
 def get_matchup_notes(conn, my_champion):
-    """Matchup guide (notes, rune pages, patch) for every opponent matchup
-    my_champion has any field set for: {opp_champion: {notes, runes: [...],
-    patch_version}}. `runes` is a list — a matchup can carry more than one
-    rune page (e.g. alternatives being tested)."""
+    """Champ guide (notes, rune pages, patch, saved skill order) for every
+    opponent matchup my_champion has any field set for: {opp_champion:
+    {notes, runes: [...], patch_version, skill_order: [...]}}. `runes` is a
+    list — a matchup can carry more than one rune page; `skill_order` is up
+    to 18 entries of ''/Q/W/E/R (index = level - 1)."""
     rows = conn.execute(
-        """SELECT opp_champion, notes, runes, patch_version
+        """SELECT opp_champion, notes, runes, patch_version, skill_order
            FROM matchup_notes
-           WHERE my_champion=? AND (notes != '' OR runes != '' OR patch_version != '')""",
+           WHERE my_champion=? AND (notes != '' OR runes != ''
+                                    OR patch_version != '' OR skill_order != '')""",
         (my_champion,))
     return {r["opp_champion"]: {
         "notes": r["notes"], "runes": json.loads(r["runes"]) if r["runes"] else [],
         "patch_version": r["patch_version"],
+        "skill_order": json.loads(r["skill_order"]) if r["skill_order"] else [],
     } for r in rows}
 
 
-def set_matchup_note(conn, my_champion, opp_champion, notes="", runes=None, patch_version=""):
+_KEEP = object()  # set_matchup_note sentinel: leave the stored value alone
+
+
+def set_matchup_note(conn, my_champion, opp_champion, notes=_KEEP, runes=_KEEP,
+                     patch_version=_KEEP, skill_order=_KEEP):
     """Upsert the champ guide for a (my_champion, opp_champion) matchup.
-    runes: list of rune-page dicts (label, primary_tree, keystone,
-    primary_runes[], secondary_tree, secondary_runes[], shards[]). All-blank
-    (no notes, no rune pages, no patch) deletes the row."""
-    runes_json = json.dumps(runes) if runes else ""
+    Fields not passed keep their stored value (so the cooldown popup can save
+    just skill_order without touching notes, and vice versa); pass explicit
+    blanks to clear. A row whose fields all end up blank is deleted.
+    runes: list of rune-page dicts. skill_order: list of ''/Q/W/E/R per level."""
+    row = conn.execute(
+        """SELECT notes, runes, patch_version, skill_order FROM matchup_notes
+           WHERE my_champion=? AND opp_champion=?""",
+        (my_champion, opp_champion)).fetchone()
+    notes = (row["notes"] if row else "") if notes is _KEEP else (notes or "")
+    runes_json = (row["runes"] if row else "") if runes is _KEEP \
+        else (json.dumps(runes) if runes else "")
+    patch_version = (row["patch_version"] if row else "") if patch_version is _KEEP \
+        else (patch_version or "")
+    skill_json = (row["skill_order"] if row else "") if skill_order is _KEEP \
+        else (json.dumps(skill_order) if skill_order and any(skill_order) else "")
     with conn:
-        if not notes.strip() and not runes_json and not patch_version.strip():
+        if (not notes.strip() and not runes_json and not patch_version.strip()
+                and not skill_json):
             conn.execute(
                 "DELETE FROM matchup_notes WHERE my_champion=? AND opp_champion=?",
                 (my_champion, opp_champion))
             return
         conn.execute(
             f"""INSERT INTO matchup_notes
-                (my_champion, opp_champion, notes, runes, patch_version, updated_at_ms)
-                VALUES (?, ?, ?, ?, ?, {_now_expr()})
+                (my_champion, opp_champion, notes, runes, patch_version, skill_order,
+                 updated_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, {_now_expr()})
                 ON CONFLICT(my_champion, opp_champion) DO UPDATE SET
                   notes=excluded.notes,
                   runes=excluded.runes,
                   patch_version=excluded.patch_version,
+                  skill_order=excluded.skill_order,
                   updated_at_ms=excluded.updated_at_ms""",
-            (my_champion, opp_champion, notes, runes_json, patch_version))
+            (my_champion, opp_champion, notes, runes_json, patch_version, skill_json))
 
 
 def get_champion_note(conn, champion):

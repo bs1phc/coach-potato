@@ -42,7 +42,7 @@ change, not a crawler change.
 
 - **Dev API key expires every 24 h.** 403 → `ApiKeyExpiredError`. Refresh at
   developer.riotgames.com, update `RIOT_API_KEY=` in `.env` (gitignored).
-- **`cryptography` is a real (compiled) dependency**, added for matchup-guide
+- **`cryptography` is a real (compiled) dependency**, added for champ-guide
   export/import encryption (`server/crypto.py`). Confirmed building clean
   through CI `build.yml` on all three OSes. `python-multipart` was added
   for the clips feature's file-upload endpoints (`Form`/`File`/`UploadFile`
@@ -154,7 +154,11 @@ change, not a crawler change.
   `stats.trend_buckets` (day/week/month; week = Monday date) feed
   `/api/stats/metrics` and `/api/stats/trends` (both include `meta`).
 - Block learnings: `champion_pool` (role main_blind/core/counter, replaced
-  wholesale), `blocks` + `block_games` (UNIQUE match_id+puuid). Current block
+  wholesale, `sort` column = user-set priority order via drag'n'drop chips;
+  the EDITOR lives in Settings — `#pool-card`, wired by `initSettings`,
+  functions in blocks.js — while the Blocks view shows a read-only summary
+  with a ✎-to-Settings shortcut), `blocks` + `block_games` (UNIQUE
+  match_id+puuid). Current block
   = newest; block size is a setting (`db.get_block_size`, >=1, no upper
   bound, default `db.BLOCK_SIZE`=3); complete = closed early, pool-snapshot stamped
   (finalized under an earlier size), or ≥size games;
@@ -175,6 +179,32 @@ change, not a crawler change.
   notes] / Games tabs; a 📖 link per row — shown only when a specific "My
   champion" filter is active, since guides are scoped per champion pair —
   deep-links to that matchup's Matchup guide) in `matchups.js`;
+  a 📄 button per Matchup-guide row opens the One Pager
+  (`openOnePager` in guide.js, `#onepager-overlay` full-screen opaque
+  overlay): a second-screen quick reference for one matchup — runes, skill
+  order, item build, matchup + general notes; deliberately NO history/
+  stats. Esc/✕ closes.
+  a ⏱ button per matchup row (also on Matchup-guide rows) opens the
+  cooldown-comparison modal (`cooldowns.js`: generic
+  `#modal-overlay`/`#modal-box` shell in index.html; spell data fetched
+  from DDragon `champion/<id>.json` at open time, session-cached; two view
+  modes ["At level": per-side level slider + per-spell table; "Level
+  matrix": sides stacked, the skill grid's active cells become value
+  bubbles showing each ability's haste-reduced cooldown from that level on
+  — `cp-cd-view` in localStorage]; both share an 18×4 skill-order grid
+  [level × Q/W/E/R, click to spend that level's point — delegated listener
+  on #modal-box, since matrix-mode haste edits re-render the grid;
+  validated client- AND server-side — basics max 5, point k needs level
+  2k-1, R at 6/11/16] + freeform haste sources; reduced cd =
+  base/(1+haste/100), R adds ult haste. Grid persists per champion in
+  localStorage `cp-skill-grid-<champ>` [legacy `cp-skill-order-<champ>`
+  priority lists auto-convert]; "Save build to matchup guide" writes it to
+  `matchup_notes.skill_order` for the open matchup — saved builds preload
+  on open and display read-only in the guide row via `skillGridMini`.
+  `PUT /api/matchups/notes/{my}/{opp}` is a PARTIAL update: only body keys
+  are written, so popup and guide editor don't clobber each other's
+  fields; `db.set_matchup_note` keeps un-passed fields via a _KEEP
+  sentinel);
   trends view (SVG small-multiple charts + breakdown table) in `trends.js`;
   blocks view in `blocks.js`; Matchup guide view (own nav tab: pick "My
   champion" from the full roster — not just played champions — see/edit
@@ -183,14 +213,7 @@ change, not a crawler change.
   champion-roster autocomplete from `blocks.js`; each matchup's "Recent
   games" column shows real games with the actual runes played, when
   recorded; Export/Import menus export/import one champion's whole guide as
-  JSON, optionally password-encrypted; ability cooldown tables (Q/W/E/R ×
-  levels 1/3/6/9/11/13/16/18, DDragon champion data fetched + localStorage-
-  cached client-side per champion+version, same pattern as `loadItemData`)
-  shown for "My champion" always, and for an opponent once its matchup row
-  is expanded — level columns follow a fixed reference skill order
-  (`ABILITY_SKILL_ORDER` — max Q, then W, then E, ult at 6/11/16), not the
-  actual game's order, matching the convention most build sites use for
-  this table) in `guide.js`; Research view (own nav
+  JSON, optionally password-encrypted) in `guide.js`; Research view (own nav
   tab: a study journal for other players' games, unrelated to the tracked-
   account crawler — freeform entries: player name, optional champion/
   opponent, one Markdown notes field (covers general + VOD notes together),
@@ -252,11 +275,14 @@ validated everywhere it's written (`PATCH_VERSION_RE`, e.g. 16.14 or
 16.14.1, or empty); the guide editor offers a patch dropdown built from
 DDragon versions.json (cached in `state.ddragonVersions` by
 `loadDdragonVersion`, major.minor deduped), defaulting to the current
-patch. `default_champion` (settings key, validated champion or unset)
-pre-selects the Matchup guide's "My champion" — reuse it for any future
-your-champion-scoped feature (`state.defaultChampion` client-side).
+patch. "Your champion" defaults (Matchup guide pre-selection, cooldown
+popup, legacy-migrate select) come from the champion pool's first entry —
+`poolChampionOrder()` in app.js (flattened main→core→counter, cached,
+reset on pool save); use it for any future your-champion-scoped feature.
+A `default_champion` settings key existed briefly (v1.25–v1.30) and may
+linger in old dbs — it's ignored.
 `champion_notes(champion PK, notes, updated_at_ms)` — general (non-matchup)
-Markdown notes for a champion, shown above the matchup list on the Matchup
+Markdown notes for a champion, shown above the matchup list on the Champ
 guide page. `GET`/`PUT /api/champions/notes/{champion}`.
 `champion_item_builds(champion PK, core, situational, updated_at_ms)` — a
 mobafire-style item build, separate from the freeform general notes:
@@ -266,7 +292,7 @@ items}` (a labeled alternative, e.g. "vs heavy AP", capped at
 `MAX_ITEMS_PER_SECTION`=5 items, `MAX_SITUATIONAL_SECTIONS`=12 sections).
 Items are stored as plain name strings, not ids — the server does no item
 validation beyond shape/counts (`_validate_item_build` in app.py, shared by
-the PUT endpoint and matchup-guide import). `GET`/`PUT
+the PUT endpoint and champ-guide import). `GET`/`PUT
 /api/champions/item-build/{champion}`. Icons are resolved entirely
 client-side: `guide.js`'s `loadItemData()` fetches DDragon's current
 `item.json` once (like `loadDdragonVersion()`, cached in localStorage per
@@ -315,7 +341,7 @@ metric key)` — coaching metrics, tracked players only, columns generated
 from `server/metrics.py`
 `participant_runes(match_id+puuid PK, runes)` — the rune page actually
 played, decoded from match-v5's `perks` payload
-(`server/rune_data.decode_perks`) into the same shape as a matchup-guide rune
+(`server/rune_data.decode_perks`) into the same shape as a champ-guide rune
 page; `runes` is `''` when a match legitimately had no perks data (so
 `Crawler.backfill_runes()` doesn't keep re-fetching it). Stores rows for
 every tracked participant **and their lane opponent** (same

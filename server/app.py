@@ -163,7 +163,6 @@ def _extra_settings(conn):
         "ui_opacity": int(stored.get("ui_opacity") or 100),
         "background_image": bool(stored.get("background_image_file")),
         "accent_color": stored.get("accent_color") or None,
-        "default_champion": stored.get("default_champion") or None,
     }
 
 
@@ -268,12 +267,6 @@ def api_put_settings(body: dict):
     if accent_color is not None and (not isinstance(accent_color, str)
                                       or not HEX_COLOR_RE.match(accent_color)):
         raise HTTPException(400, "accent_color must be a #rrggbb hex string or null")
-    default_champion = body.get("default_champion")
-    if default_champion is not None and not isinstance(default_champion, str):
-        raise HTTPException(400, "default_champion must be a string or null")
-    default_champion = (default_champion or "").strip()
-    if default_champion:
-        _validate_champion(default_champion)
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -288,7 +281,6 @@ def api_put_settings(body: dict):
             "block_gap_confirm": "1" if gap_confirm else "0",
             "ui_opacity": str(ui_opacity),
             "accent_color": accent_color or "",
-            "default_champion": default_champion,
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -492,9 +484,10 @@ def api_export_all():
             """SELECT id, block_id, match_id, puuid, notes, added_at_ms
                FROM block_games ORDER BY id""")]
         matchup_notes_rows = [dict(r) for r in conn.execute(
-            """SELECT my_champion, opp_champion, notes, runes, patch_version, updated_at_ms
+            """SELECT my_champion, opp_champion, notes, runes, patch_version,
+                      skill_order, updated_at_ms
                FROM matchup_notes
-               WHERE notes != '' OR runes != '' OR patch_version != ''
+               WHERE notes != '' OR runes != '' OR patch_version != '' OR skill_order != ''
                ORDER BY my_champion, opp_champion""")]
         champion_notes_rows = [dict(r) for r in conn.execute(
             "SELECT champion, notes, updated_at_ms FROM champion_notes ORDER BY champion")]
@@ -515,6 +508,7 @@ def api_export_all():
 
     for row in matchup_notes_rows:
         row["runes"] = json.loads(row["runes"]) if row["runes"] else []
+        row["skill_order"] = json.loads(row["skill_order"]) if row["skill_order"] else []
     for row in item_build_rows:
         row["core"] = json.loads(row["core"])
         row["situational"] = json.loads(row["situational"])
@@ -680,12 +674,15 @@ async def api_import_all(file: UploadFile = File(...)):
                     (row["id"], row["block_id"], row["match_id"], row["puuid"],
                      row.get("notes", ""), row.get("added_at_ms")))
             for row in payload.get("matchup_notes") or []:
+                skill_order = row.get("skill_order") or []
                 conn.execute(
                     """INSERT INTO matchup_notes
-                       (my_champion, opp_champion, notes, runes, patch_version, updated_at_ms)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
+                       (my_champion, opp_champion, notes, runes, patch_version,
+                        skill_order, updated_at_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (row["my_champion"], row["opp_champion"], row.get("notes", ""),
                      json.dumps(row.get("runes") or []), row.get("patch_version", ""),
+                     json.dumps(skill_order) if any(skill_order) else "",
                      row.get("updated_at_ms")))
             for row in payload.get("champion_notes") or []:
                 conn.execute(
@@ -862,6 +859,32 @@ def _validate_patch(patch_version: str):
         raise HTTPException(400, "patch_version must look like 16.14 (or 16.14.1), or be empty")
 
 
+R_POINT_LEVELS = (6, 11, 16)
+
+
+def _validate_skill_order(cells):
+    """skill_order: up to 18 entries of ''/Q/W/E/R, index = level-1. Enforces
+    the in-game rules: one point per level (list shape), basics max 5 points
+    with point k needing level 2k-1, R max 3 points at levels 6/11/16."""
+    if not isinstance(cells, list) or len(cells) > 18:
+        raise HTTPException(400, "skill_order must be a list of up to 18 levels")
+    points = {"Q": [], "W": [], "E": [], "R": []}
+    for i, cell in enumerate(cells):
+        if cell in ("", None):
+            continue
+        if cell not in points:
+            raise HTTPException(400, f"skill_order entries must be Q/W/E/R or blank: {cell!r}")
+        points[cell].append(i + 1)
+    for key, levels in points.items():
+        max_points = 3 if key == "R" else 5
+        if len(levels) > max_points:
+            raise HTTPException(400, f"{key} can have at most {max_points} points")
+        for i, level in enumerate(levels):
+            needed = R_POINT_LEVELS[i] if key == "R" else 2 * (i + 1) - 1
+            if level < needed:
+                raise HTTPException(400, f"{key} point {i + 1} requires level {needed}")
+
+
 def _validate_rune_page(page):
     if not isinstance(page, dict):
         raise HTTPException(400, "each rune page must be an object")
@@ -885,25 +908,36 @@ def _validate_rune_page(page):
 
 @app.put("/api/matchups/notes/{my_champion}/{opp_champion}")
 def api_put_matchup_note(my_champion: str, opp_champion: str, body: dict):
+    """Partial update: only the fields present in the body are written —
+    the cooldown popup saves skill_order without touching notes/runes and
+    the guide editor saves notes/runes/patch without touching skill_order."""
     body = body or {}
-    if not any(k in body for k in ("notes", "runes", "patch_version")):
-        raise HTTPException(400, "provide at least one of: notes, runes, patch_version")
+    known = ("notes", "runes", "patch_version", "skill_order")
+    if not any(k in body for k in known):
+        raise HTTPException(400, f"provide at least one of: {', '.join(known)}")
     _validate_champion(my_champion)
     _validate_champion(opp_champion)
-    runes = body.get("runes") or []
-    if not isinstance(runes, list):
-        raise HTTPException(400, "runes must be a list of rune pages")
-    for page in runes:
-        _validate_rune_page(page)
-    patch_version = str(body.get("patch_version") or "").strip()
-    _validate_patch(patch_version)
+    fields = {}
+    if "notes" in body:
+        fields["notes"] = str(body.get("notes") or "")
+    if "runes" in body:
+        runes = body.get("runes") or []
+        if not isinstance(runes, list):
+            raise HTTPException(400, "runes must be a list of rune pages")
+        for page in runes:
+            _validate_rune_page(page)
+        fields["runes"] = runes
+    if "patch_version" in body:
+        patch_version = str(body.get("patch_version") or "").strip()
+        _validate_patch(patch_version)
+        fields["patch_version"] = patch_version
+    if "skill_order" in body:
+        skill_order = body.get("skill_order") or []
+        _validate_skill_order(skill_order)
+        fields["skill_order"] = skill_order
     conn = get_conn()
     try:
-        db.set_matchup_note(
-            conn, my_champion, opp_champion,
-            notes=str(body.get("notes") or ""),
-            runes=runes,
-            patch_version=patch_version)
+        db.set_matchup_note(conn, my_champion, opp_champion, **fields)
         return {"saved": True}
     finally:
         conn.close()
@@ -1074,6 +1108,7 @@ def _decode_champ_guide_export(body):
         for page in runes:
             _validate_rune_page(page)
         _validate_patch(str((entry or {}).get("patch_version") or "").strip())
+        _validate_skill_order((entry or {}).get("skill_order") or [])
     return my_champion, payload
 
 
@@ -1116,7 +1151,8 @@ def api_import_champ_guide(body: dict):
                 conn, my_champion, opp_champion,
                 notes=str((entry or {}).get("notes") or ""),
                 runes=(entry or {}).get("runes") or [],
-                patch_version=str((entry or {}).get("patch_version") or ""))
+                patch_version=str((entry or {}).get("patch_version") or ""),
+                skill_order=(entry or {}).get("skill_order") or [])
         return {"imported": len(guide)}
     finally:
         conn.close()

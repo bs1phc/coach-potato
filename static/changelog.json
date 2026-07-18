@@ -1,92 +1,148 @@
 {
   "entries": [
     {
-      "version": "1.32.0",
-      "date": "2026-07-17",
+      "version": "1.37.0",
+      "date": "2026-07-18",
       "items": [
-        "Opponent ability cooldown table on the Matchup guide has an ability haste dropdown (0-100) — recalculates their cooldowns live so you can judge how fast their kit actually comes back"
+        "One Pager (📄 on a Matchup guide row) — a full-screen, distraction-free quick reference for one matchup: runes, skill order, item build, and your notes. Made for a second screen during a game; Esc closes it"
+      ]
+    },
+    {
+      "version": "1.36.0",
+      "date": "2026-07-18",
+      "items": [
+        "\"Champ guide\" is now \"Matchup guide\" throughout the app, with your champion's icon shown next to the selector"
+      ]
+    },
+    {
+      "version": "1.35.0",
+      "date": "2026-07-18",
+      "items": [
+        "Back up everything you've written as one .zip (Settings → Export everything): sessions, block learnings, matchup guides incl. saved skill orders, champion notes, item builds, research entries, plus all uploaded clips and screenshots — and restore it on a fresh install via Import from a backup"
+      ]
+    },
+    {
+      "version": "1.34.0",
+      "date": "2026-07-18",
+      "items": [
+        "Item build per champion on the guide page — core build order (up to 6 items) plus labeled situational sections, picked from real current-patch item icons; included in JSON export/import and the PDF export",
+        "Research tab — a study journal for other players' games: freeform Markdown entries (player, champion, opponent) with attached screenshots"
+      ]
+    },
+    {
+      "version": "1.33.3",
+      "date": "2026-07-18",
+      "items": [
+        "Fixed Matchups rows getting stuck on \"Loading…\" when expanded (a function-name clash with the Champ guide silently broke the games fetch)"
+      ]
+    },
+    {
+      "version": "1.33.2",
+      "date": "2026-07-18",
+      "items": [
+        "Cooldown popup's \"💾 Save build\" moved to the top-right corner of the dialog, next to the view toggle, where it's easy to spot"
+      ]
+    },
+    {
+      "version": "1.33.1",
+      "date": "2026-07-18",
+      "items": [
+        "Champ guide reorganization: the guide editor now contains the skill order with nested edit/remove controls (read view shows it clean, no stray buttons); the cooldown popup's save is a compact 💾 Save in the skill-order header, fixing the misaligned Q/W/E/R rows between the two sides"
+      ]
+    },
+    {
+      "version": "1.33.0",
+      "date": "2026-07-18",
+      "items": [
+        "Cooldown comparison gets a \"Level matrix\" view — level × ability grid where each rank-up bubble shows the ability's (haste-reduced) cooldown from that level on; cells stay clickable for editing the build, and the view choice is remembered"
+      ]
+    },
+    {
+      "version": "1.32.0",
+      "date": "2026-07-18",
+      "items": [
+        "Skill order in the cooldown popup is now a full 18×4 grid (level × Q/W/E/R) — click a cell to spend that level's point, so 1-1-1 and 2-1-0 openers and anything else legal works; selections are validated against the in-game rules",
+        "Save your build per matchup: the cooldown popup's \"Save build to champ guide\" stores your skill order on that matchup's champ guide, preloads it next time, and shows it read-only on the guide page",
+        "Cooldown comparison (⏱) is also available on Champ guide matchup rows"
       ]
     },
     {
       "version": "1.31.0",
       "date": "2026-07-17",
       "items": [
-        "Matchup guide list is table-like: aligned columns, row hover, and separate indicators for matchup notes (📝) and rune pages (🔮)"
-      ]
-    },
-    {
-      "version": "1.30.1",
-      "date": "2026-07-17",
-      "items": [
-        "Fixed partially-filled rune pages silently failing to save (unfilled slots were rejected by validation with a near-invisible error)",
-        "Save failures in the Matchup guide now show a clear red error message",
-        "Switching champion or collapsing a matchup mid-edit now asks before discarding unsaved changes"
+        "Champion pool management moved to Settings (replacing the separate \"My champion\" setting — your pool's first pick is your default champion now); the Blocks view shows a read-only pool summary with an edit shortcut into Settings"
       ]
     },
     {
       "version": "1.30.0",
       "date": "2026-07-17",
       "items": [
-        "Rune pages in the Matchup guide expand for viewing (▸ on the page card) — full rune names by tree, no need to open the editor",
-        "Matchups with a guide now always show in the Matchup guide list, even against opponents that champion hasn't faced yet (e.g. migrated or imported notes)"
+        "Cooldown comparison popup (⏱ on a Matchups row) — your ability cooldowns side by side with the opponent's, with haste sources (items/runes/buffs granting ability haste or ultimate haste) reducing the shown values next to base",
+        "Each side has a champion level slider and a drag-to-reorder skill priority (R at 6/11/16) so cooldowns reflect actual ranks at that level — skill order is remembered per champion"
       ]
     },
     {
       "version": "1.29.0",
       "date": "2026-07-17",
       "items": [
-        "\"Export everything\" and \"Import from a backup\" in Settings — every coaching session, block learning, matchup guide, champion note, item build, and Research entry, plus every uploaded clip and screenshot, as one .zip; import is meant for restoring onto a fresh/empty setup and refuses to overwrite anything already there"
+        "Champion dropdowns (Champ guide, default champion, note migration) group your Champion Pool at the top, in pool priority order; the Champ guide also defaults to your pool's first pick when no default champion is set"
       ]
     },
     {
       "version": "1.28.0",
       "date": "2026-07-17",
       "items": [
-        "\"Champ guide\" renamed to \"Matchup guide\", with a champion icon next to the \"My champion\" selector",
-        "Ability cooldown tables (Q/W/E/R across levels 1/3/6/9/11/13/16/18) — always shown for \"My champion\", and for the opponent once a matchup is expanded"
+        "Champion pool chips can be drag'n'drop reordered — order is the pool's priority (main first, counters in preference order) and is used wherever the pool appears"
       ]
     },
     {
       "version": "1.27.0",
       "date": "2026-07-17",
       "items": [
-        "Older matchup notes (pre-matchup-guide) now surface in Settings — migrate them under one of your champions, or delete them (replaces the one-time startup popup)",
-        "Default champion setting — pre-selects your champion on the Matchup guide page",
-        "Matchup guide design pass: consistent Markdown editor, patch dropdown defaulting to the current patch (validated), properly sized champion icons, opponent picker only lists champions without a guide, clearer empty-state",
-        "Clips section design pass: add-clip form now folds behind a + Add clip button and matches the app's form styling",
-        "Fixed the Fiddlesticks champion icon never loading (match-v5 vs DDragon spelling mismatch)"
+        "Champ guide list is table-like: aligned columns, row hover, and separate indicators for matchup notes (📝) and rune pages (🔮)"
+      ]
+    },
+    {
+      "version": "1.26.1",
+      "date": "2026-07-17",
+      "items": [
+        "Fixed partially-filled rune pages silently failing to save (unfilled slots were rejected by validation with a near-invisible error)",
+        "Save failures in the Champ guide now show a clear red error message",
+        "Switching champion or collapsing a matchup mid-edit now asks before discarding unsaved changes"
       ]
     },
     {
       "version": "1.26.0",
       "date": "2026-07-17",
       "items": [
-        "New Research tab — a study journal for other players' games: Markdown notes and attached screenshots"
+        "Rune pages in the Champ guide expand for viewing (▸ on the page card) — full rune names by tree, no need to open the editor",
+        "Matchups with a guide now always show in the Champ guide list, even against opponents that champion hasn't faced yet (e.g. migrated or imported notes)"
       ]
     },
     {
       "version": "1.25.0",
       "date": "2026-07-17",
       "items": [
-        "One-time prompt after updating: matchup notes written before the matchup-guide update are no longer shown in the app — answer yes to export them as Markdown files to a folder of your choice",
-        "Matchup-guide import now validates rune pages and file structure (clear errors instead of accepting malformed files), and export rejects invalid champion names"
+        "Older matchup notes (pre-champ-guide) now surface in Settings — migrate them under one of your champions, or delete them (replaces the one-time startup popup)",
+        "Default champion setting — pre-selects your champion on the Champ guide page",
+        "Champ guide design pass: consistent Markdown editor, patch dropdown defaulting to the current patch (validated), properly sized champion icons, opponent picker only lists champions without a guide, clearer empty-state",
+        "Clips section design pass: add-clip form now folds behind a + Add clip button and matches the app's form styling",
+        "Fixed the Fiddlesticks champion icon never loading (match-v5 vs DDragon spelling mismatch)"
       ]
     },
     {
       "version": "1.24.0",
-      "date": "2026-07-16",
+      "date": "2026-07-17",
       "items": [
-        "Matchup guide: mobafire-style item build per champion — a core build order plus labeled situational sections, picked from real item icons",
-        "PDF export now mirrors the full Matchup guide (item build included), not just notes and runes",
-        "Matchup guide rune-page icons made smaller",
-        "\"My champions\" section on Overview now collapses by default"
+        "One-time prompt after updating: matchup notes written before the champ-guide update are no longer shown in the app — answer yes to export them as Markdown files to a folder of your choice",
+        "Champ-guide import now validates rune pages and file structure (clear errors instead of accepting malformed files), and export rejects invalid champion names"
       ]
     },
     {
       "version": "1.23.0",
       "date": "2026-07-16",
       "items": [
-        "Matchup guide can be exported as a printable PDF — general notes, patch, rune pages (with icons), and notes for every matchup"
+        "Champ guide can be exported as a printable PDF — general notes, patch, rune pages (with icons), and notes for every matchup"
       ]
     },
     {
@@ -101,7 +157,7 @@
       "date": "2026-07-16",
       "items": [
         "Appearance settings — adjustable opacity (see-through panels, like a translucent terminal) and an optional background picture",
-        "Runes actually played now show in a block game's expanded stats panel too, mirroring Overview and Matchup guide"
+        "Runes actually played now show in a block game's expanded stats panel too, mirroring Overview and Champ guide"
       ]
     },
     {
@@ -109,7 +165,7 @@
       "date": "2026-07-16",
       "items": [
         "Removed the 10-game cap on block size — set any block size in Settings",
-        "Recent games (Overview and Matchup guide) now show the game's time, not just the date"
+        "Recent games (Overview and Champ guide) now show the game's time, not just the date"
       ]
     },
     {
@@ -139,7 +195,7 @@
       "version": "1.17.0",
       "date": "2026-07-15",
       "items": [
-        "Matchup guide matchups are collapsed by default — click a matchup to expand its notes, runes, and recent games, instead of everything loading open at once",
+        "Champ guide matchups are collapsed by default — click a matchup to expand its notes, runes, and recent games, instead of everything loading open at once",
         "Recent games now only fetch when you expand a matchup, not for every matchup up front"
       ]
     },
@@ -147,14 +203,14 @@
       "version": "1.16.1",
       "date": "2026-07-15",
       "items": [
-        "Recent games in the Matchup guide now show the full rune page actually played (keystone, minors, secondary tree, shards), not just the keystone"
+        "Recent games in the Champ guide now show the full rune page actually played (keystone, minors, secondary tree, shards), not just the keystone"
       ]
     },
     {
       "version": "1.16.0",
       "date": "2026-07-15",
       "items": [
-        "Matchup guide's matchup rows show a \"Recent games\" column on the right — real games vs that opponent, with the runes you actually played in each one",
+        "Champ guide's matchup rows show a \"Recent games\" column on the right — real games vs that opponent, with the runes you actually played in each one",
         "Crawler now records the actual rune page played per game for tracked accounts; run `./crawl.sh --backfill-runes` to fill it in for matches crawled before this update"
       ]
     },
@@ -162,26 +218,26 @@
       "version": "1.15.0",
       "date": "2026-07-15",
       "items": [
-        "General notes section on the Matchup guide page, for champion-wide tips that aren't tied to one matchup",
-        "Export/import a champion's whole guide as a JSON file, with an optional password (real encryption, not just obfuscation) — Export/Import menus on the Matchup guide page"
+        "General notes section on the Champ guide page, for champion-wide tips that aren't tied to one matchup",
+        "Export/import a champion's whole guide as a JSON file, with an optional password (real encryption, not just obfuscation) — Export/Import menus on the Champ guide page"
       ]
     },
     {
       "version": "1.14.0",
       "date": "2026-07-15",
       "items": [
-        "Matchup guide moved to its own page — pick any champion (full roster, not just ones you've played) and see/edit full rune pages, patch, and notes for every matchup it has faced, or add one for a matchup you haven't played yet",
+        "Champ guide moved to its own page — pick any champion (full roster, not just ones you've played) and see/edit full rune pages, patch, and notes for every matchup it has faced, or add one for a matchup you haven't played yet",
         "Rune picker is now a full click-through builder — primary tree, keystone, 3 minor rows, secondary tree, 2 secondary minors, and 3 stat shards, with real rune icons",
         "A matchup can hold more than one rune page (e.g. alternatives you're testing)",
-        "Matchup guide is scoped per (your champion, opponent) instead of just the opponent — Gwen vs Darius and Camille vs Darius get separate guides",
-        "Matchups table links out to the Matchup guide page for the selected \"My champion\" filter"
+        "Champ guide is scoped per (your champion, opponent) instead of just the opponent — Gwen vs Darius and Camille vs Darius get separate guides",
+        "Matchups table links out to the Champ guide page for the selected \"My champion\" filter"
       ]
     },
     {
       "version": "1.13.0",
       "date": "2026-07-15",
       "items": [
-        "Matchup guide tab on matchups — record a rune keystone + secondary tree, patch version, and Markdown notes on how to play each matchup"
+        "Champ guide tab on matchups — record a rune keystone + secondary tree, patch version, and Markdown notes on how to play each matchup"
       ]
     },
     {

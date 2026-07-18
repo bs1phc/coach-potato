@@ -554,7 +554,8 @@ def test_matchup_notes_endpoints(client):
         "notes": "- respect level 2", "runes": [CONQ_PAGE, GRASP_PAGE], "patch_version": "14.14"})
     assert r.status_code == 200
     assert client.get("/api/matchups/notes?my_champion=Gwen").json() == {"Darius": {
-        "notes": "- respect level 2", "runes": [CONQ_PAGE, GRASP_PAGE], "patch_version": "14.14"}}
+        "notes": "- respect level 2", "runes": [CONQ_PAGE, GRASP_PAGE],
+        "patch_version": "14.14", "skill_order": []}}
     # a different "my champion" has its own, independent guide
     assert client.get("/api/matchups/notes?my_champion=Camille").json() == {}
     assert client.get("/api/matchups/notes").status_code == 422  # my_champion required
@@ -848,6 +849,43 @@ def test_rune_page_with_empty_slots_saves(client):
         "runes": [{**partial, "shards": ["Fake Shard", "", ""]}]}).status_code == 400
 
 
+def test_skill_order_endpoint_roundtrip_and_partial_update(client):
+    order = ["Q", "W", "E", "Q", "Q", "R", "Q", "W", "Q", "W", "R", "W", "W",
+             "E", "E", "R", "E", "E"]
+    # build saves alone (cooldown popup) without touching other fields
+    client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "keep these notes"})
+    r = client.put("/api/matchups/notes/Gwen/Darius", json={"skill_order": order})
+    assert r.status_code == 200
+    guide = client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]
+    assert guide["skill_order"] == order
+    assert guide["notes"] == "keep these notes"
+    # editor-style save (no skill_order key) keeps the saved build
+    client.put("/api/matchups/notes/Gwen/Darius",
+               json={"notes": "edited", "runes": [], "patch_version": ""})
+    guide = client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]
+    assert guide["skill_order"] == order
+    assert guide["notes"] == "edited"
+    # partial grids are fine; sparse levels allowed
+    assert client.put("/api/matchups/notes/Gwen/Darius",
+                      json={"skill_order": ["Q", "", "W"]}).status_code == 200
+
+
+def test_skill_order_validation(client):
+    put = lambda so: client.put("/api/matchups/notes/Gwen/Darius",
+                                json={"skill_order": so}).status_code
+    assert put("QWER") == 400                       # not a list
+    assert put(["X"]) == 400                        # unknown ability
+    assert put([""] * 19) == 400                    # more than 18 levels
+    assert put(["Q", "Q"]) == 400                   # Q rank 2 needs level 3
+    assert put(["R"]) == 400                        # R needs level 6
+    assert put([""] * 5 + ["R", "R"]) == 400        # R rank 2 needs level 11
+    assert put(["Q", "W", "Q", "Q"]) == 400         # Q rank 3 needs level 5
+    assert put(["Q", "W", "E", "Q", "Q", "R", "Q", "W", "Q", "W", "R", "W",
+                "W", "E", "E", "R", "E", "E", ]) == 200  # a legal full build
+    # 6 points in one basic ability
+    assert put(["Q", "W", "Q", "W", "Q", "R", "Q", "W", "Q", "W", "R", "Q"]) == 400
+
+
 def test_champ_guide_import_rejects_non_export_file(client):
     assert client.post("/api/matchups/notes/import",
                        json={"data": {"not": "an export"}}).status_code == 400
@@ -941,16 +979,6 @@ def test_legacy_notes_delete(client):
     assert client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]["notes"] == "keep me"
 
 
-def test_default_champion_setting_endpoint(client):
-    assert client.get("/api/settings").json()["default_champion"] is None
-    assert _put_settings(client, default_champion="Gwen").status_code == 200
-    assert client.get("/api/settings").json()["default_champion"] == "Gwen"
-    assert _put_settings(client, default_champion=None).status_code == 200
-    assert client.get("/api/settings").json()["default_champion"] is None
-    assert _put_settings(client, default_champion="NotAChamp").status_code == 400
-    assert _put_settings(client, default_champion=123).status_code == 400
-
-
 def test_patch_version_validation(client):
     ok = {"notes": "x", "patch_version": "16.14"}
     assert client.put("/api/matchups/notes/Gwen/Darius", json=ok).status_code == 200
@@ -1023,16 +1051,6 @@ def test_accent_color_setting_endpoint(client):
     assert _put_settings(client, accent_color="ff8800").status_code == 400
     assert _put_settings(client, accent_color="#fff").status_code == 400
     assert _put_settings(client, accent_color=123).status_code == 400
-
-
-def test_default_champion_setting_endpoint(client):
-    assert client.get("/api/settings").json()["default_champion"] is None
-    assert _put_settings(client, default_champion="Gwen").status_code == 200
-    assert client.get("/api/settings").json()["default_champion"] == "Gwen"
-    assert _put_settings(client, default_champion=None).status_code == 200
-    assert client.get("/api/settings").json()["default_champion"] is None
-    assert _put_settings(client, default_champion="NotAChamp").status_code == 400
-    assert _put_settings(client, default_champion=123).status_code == 400
 
 
 def test_background_image_upload_roundtrip(client):
@@ -1347,6 +1365,8 @@ def test_import_all_round_trip_and_conflict_detection(client):
     session_id = _make_session(client)
     client.put("/api/champions/notes/Gwen", json={"notes": "general Gwen tips"})
     client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "respect level 2"})
+    saved_order = ["Q", "W", "E", "Q", "Q", "R"] + [""] * 12
+    client.put("/api/matchups/notes/Gwen/Darius", json={"skill_order": saved_order})
     client.put("/api/champions/item-build/Gwen", json={"core": ["Riftmaker"], "situational": []})
     entry_id = client.post("/api/research", json={"player_name": "Faker"}).json()["id"]
     client.post(f"/api/research/{entry_id}/screenshots",
@@ -1386,7 +1406,9 @@ def test_import_all_round_trip_and_conflict_detection(client):
     assert result2.json()["imported"]["sessions"] == 1
 
     assert client.get("/api/champions/notes/Gwen").json()["notes"] == "general Gwen tips"
-    assert client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]["notes"] == "respect level 2"
+    restored = client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]
+    assert restored["notes"] == "respect level 2"
+    assert restored["skill_order"] == saved_order  # saved builds survive backups
     assert client.get("/api/champions/item-build/Gwen").json()["core"] == ["Riftmaker"]
     research = client.get("/api/research").json()
     assert research[0]["player_name"] == "Faker"
@@ -1396,6 +1418,25 @@ def test_import_all_round_trip_and_conflict_detection(client):
     clips = client.get(f"/api/clips?owner_type=session&owner_id={session_id}").json()
     assert len(clips) == 1
     assert client.get(clips[0]["play_url"]).content == b"fake video bytes"
+
+
+def test_export_all_covers_every_matchup_notes_column(client):
+    """Column-drift guard: a new matchup_notes column must be carried by the
+    backup (add it to export-all + import-all) or this fails. Regression:
+    PR #5 predated skill_order and would have silently dropped saved builds."""
+    import io
+    import os
+    import zipfile
+
+    import json as json_module
+
+    client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "x"})
+    conn = db.connect(os.environ["LOL_DB_PATH"])
+    columns = {r["name"] for r in conn.execute("PRAGMA table_info(matchup_notes)")}
+    conn.close()
+    zf = zipfile.ZipFile(io.BytesIO(client.get("/api/export-all").content))
+    exported = json_module.loads(zf.read("data.json"))["matchup_notes"][0].keys()
+    assert columns <= set(exported)
 
 
 def test_import_all_rejects_bad_files(client):

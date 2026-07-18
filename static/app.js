@@ -15,7 +15,7 @@ const state = {
   progressQueue: "",
   ddragonVersion: null,
   ddragonVersions: [], // recent DDragon versions, newest first (patch picker)
-  defaultChampion: null, // Champ guide's pre-selected champion (settings)
+  poolOrder: null, // champion pool flattened in priority order; null = not fetched
 };
 
 const QUEUE_NAMES = { 400: "Normal Draft", 420: "Ranked Solo", 430: "Normal Blind",
@@ -1080,14 +1080,36 @@ function applyHiddenViews(hidden) {
   }
 }
 
-// full-roster <select> options, alphabetical by display name
+// champion pool flattened to one priority-ordered list (main blind first,
+// then core, then counters — pool order is user-set by dragging chips).
+// Cached; blocks.js's savePool resets it.
+async function poolChampionOrder() {
+  if (state.poolOrder) return state.poolOrder;
+  try {
+    const pool = await getJSON("/api/pool");
+    state.poolOrder = [...new Set([
+      ...(pool.main_blind ? [pool.main_blind] : []), ...pool.core, ...pool.counter])];
+  } catch {
+    state.poolOrder = [];
+  }
+  return state.poolOrder;
+}
+
+// full-roster <select> options: the champion pool (in pool order) grouped on
+// top, then everyone else alphabetically by display name
 async function championOptions(selected, emptyLabel) {
   await loadChampionRoster(); // blocks.js — cached after the first call
-  const all = [...roster.nameById.keys()].sort(
+  const pool = (await poolChampionOrder()).filter((c) => roster.nameById.has(c));
+  const poolSet = new Set(pool);
+  const rest = [...roster.nameById.keys()].filter((c) => !poolSet.has(c)).sort(
     (a, b) => champDisplay(a).localeCompare(champDisplay(b)));
+  const opt = (c) =>
+    `<option value="${c}" ${c === selected ? "selected" : ""}>${escapeHtml(champDisplay(c))}</option>`;
   const empty = emptyLabel === undefined ? "" : `<option value="">${emptyLabel}</option>`;
-  return empty + all.map((c) =>
-    `<option value="${c}" ${c === selected ? "selected" : ""}>${escapeHtml(champDisplay(c))}</option>`).join("");
+  if (!pool.length) return empty + rest.map(opt).join("");
+  return empty
+    + `<optgroup label="Champion Pool">${pool.map(opt).join("")}</optgroup>`
+    + `<optgroup label="All champions">${rest.map(opt).join("")}</optgroup>`;
 }
 
 // legacy matchup notes (pre-champ-guide, my_champion='') — Settings offers to
@@ -1106,11 +1128,11 @@ async function refreshLegacySection() {
   $("#legacy-notes-summary").textContent =
     `${info.count} matchup note(s) from before the champ-guide update — ` +
     `${Object.keys(info.notes).map(displayName).join(", ")} — aren't tied to one of ` +
-    `your champions, so they don't appear in the Champ guide. Assign them to a ` +
+    `your champions, so they don't appear in the Matchup guide. Assign them to a ` +
     `champion, or delete them.`;
   const select = $("#legacy-migrate-champion");
   if (!select.options.length) {
-    select.innerHTML = await championOptions(state.defaultChampion || "");
+    select.innerHTML = await championOptions((await poolChampionOrder())[0] || "");
   }
 }
 
@@ -1133,8 +1155,8 @@ async function initSettings() {
   $("#setting-block-gap").value = data.block_gap_hours;
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
-  $("#setting-default-champion").innerHTML =
-    await championOptions(data.default_champion || "", "– none –");
+  await loadChampionRoster(); // pool chips + legacy select need display names
+  loadPool(); // blocks.js — hydrates the pool editor now hosted in Settings
   refreshLegacySection();
   $("#setting-accent-color").value = data.accent_color
     || rgbToHex(getComputedStyle(document.documentElement).getPropertyValue("--series-1"));
@@ -1146,6 +1168,8 @@ async function initSettings() {
   $("#settings-banner").classList.toggle("hidden", data.configured);
   if (settingsUi.wired) return;
   settingsUi.wired = true;
+  $("#pool-save").addEventListener("click", savePool); // blocks.js
+  wireChipBoxes(); // blocks.js — chip add/remove/drag inside #pool-card
   $("#import-all-btn").addEventListener("click", async () => {
     const status = $("#import-all-status");
     const file = $("#import-all-file").files[0];
@@ -1284,7 +1308,6 @@ async function initSettings() {
     addAccount(); // commit any half-typed account first
     const hiddenViews = [...document.querySelectorAll(".view-toggle-cb")]
       .filter((cb) => !cb.checked).map((cb) => cb.value);
-    const previousDefaultChampion = state.defaultChampion;
     const response = await fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -1301,7 +1324,6 @@ async function initSettings() {
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
         accent_color: $("#setting-accent-reset").classList.contains("hidden")
           ? null : $("#setting-accent-color").value,
-        default_champion: $("#setting-default-champion").value || null,
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -1310,17 +1332,8 @@ async function initSettings() {
         state.hideMyRank = body.hide_my_rank;
         init(false); // re-pull data so the redaction change applies everywhere
       }
-      state.defaultChampion = body.default_champion || null;
       applyHiddenViews(body.hidden_views);
       applyAppearance(body);
-      state.defaultChampion = body.default_champion || "";
-      if (state.defaultChampion && state.defaultChampion !== previousDefaultChampion) {
-        // A newly-configured (or changed) default should apply even if the
-        // Matchup guide already had a selection from earlier in this session —
-        // loadGuideChampionOptions() only auto-picks when myChampion is empty.
-        guideState.myChampion = "";
-        if (state.mainView === "guide") initGuide();
-      }
       $("#settings-banner").classList.add("hidden");
       if (settingsUi.wasUnconfigured && body.configured) {
         settingsUi.wasUnconfigured = false;
@@ -1603,7 +1616,6 @@ async function init(firstLoad = true) {
     checkForUpdates();
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
-    state.defaultChampion = settings.default_champion || null;
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);
