@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.34.0",
+      "date": "2026-07-18",
+      "items": [
+        "Item build per champion on the guide page — core build order (up to 6 items) plus labeled situational sections, picked from real current-patch item icons; included in JSON export/import and the PDF export",
+        "Research tab — a study journal for other players' games: freeform Markdown entries (player, champion, opponent) with attached screenshots"
+      ]
+    },
+    {
       "version": "1.33.3",
       "date": "2026-07-18",
       "items": [

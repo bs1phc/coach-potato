@@ -993,11 +993,11 @@ async function loadProgress() {
 function setMainView(view) {
   state.mainView = view;
   if (history.replaceState) {
-    const hash = { matchups: "#matchups", progress: "#progress",
-                   trends: "#trends", blocks: "#blocks", guide: "#guide" }[view] || "#";
+    const hash = { matchups: "#matchups", progress: "#progress", trends: "#trends",
+                   blocks: "#blocks", guide: "#guide", research: "#research" }[view] || "#";
     history.replaceState(null, "", hash);
   }
-  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "settings"]) {
+  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "settings"]) {
     $(`#nav-${v}`).classList.toggle("active", view === v);
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
@@ -1006,6 +1006,7 @@ function setMainView(view) {
   if (view === "trends") initTrends();
   if (view === "blocks") initBlocks();
   if (view === "guide") initGuide();
+  if (view === "research") initResearch();
   if (view === "settings") initSettings();
 }
 
@@ -1069,11 +1070,11 @@ function applyAppearance(data) {
 
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
-  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide"]) {
+  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research"]) {
     $(`#nav-${view}`).classList.toggle("hidden", state.hiddenViews.includes(view));
   }
   if (state.hiddenViews.includes(state.mainView)) {
-    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide"]
+    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research"]
       .find((view) => !state.hiddenViews.includes(view));
     setMainView(fallback || "settings");
   }
@@ -1136,6 +1137,7 @@ async function refreshLegacySection() {
 }
 
 async function initSettings() {
+  await loadChampionRoster(); // populates the shared #champ-list datalist
   const data = await getJSON("/api/settings");
   $("#setting-key").value = data.riot_api_key;
   const platforms = [...data.platforms].sort((a, b) =>
@@ -1313,6 +1315,7 @@ function wireProgress() {
   $("#nav-trends").addEventListener("click", () => setMainView("trends"));
   $("#nav-blocks").addEventListener("click", () => setMainView("blocks"));
   $("#nav-guide").addEventListener("click", () => setMainView("guide"));
+  $("#nav-research").addEventListener("click", () => setMainView("research"));
   $("#nav-settings").addEventListener("click", () => setMainView("settings"));
   $("#progress-champion").addEventListener("change", (e) => {
     state.progressChampion = e.target.value; loadProgress();
@@ -1531,6 +1534,13 @@ function wireFilters() {
   renderColPicker($("#progress-cols"), "cp-cols-progress", PROGRESS_COLS, progressCols,
     () => renderProgress(segmentUi.segments));
   $("#crawl-btn").addEventListener("click", startCrawl);
+  $("#champion-table-toggle").addEventListener("click", () => {
+    const btn = $("#champion-table-toggle");
+    const table = $("#champion-table");
+    const expanded = table.classList.toggle("hidden") === false;
+    btn.textContent = expanded ? "▾" : "▸";
+    btn.setAttribute("aria-expanded", String(expanded));
+  });
 }
 
 async function loadDdragonVersion() {
@@ -1601,6 +1611,7 @@ async function init(firstLoad = true) {
   if (firstLoad && location.hash === "#trends") setMainView("trends");
   if (firstLoad && location.hash === "#blocks") setMainView("blocks");
   if (firstLoad && location.hash === "#guide") setMainView("guide");
+  if (firstLoad && location.hash === "#research") setMainView("research");
   if (firstLoad && location.hash === "#settings") setMainView("settings");
 }
 
