@@ -615,6 +615,7 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     db.set_champion_note(c, "Gwen", "general champion note")
     db.set_item_build(c, "Gwen", ["Riftmaker"], [{"label": "vs AP", "items": ["Zhonya's Hourglass"]}])
     research_id = db.create_research_entry(c, "Faker", "Azir", "Zed", "Level 1", "keep this too")
+    macro_id = db.create_macro_section(c, "Dragon souls", "take at 20 min")
     # drop a column added by a later version to mimic an older schema
     c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
     c.commit()
@@ -630,6 +631,7 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     assert db.get_item_build(c, "Gwen") == {
         "core": ["Riftmaker"], "situational": [{"label": "vs AP", "items": ["Zhonya's Hourglass"]}]}
     assert db.get_research_entry(c, research_id)["notes"] == "keep this too"
+    assert db.get_macro_section(c, macro_id)["notes"] == "take at 20 min"
     assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None
     c.close()
 

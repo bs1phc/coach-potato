@@ -1314,6 +1314,39 @@ def test_deleting_research_entry_cleans_up_screenshots(client):
     assert client.get(shot["file_url"]).status_code == 404
 
 
+# ---------- macros ----------
+
+def test_macro_section_crud(client):
+    assert client.get("/api/macros").json() == []
+    r = client.post("/api/macros", json={"title": "Dragon souls", "notes": "take at 20 min"})
+    assert r.status_code == 200
+    section = r.json()
+    assert section["title"] == "Dragon souls"
+    section_id = section["id"]
+
+    listed = client.get("/api/macros").json()
+    assert len(listed) == 1 and listed[0]["id"] == section_id
+
+    r = client.patch(f"/api/macros/{section_id}", json={"notes": "take at 18 min instead"})
+    assert r.status_code == 200
+    assert r.json()["notes"] == "take at 18 min instead"
+    assert r.json()["title"] == "Dragon souls"  # unspecified fields untouched
+
+    assert client.post("/api/macros", json={"notes": "no title"}).status_code == 400
+    assert client.patch(f"/api/macros/{section_id}", json={"title": ""}).status_code == 400
+
+    assert client.delete(f"/api/macros/{section_id}").status_code == 200
+    assert client.get("/api/macros").json() == []
+    assert client.delete(f"/api/macros/{section_id}").status_code == 404
+
+
+def test_macro_sections_ordered_oldest_first(client):
+    first = client.post("/api/macros", json={"title": "First"}).json()["id"]
+    second = client.post("/api/macros", json={"title": "Second"}).json()["id"]
+    listed = client.get("/api/macros").json()
+    assert [s["id"] for s in listed] == [first, second]
+
+
 # ---------- export everything ----------
 
 def test_export_all_bundles_content_and_files(client):
@@ -1330,6 +1363,7 @@ def test_export_all_bundles_content_and_files(client):
                files={"file": ("shot.png", b"fake png bytes", "image/png")})
     client.post("/api/clips", data={"owner_type": "session", "owner_id": session_id, "label": "x"},
                files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")})
+    client.post("/api/macros", json={"title": "Dragon souls", "notes": "take at 20 min"})
 
     r = client.get("/api/export-all")
     assert r.status_code == 200
@@ -1352,6 +1386,7 @@ def test_export_all_bundles_content_and_files(client):
     assert data["research_entries"][0]["player_name"] == "Faker"
     assert len(data["research_screenshots"]) == 1
     assert len(data["clips"]) == 1
+    assert data["macro_sections"][0]["title"] == "Dragon souls"
     assert "riot_api_key" not in json_module.dumps(data)  # no credentials in the backup
 
 
@@ -1373,6 +1408,7 @@ def test_import_all_round_trip_and_conflict_detection(client):
                files={"file": ("shot.png", b"fake png bytes", "image/png")})
     client.post("/api/clips", data={"owner_type": "session", "owner_id": session_id, "label": "x"},
                files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")})
+    client.post("/api/macros", json={"title": "Dragon souls", "notes": "take at 20 min"})
 
     export_bytes = client.get("/api/export-all").content
 
@@ -1391,7 +1427,7 @@ def test_import_all_round_trip_and_conflict_detection(client):
     conn = db.connect(os.environ["LOL_DB_PATH"])
     for table in ("coaching_sessions", "blocks", "block_games", "matchup_notes",
                   "champion_notes", "champion_item_builds", "research_entries",
-                  "research_screenshots", "clips"):
+                  "research_screenshots", "clips", "macro_sections"):
         conn.execute(f"DELETE FROM {table}")
     conn.commit()
     conn.close()
@@ -1418,6 +1454,8 @@ def test_import_all_round_trip_and_conflict_detection(client):
     clips = client.get(f"/api/clips?owner_type=session&owner_id={session_id}").json()
     assert len(clips) == 1
     assert client.get(clips[0]["play_url"]).content == b"fake video bytes"
+    macros = client.get("/api/macros").json()
+    assert macros[0]["title"] == "Dragon souls"
 
 
 def test_export_all_covers_every_matchup_notes_column(client):

@@ -136,7 +136,7 @@ def api_version():
     return {"version": config.app_version(), "repo": config.GITHUB_REPO}
 
 
-HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "guide", "research"}
+HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros"}
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -503,6 +503,8 @@ def api_export_all():
         clip_rows = [dict(r) for r in conn.execute(
             """SELECT id, owner_type, owner_id, label, kind, file_name, url, created_at_ms
                FROM clips ORDER BY id""")]
+        macro_rows = [dict(r) for r in conn.execute(
+            "SELECT id, title, notes, created_at_ms, updated_at_ms FROM macro_sections ORDER BY id")]
     finally:
         conn.close()
 
@@ -530,6 +532,7 @@ def api_export_all():
         "research_entries": research_rows,
         "research_screenshots": screenshot_rows,
         "clips": clip_rows,
+        "macro_sections": macro_rows,
     }
 
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
@@ -606,6 +609,9 @@ def _import_conflicts(conn, payload):
     for row in payload.get("clips") or []:
         if conn.execute("SELECT 1 FROM clips WHERE id=?", (row["id"],)).fetchone():
             conflicts.append(f"clip #{row['id']}")
+    for row in payload.get("macro_sections") or []:
+        if conn.execute("SELECT 1 FROM macro_sections WHERE id=?", (row["id"],)).fetchone():
+            conflicts.append(f"macro section #{row['id']}")
     return conflicts
 
 
@@ -618,6 +624,7 @@ def _import_counts(payload):
         "item_builds": len(payload.get("item_builds") or []),
         "research_entries": len(payload.get("research_entries") or []),
         "clips": len(payload.get("clips") or []),
+        "macro_sections": len(payload.get("macro_sections") or []),
     }
 
 
@@ -724,6 +731,12 @@ async def api_import_all(file: UploadFile = File(...)):
                     member = f"clips/{row['file_name']}"
                     if member in zf.namelist():
                         (get_clips_dir() / row["file_name"]).write_bytes(zf.read(member))
+            for row in payload.get("macro_sections") or []:
+                conn.execute(
+                    """INSERT INTO macro_sections (id, title, notes, created_at_ms, updated_at_ms)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (row["id"], row.get("title", ""), row.get("notes", ""),
+                     row.get("created_at_ms"), row.get("updated_at_ms")))
         return {"imported": _import_counts(payload)}
     finally:
         conn.close()
@@ -1695,6 +1708,57 @@ def api_delete_research_screenshot(screenshot_id: int):
         conn.close()
     _unlink_screenshot_files([screenshot["file_name"]])
     return {"deleted": True}
+
+
+@app.get("/api/macros")
+def api_list_macros():
+    conn = get_conn()
+    try:
+        return [dict(r) for r in db.list_macro_sections(conn)]
+    finally:
+        conn.close()
+
+
+@app.post("/api/macros")
+def api_create_macro_section(body: dict):
+    body = body or {}
+    title = str(body.get("title") or "").strip()
+    if not title:
+        raise HTTPException(400, "title is required")
+    conn = get_conn()
+    try:
+        section_id = db.create_macro_section(conn, title, str(body.get("notes") or ""))
+        return dict(db.get_macro_section(conn, section_id))
+    finally:
+        conn.close()
+
+
+@app.patch("/api/macros/{section_id}")
+def api_update_macro_section(section_id: int, body: dict):
+    body = body or {}
+    conn = get_conn()
+    try:
+        existing = db.get_macro_section(conn, section_id)
+        if not existing:
+            raise HTTPException(404, "no such macro section")
+        title = str(body.get("title", existing["title"]) or "").strip()
+        if not title:
+            raise HTTPException(400, "title is required")
+        db.update_macro_section(conn, section_id, title, str(body.get("notes", existing["notes"]) or ""))
+        return dict(db.get_macro_section(conn, section_id))
+    finally:
+        conn.close()
+
+
+@app.delete("/api/macros/{section_id}")
+def api_delete_macro_section(section_id: int):
+    conn = get_conn()
+    try:
+        if not db.delete_macro_section(conn, section_id):
+            raise HTTPException(404, "no such macro section")
+        return {"deleted": True}
+    finally:
+        conn.close()
 
 
 def _clip_dict(row):

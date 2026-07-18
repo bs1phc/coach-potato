@@ -994,10 +994,11 @@ function setMainView(view) {
   state.mainView = view;
   if (history.replaceState) {
     const hash = { matchups: "#matchups", progress: "#progress", trends: "#trends",
-                   blocks: "#blocks", guide: "#guide", research: "#research" }[view] || "#";
+                   blocks: "#blocks", guide: "#guide", research: "#research",
+                   macros: "#macros" }[view] || "#";
     history.replaceState(null, "", hash);
   }
-  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "settings"]) {
+  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "settings"]) {
     $(`#nav-${v}`).classList.toggle("active", view === v);
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
@@ -1007,6 +1008,7 @@ function setMainView(view) {
   if (view === "blocks") initBlocks();
   if (view === "guide") initGuide();
   if (view === "research") initResearch();
+  if (view === "macros") initMacros();
   if (view === "settings") initSettings();
 }
 
@@ -1070,11 +1072,11 @@ function applyAppearance(data) {
 
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
-  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research"]) {
+  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros"]) {
     $(`#nav-${view}`).classList.toggle("hidden", state.hiddenViews.includes(view));
   }
   if (state.hiddenViews.includes(state.mainView)) {
-    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research"]
+    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros"]
       .find((view) => !state.hiddenViews.includes(view));
     setMainView(fallback || "settings");
   }
@@ -1356,6 +1358,7 @@ function wireProgress() {
   $("#nav-blocks").addEventListener("click", () => setMainView("blocks"));
   $("#nav-guide").addEventListener("click", () => setMainView("guide"));
   $("#nav-research").addEventListener("click", () => setMainView("research"));
+  $("#nav-macros").addEventListener("click", () => setMainView("macros"));
   $("#nav-settings").addEventListener("click", () => setMainView("settings"));
   $("#progress-champion").addEventListener("change", (e) => {
     state.progressChampion = e.target.value; loadProgress();
@@ -1652,6 +1655,7 @@ async function init(firstLoad = true) {
   if (firstLoad && location.hash === "#blocks") setMainView("blocks");
   if (firstLoad && location.hash === "#guide") setMainView("guide");
   if (firstLoad && location.hash === "#research") setMainView("research");
+  if (firstLoad && location.hash === "#macros") setMainView("macros");
   if (firstLoad && location.hash === "#settings") setMainView("settings");
 }
 

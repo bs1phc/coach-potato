@@ -164,6 +164,14 @@ CREATE TABLE IF NOT EXISTS research_screenshots (
 );
 CREATE INDEX IF NOT EXISTS idx_research_screenshots_entry ON research_screenshots(entry_id);
 
+CREATE TABLE IF NOT EXISTS macro_sections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at_ms INTEGER,
+    updated_at_ms INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS rank_history (
     puuid TEXT NOT NULL,
     solo_tier TEXT,
@@ -925,4 +933,40 @@ def get_research_screenshot(conn, screenshot_id):
 def delete_research_screenshot(conn, screenshot_id):
     with conn:
         cursor = conn.execute("DELETE FROM research_screenshots WHERE id=?", (screenshot_id,))
+    return cursor.rowcount > 0
+
+
+# ---------- macros (freeform title+notes sections, e.g. game-macro notes) ----------
+
+def create_macro_section(conn, title, notes):
+    with conn:
+        cursor = conn.execute(
+            f"""INSERT INTO macro_sections (title, notes, created_at_ms, updated_at_ms)
+                VALUES (?, ?, {_now_expr()}, {_now_expr()})""",
+            (title, notes))
+    return cursor.lastrowid
+
+
+def list_macro_sections(conn):
+    """Oldest first — sections read top-to-bottom like a notes page; new
+    ones append at the bottom."""
+    return conn.execute("SELECT * FROM macro_sections ORDER BY id").fetchall()
+
+
+def get_macro_section(conn, section_id):
+    return conn.execute("SELECT * FROM macro_sections WHERE id=?", (section_id,)).fetchone()
+
+
+def update_macro_section(conn, section_id, title, notes):
+    with conn:
+        cursor = conn.execute(
+            f"""UPDATE macro_sections SET title=?, notes=?, updated_at_ms={_now_expr()}
+                WHERE id=?""",
+            (title, notes, section_id))
+    return cursor.rowcount > 0
+
+
+def delete_macro_section(conn, section_id):
+    with conn:
+        cursor = conn.execute("DELETE FROM macro_sections WHERE id=?", (section_id,))
     return cursor.rowcount > 0

@@ -218,7 +218,10 @@ change, not a crawler change.
   account crawler — freeform entries: player name, optional champion/
   opponent, one Markdown notes field (covers general + VOD notes together),
   and multiple screenshots — deliberately no timestamp log or video/clip
-  attachments here) in `research.js`.
+  attachments here) in `research.js`; Macros view (own nav tab: a flat,
+  always-expanded list of freeform title + Markdown-notes sections for
+  game-macro notes — not tied to any champion, matchup, or session; sections
+  append at the bottom in creation order, no drag-reorder) in `macros.js`.
 
 ## Schema (data/lol.sqlite)
 
@@ -402,11 +405,20 @@ division of responsibility as sessions/blocks. UI in `research.js`:
 collapsed-by-default entry cards (list is lightweight — `GET /api/research`
 returns only the entry rows; screenshots are fetched together with the
 rest of the entry on first expand via `GET /api/research/{id}`).
+`macro_sections(id PK, title, notes, created_at_ms, updated_at_ms)` — a
+Macros-tab section: just a title and one Markdown notes field, no linkage
+to a champion/matchup/session. Listed oldest-first (`db.list_macro_sections`)
+so new sections append at the bottom like a notes page. API: `GET/POST
+/api/macros`, `PATCH/DELETE /api/macros/{id}`. UI in `macros.js`: a flat,
+always-expanded list (no collapse, no drag-reorder) with a per-section ✎
+edit toggle, matching the Matchup guide's general-notes edit pattern, plus
+a "+ Add section" collapsed form.
 `GET /api/export-all` — a full backup as one .zip (`api_export_all` in
 app.py): `data.json` (sessions, blocks + block_games, matchup_notes,
 champion_notes, champion_item_builds, research_entries +
-research_screenshots, clips — JSON text columns decoded back to real JSON
-for readability) plus every `kind='upload'` clip and screenshot file under
+research_screenshots, clips, macro_sections — JSON text columns decoded
+back to real JSON for readability) plus every `kind='upload'` clip and
+screenshot file under
 `clips/`/`screenshots/`. Deliberately excludes `settings` (API key,
 accounts) and crawled match/rank data — Riot's API can always re-supply
 the latter, and the former shouldn't leave the machine in a shareable
