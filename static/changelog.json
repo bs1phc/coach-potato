@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.38.0",
+      "date": "2026-07-18",
+      "items": [
+        "New Macros tab — freeform title + Markdown-notes sections for game-macro notes, unrelated to any champion, matchup, or session"
+      ]
+    },
+    {
       "version": "1.37.0",
       "date": "2026-07-18",
       "items": [
