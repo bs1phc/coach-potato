@@ -43,10 +43,10 @@ def test_markdown_flowables_blank_text_shows_placeholder():
     assert "No notes" in flowables[0].text
 
 
-ITEM_BUILD = {
-    "core": ["Riftmaker", "Nashor's Tooth"],
-    "situational": [{"label": "vs heavy AP", "items": ["Zhonya's Hourglass"]}],
-}
+ITEM_BUILD = {"sections": [
+    {"label": "Core build", "items": ["Riftmaker", "Nashor's Tooth"]},
+    {"label": "vs heavy AP", "items": ["Zhonya's Hourglass"]},
+]}
 
 
 def _item_aware_get(url, timeout=5.0):
@@ -85,7 +85,7 @@ def test_build_champion_guide_pdf_returns_valid_pdf_bytes(monkeypatch):
 
 
 def test_build_champion_guide_pdf_empty_everything_does_not_crash():
-    pdf_bytes = pdf_export.build_champion_guide_pdf("Gwen", "", {"core": [], "situational": []}, {})
+    pdf_bytes = pdf_export.build_champion_guide_pdf("Gwen", "", {"sections": []}, {})
     assert pdf_bytes.startswith(b"%PDF")
 
 

@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.39.0",
+      "date": "2026-07-19",
+      "items": [
+        "Item builds are now just a list of sections you name yourself — no more fixed \"Core build\" slot; add a \"Core build\" section like any other, and reorder sections with the ▲/▼ buttons",
+        "Item build sections now sit side by side across the page instead of stacking one per row",
+        "Reorder item build sections by dragging them by the ⠿ grip, like the champion pool chips (the ▲/▼ buttons still work)"
+      ]
+    },
+    {
       "version": "1.38.1",
       "date": "2026-07-19",
       "items": [

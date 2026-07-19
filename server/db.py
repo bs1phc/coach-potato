@@ -120,8 +120,7 @@ CREATE TABLE IF NOT EXISTS champion_notes (
 
 CREATE TABLE IF NOT EXISTS champion_item_builds (
     champion TEXT PRIMARY KEY,
-    core TEXT NOT NULL DEFAULT '[]',
-    situational TEXT NOT NULL DEFAULT '[]',
+    sections TEXT NOT NULL DEFAULT '[]',
     updated_at_ms INTEGER
 );
 
@@ -275,6 +274,22 @@ def _migrate(conn):
         # v1.14.0..v1.31.x shape — saved skill-order builds added in v1.32.0
         conn.execute(
             "ALTER TABLE matchup_notes ADD COLUMN skill_order TEXT NOT NULL DEFAULT ''")
+    item_build_columns = {r["name"] for r in conn.execute("PRAGMA table_info(champion_item_builds)")}
+    if item_build_columns and "sections" not in item_build_columns:
+        # Pre-v1.39.0 item builds had a privileged, unlabeled "core" list plus
+        # separately-stored labeled "situational" sections. Both fold forward
+        # into one ordered list of labeled sections (core first, named "Core
+        # build") so every section is equal and reorderable. The old columns
+        # are left in place with their data — nothing is dropped.
+        conn.execute(
+            "ALTER TABLE champion_item_builds ADD COLUMN sections TEXT NOT NULL DEFAULT '[]'")
+        for row in conn.execute(
+                "SELECT champion, core, situational FROM champion_item_builds").fetchall():
+            core = json.loads(row["core"] or "[]")
+            sections = [{"label": "Core build", "items": core}] if core else []
+            sections += json.loads(row["situational"] or "[]")
+            conn.execute("UPDATE champion_item_builds SET sections=? WHERE champion=?",
+                         (json.dumps(sections), row["champion"]))
     conn.commit()
 
 
@@ -422,31 +437,29 @@ def set_champion_note(conn, champion, notes):
 
 
 def get_item_build(conn, champion):
-    """Item build for a champion: a core (ordered) list of item names, plus
-    labeled situational sections (each its own small item list) — e.g.
-    "vs heavy AP": ["Item A", "Item B"]. Empty defaults when none recorded."""
+    """Item build for a champion: an ordered list of labeled sections, each
+    its own small item list — e.g. {"label": "Core build", "items": [...]},
+    {"label": "vs heavy AP", "items": [...]}. Order is the user's; there is
+    no privileged "core" section (there was until v1.39.0 — see _migrate).
+    Empty default when none recorded."""
     row = conn.execute(
-        "SELECT core, situational FROM champion_item_builds WHERE champion=?",
+        "SELECT sections FROM champion_item_builds WHERE champion=?",
         (champion,)).fetchone()
-    if not row:
-        return {"core": [], "situational": []}
-    return {"core": json.loads(row["core"]), "situational": json.loads(row["situational"])}
+    return {"sections": json.loads(row["sections"]) if row else []}
 
 
-def set_item_build(conn, champion, core, situational):
-    """Upsert a champion's item build; fully blank (no core items, no
-    situational sections) deletes the row."""
+def set_item_build(conn, champion, sections):
+    """Upsert a champion's item build; no sections at all deletes the row."""
     with conn:
-        if not core and not situational:
+        if not sections:
             conn.execute("DELETE FROM champion_item_builds WHERE champion=?", (champion,))
             return
         conn.execute(
-            f"""INSERT INTO champion_item_builds (champion, core, situational, updated_at_ms)
-                VALUES (?, ?, ?, {_now_expr()})
+            f"""INSERT INTO champion_item_builds (champion, sections, updated_at_ms)
+                VALUES (?, ?, {_now_expr()})
                 ON CONFLICT(champion) DO UPDATE SET
-                  core=excluded.core, situational=excluded.situational,
-                  updated_at_ms=excluded.updated_at_ms""",
-            (champion, json.dumps(core), json.dumps(situational)))
+                  sections=excluded.sections, updated_at_ms=excluded.updated_at_ms""",
+            (champion, json.dumps(sections)))
 
 
 def record_rank_history(conn, puuid, tier, division, lp, fetched_at_ms):

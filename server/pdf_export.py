@@ -105,7 +105,7 @@ def _markdown_flowables(text, styles):
 class _IconFetcher:
     """Fetches + caches rune/shard/item icon bytes for one export call (a
     matchup list commonly reuses the same keystone/shards across several
-    pages, and item names repeat across core/situational sections)."""
+    pages, and item names repeat across item-build sections)."""
 
     def __init__(self):
         self._cache = {}
@@ -228,23 +228,21 @@ def _item_row_flowables(items, icons, styles, heading):
 
 
 def _item_build_flowables(item_build, icons, styles):
-    core = (item_build or {}).get("core") or []
-    situational = (item_build or {}).get("situational") or []
-    if not core and not situational:
+    sections = (item_build or {}).get("sections") or []
+    if not sections:
         return []
     flowables = [Paragraph("Item build", styles["H1"])]
-    flowables.extend(_item_row_flowables(core, icons, styles, "Core build"))
-    for section in situational:
+    for section in sections:
         flowables.extend(_item_row_flowables(
-            section.get("items") or [], icons, styles, section.get("label") or "Situational"))
+            section.get("items") or [], icons, styles, section.get("label") or "Items"))
     flowables.append(Spacer(1, 6))
     return flowables
 
 
 def build_champion_guide_pdf(champion, general_notes, item_build, guide):
     """champion: display name string. general_notes: Markdown str.
-    item_build: {core: [item name, ...], situational: [{label, items}, ...]}
-    as returned by db.get_item_build. guide: {opp_champion: {notes,
+    item_build: {sections: [{label, items}, ...]} as returned by
+    db.get_item_build. guide: {opp_champion: {notes,
     runes: [page, ...], patch_version}} as returned by db.get_matchup_notes.
     Matchups are ordered alphabetically — the "most-played first" ordering
     the UI uses depends on a separate stats query this module deliberately

@@ -761,7 +761,15 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .mu-block-notes { margin-top: 16px; max-width: 720px; }
 
 /* ---------- item build ---------- */
-.item-build-display, .item-build-editor { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+.item-build-editor { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+/* Sections flow into columns across the width and wrap to a new line when
+   they run out of room, rather than each taking a full-width row. */
+.item-build-display, .item-build-editor-sections {
+  display: grid; gap: 12px; margin-top: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-items: start;
+}
+.item-build-editor-sections { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .item-build-section h5, .item-build-section-editor h5 {
   margin: 0 0 4px; font-size: 12px; text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--text-secondary);
@@ -780,6 +788,14 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .item-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .item-section-label { flex: 1; }
 .item-add-btn { font-size: 12px; padding: 2px 8px; }
+.item-section-up:disabled, .item-section-down:disabled { opacity: 0.35; cursor: default; }
+.item-section-drag {
+  cursor: grab; color: var(--text-secondary); user-select: none;
+  font-size: 14px; line-height: 1; padding: 2px;
+}
+.item-section-drag:active { cursor: grabbing; }
+.item-build-section-editor.dragging { opacity: 0.4; }
+.item-build-section-editor.drag-over { outline: 2px dashed var(--series-1); outline-offset: 1px; }
 .item-section-add { align-self: flex-start; }
 .item-picker {
   border: 1px solid var(--series-1); border-radius: 8px; padding: 8px;

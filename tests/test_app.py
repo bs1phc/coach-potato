@@ -701,34 +701,48 @@ def test_champion_general_notes_endpoints(client):
 
 
 def test_champion_item_build_endpoints(client):
-    assert client.get("/api/champions/item-build/Gwen").json() == {"core": [], "situational": []}
-    body = {"core": ["Riftmaker", "Nashor's Tooth"],
-            "situational": [{"label": "vs heavy AP", "items": ["Zhonya's Hourglass"]}]}
+    assert client.get("/api/champions/item-build/Gwen").json() == {"sections": []}
+    body = {"sections": [
+        {"label": "Core build", "items": ["Riftmaker", "Nashor's Tooth"]},
+        {"label": "vs heavy AP", "items": ["Zhonya's Hourglass"]},
+    ]}
     assert client.put("/api/champions/item-build/Gwen", json=body).status_code == 200
     assert client.get("/api/champions/item-build/Gwen").json() == body
-    assert client.put("/api/champions/item-build/Gwen", json={"core": [], "situational": []}).status_code == 200
-    assert client.get("/api/champions/item-build/Gwen").json() == {"core": [], "situational": []}
+    assert client.put("/api/champions/item-build/Gwen", json={"sections": []}).status_code == 200
+    assert client.get("/api/champions/item-build/Gwen").json() == {"sections": []}
+
+
+def test_champion_item_build_accepts_legacy_core_situational_shape(client):
+    """Champ-guide exports and full backups written before v1.39.0 carry the
+    old {core, situational} shape; both fold forward into labeled sections."""
+    assert client.put("/api/champions/item-build/Gwen", json={
+        "core": ["Riftmaker"],
+        "situational": [{"label": "vs AP", "items": ["Zhonya's Hourglass"]}],
+    }).status_code == 200
+    assert client.get("/api/champions/item-build/Gwen").json() == {"sections": [
+        {"label": "Core build", "items": ["Riftmaker"]},
+        {"label": "vs AP", "items": ["Zhonya's Hourglass"]},
+    ]}
 
 
 def test_champion_item_build_validation(client):
-    assert client.put("/api/champions/item-build/NotAChamp", json={"core": []}).status_code == 400
+    assert client.put("/api/champions/item-build/NotAChamp", json={"sections": []}).status_code == 400
     assert client.put("/api/champions/item-build/Gwen",
-                       json={"core": ["A"] * 7}).status_code == 400  # over MAX_CORE_ITEMS
+                       json={"sections": [{"label": "x", "items": [123]}]}).status_code == 400  # not strings
     assert client.put("/api/champions/item-build/Gwen",
-                       json={"core": [123]}).status_code == 400  # not strings
+                       json={"sections": [{"label": "", "items": ["A"]}]}).status_code == 400  # no label
     assert client.put("/api/champions/item-build/Gwen",
-                       json={"situational": [{"label": "", "items": ["A"]}]}).status_code == 400  # no label
+                       json={"sections": [{"label": "x", "items": ["A"] * 7}]}).status_code == 400  # over 6
     assert client.put("/api/champions/item-build/Gwen",
-                       json={"situational": [{"label": "x", "items": ["A"] * 6}]}).status_code == 400  # over 5
-    assert client.put("/api/champions/item-build/Gwen",
-                       json={"situational": [{"label": "x"}] * 13}).status_code == 400  # over 12 sections
+                       json={"sections": [{"label": "x"}] * 13}).status_code == 400  # over 12 sections
 
 
 def _seed_champ_guide(client):
     client.put("/api/champions/notes/Gwen", json={"notes": "general Gwen tips"})
-    client.put("/api/champions/item-build/Gwen", json={
-        "core": ["Riftmaker", "Nashor's Tooth"],
-        "situational": [{"label": "vs heavy AP", "items": ["Zhonya's Hourglass"]}]})
+    client.put("/api/champions/item-build/Gwen", json={"sections": [
+        {"label": "Core build", "items": ["Riftmaker", "Nashor's Tooth"]},
+        {"label": "vs heavy AP", "items": ["Zhonya's Hourglass"]},
+    ]})
     client.put("/api/matchups/notes/Gwen/Darius", json={
         "notes": "respect level 2", "runes": [CONQ_PAGE], "patch_version": "14.14"})
     client.put("/api/matchups/notes/Gwen/Renekton", json={"notes": "easy lane"})
@@ -745,7 +759,8 @@ def test_champ_guide_export_plain(client):
     assert data["my_champion"] == "Gwen"
     assert data["encrypted"] is False
     assert data["general_notes"] == "general Gwen tips"
-    assert data["item_build"]["core"] == ["Riftmaker", "Nashor's Tooth"]
+    assert data["item_build"]["sections"][0] == {
+        "label": "Core build", "items": ["Riftmaker", "Nashor's Tooth"]}
     assert data["guide"]["Darius"]["notes"] == "respect level 2"
     assert data["guide"]["Renekton"]["notes"] == "easy lane"
 
@@ -798,7 +813,8 @@ def test_champ_guide_import_plain_round_trip(client):
     assert r.status_code == 200
     assert r.json() == {"imported": 2}
     assert client.get("/api/champions/notes/Camille").json()["notes"] == "general Gwen tips"
-    assert client.get("/api/champions/item-build/Camille").json()["core"] == ["Riftmaker", "Nashor's Tooth"]
+    assert client.get("/api/champions/item-build/Camille").json()["sections"][0] == {
+        "label": "Core build", "items": ["Riftmaker", "Nashor's Tooth"]}
     guide = client.get("/api/matchups/notes?my_champion=Camille").json()
     assert guide["Darius"]["runes"] == [CONQ_PAGE]
     assert guide["Renekton"]["notes"] == "easy lane"
@@ -1357,7 +1373,7 @@ def test_export_all_bundles_content_and_files(client):
     client.put("/api/champions/notes/Gwen", json={"notes": "general Gwen tips"})
     client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "respect level 2"})
     client.put("/api/champions/item-build/Gwen", json={
-        "core": ["Riftmaker"], "situational": []})
+        "sections": [{"label": "Core build", "items": ["Riftmaker"]}]})
     entry_id = client.post("/api/research", json={"player_name": "Faker"}).json()["id"]
     client.post(f"/api/research/{entry_id}/screenshots",
                files={"file": ("shot.png", b"fake png bytes", "image/png")})
@@ -1382,7 +1398,7 @@ def test_export_all_bundles_content_and_files(client):
     assert len(data["sessions"]) == 1
     assert data["champion_notes"][0]["notes"] == "general Gwen tips"
     assert data["matchup_notes"][0]["notes"] == "respect level 2"
-    assert data["item_builds"][0]["core"] == ["Riftmaker"]
+    assert data["item_builds"][0]["sections"] == [{"label": "Core build", "items": ["Riftmaker"]}]
     assert data["research_entries"][0]["player_name"] == "Faker"
     assert len(data["research_screenshots"]) == 1
     assert len(data["clips"]) == 1
@@ -1402,7 +1418,8 @@ def test_import_all_round_trip_and_conflict_detection(client):
     client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "respect level 2"})
     saved_order = ["Q", "W", "E", "Q", "Q", "R"] + [""] * 12
     client.put("/api/matchups/notes/Gwen/Darius", json={"skill_order": saved_order})
-    client.put("/api/champions/item-build/Gwen", json={"core": ["Riftmaker"], "situational": []})
+    client.put("/api/champions/item-build/Gwen",
+               json={"sections": [{"label": "Core build", "items": ["Riftmaker"]}]})
     entry_id = client.post("/api/research", json={"player_name": "Faker"}).json()["id"]
     client.post(f"/api/research/{entry_id}/screenshots",
                files={"file": ("shot.png", b"fake png bytes", "image/png")})
@@ -1445,7 +1462,8 @@ def test_import_all_round_trip_and_conflict_detection(client):
     restored = client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]
     assert restored["notes"] == "respect level 2"
     assert restored["skill_order"] == saved_order  # saved builds survive backups
-    assert client.get("/api/champions/item-build/Gwen").json()["core"] == ["Riftmaker"]
+    assert client.get("/api/champions/item-build/Gwen").json()["sections"] == [
+        {"label": "Core build", "items": ["Riftmaker"]}]
     research = client.get("/api/research").json()
     assert research[0]["player_name"] == "Faker"
     entry = client.get(f"/api/research/{research[0]['id']}").json()

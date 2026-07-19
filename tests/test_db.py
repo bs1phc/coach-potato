@@ -542,15 +542,17 @@ def test_champion_note_roundtrip(conn):
 
 
 def test_item_build_roundtrip(conn):
-    assert db.get_item_build(conn, "Gwen") == {"core": [], "situational": []}
-    core = ["Riftmaker", "Nashor's Tooth"]
-    situational = [{"label": "vs heavy AP", "items": ["Zhonya's Hourglass"]}]
-    db.set_item_build(conn, "Gwen", core, situational)
-    assert db.get_item_build(conn, "Gwen") == {"core": core, "situational": situational}
-    db.set_item_build(conn, "Gwen", ["Riftmaker"], [])
-    assert db.get_item_build(conn, "Gwen") == {"core": ["Riftmaker"], "situational": []}
-    db.set_item_build(conn, "Gwen", [], [])  # fully blank deletes
-    assert db.get_item_build(conn, "Gwen") == {"core": [], "situational": []}
+    assert db.get_item_build(conn, "Gwen") == {"sections": []}
+    sections = [
+        {"label": "Core build", "items": ["Riftmaker", "Nashor's Tooth"]},
+        {"label": "vs heavy AP", "items": ["Zhonya's Hourglass"]},
+    ]
+    db.set_item_build(conn, "Gwen", sections)
+    assert db.get_item_build(conn, "Gwen") == {"sections": sections}
+    db.set_item_build(conn, "Gwen", sections[:1])
+    assert db.get_item_build(conn, "Gwen") == {"sections": sections[:1]}
+    db.set_item_build(conn, "Gwen", [])  # no sections deletes
+    assert db.get_item_build(conn, "Gwen") == {"sections": []}
     assert conn.execute(
         "SELECT COUNT(*) AS c FROM champion_item_builds WHERE champion='Gwen'"
     ).fetchone()["c"] == 0
@@ -613,11 +615,18 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     db.update_block(c, 1, learnings="learned things")
     db.set_matchup_note(c, "Gwen", "Darius", notes="matchup note", runes=[CONQ_PAGE])
     db.set_champion_note(c, "Gwen", "general champion note")
-    db.set_item_build(c, "Gwen", ["Riftmaker"], [{"label": "vs AP", "items": ["Zhonya's Hourglass"]}])
     research_id = db.create_research_entry(c, "Faker", "Azir", "Zed", "Level 1", "keep this too")
     macro_id = db.create_macro_section(c, "Dragon souls", "take at 20 min")
     # drop a column added by a later version to mimic an older schema
     c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
+    # ...and put champion_item_builds back in its pre-v1.39.0 shape: a
+    # privileged unlabeled "core" list alongside labeled situational sections
+    c.execute("ALTER TABLE champion_item_builds DROP COLUMN sections")
+    c.execute("ALTER TABLE champion_item_builds ADD COLUMN core TEXT NOT NULL DEFAULT '[]'")
+    c.execute("ALTER TABLE champion_item_builds ADD COLUMN situational TEXT NOT NULL DEFAULT '[]'")
+    c.execute("""INSERT INTO champion_item_builds (champion, core, situational) VALUES (?, ?, ?)""",
+              ("Gwen", '["Riftmaker"]',
+               '[{"label": "vs AP", "items": ["Zhonya\'s Hourglass"]}]'))
     c.commit()
     c.close()
     c = db.connect(path)  # "upgrade": _migrate + SCHEMA re-run
@@ -628,8 +637,12 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
         "notes": "matchup note", "runes": [CONQ_PAGE], "patch_version": "",
         "skill_order": []}}
     assert db.get_champion_note(c, "Gwen") == "general champion note"
-    assert db.get_item_build(c, "Gwen") == {
-        "core": ["Riftmaker"], "situational": [{"label": "vs AP", "items": ["Zhonya's Hourglass"]}]}
+    # the old core list folds in as a leading "Core build" section, keeping
+    # both its items and the situational sections that followed it
+    assert db.get_item_build(c, "Gwen") == {"sections": [
+        {"label": "Core build", "items": ["Riftmaker"]},
+        {"label": "vs AP", "items": ["Zhonya's Hourglass"]},
+    ]}
     assert db.get_research_entry(c, research_id)["notes"] == "keep this too"
     assert db.get_macro_section(c, macro_id)["notes"] == "take at 20 min"
     assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None

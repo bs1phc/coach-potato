@@ -289,12 +289,18 @@ linger in old dbs — it's ignored.
 `champion_notes(champion PK, notes, updated_at_ms)` — general (non-matchup)
 Markdown notes for a champion, shown above the matchup list on the Champ
 guide page. `GET`/`PUT /api/champions/notes/{champion}`.
-`champion_item_builds(champion PK, core, situational, updated_at_ms)` — a
+`champion_item_builds(champion PK, sections, updated_at_ms)` — a
 mobafire-style item build, separate from the freeform general notes:
-`core` is a JSON array of item names (an ordered "first N items" build,
-capped at `MAX_CORE_ITEMS`=6); `situational` is a JSON array of `{label,
-items}` (a labeled alternative, e.g. "vs heavy AP", capped at
-`MAX_ITEMS_PER_SECTION`=5 items, `MAX_SITUATIONAL_SECTIONS`=12 sections).
+`sections` is a JSON array of `{label, items}` in user-chosen order (up to
+`MAX_ITEM_SECTIONS`=12 sections of `MAX_ITEMS_PER_SECTION`=6 items). Every
+section is equal and user-labeled — "Core build" is just a section the user
+named that, not a privileged field. Until v1.39.0 there WAS a privileged
+unlabeled `core` list plus a separate `situational` array; `db._migrate`
+folds both into `sections` (core first, labeled "Core build") on upgrade
+and leaves the old columns in place with their data, and
+`app._item_build_sections()` still accepts the old `{core, situational}`
+payload shape so champ-guide JSON exports and full backups written by
+older versions import cleanly.
 Items are stored as plain name strings, not ids — the server does no item
 validation beyond shape/counts (`_validate_item_build` in app.py, shared by
 the PUT endpoint and champ-guide import). `GET`/`PUT
@@ -306,8 +312,13 @@ version) filtered to Summoner's Rift-purchasable items, building a
 static `items.json` asset, unlike champions/runes, since items change
 essentially every patch. UI in `guide.js` (`itemBuildBlock`/
 `renderGuideItemBuild`): an edit/view toggle like general notes, a
-searchable icon picker shared between the core list and every situational
-section (`itemPickerTarget` tracks which list is receiving the next pick).
+searchable icon picker shared by every section (`itemPickerIndex` tracks
+which section is receiving the next pick), and both ▲/▼ buttons and
+drag-to-reorder (a ⠿ grip carries `draggable`, not the card, so the label
+input stays selectable; same dragstart/dragover/drop shape as blocks.js's
+pool chips) per section. Sections lay out side by side, wrapping into columns
+(`.item-build-display`/`.item-build-editor-sections` grids), rather than
+one full-width row each.
 Matchup guide export/import (`server/crypto.py`): `POST /api/matchups/notes/
 export` bundles one champion's `champion_notes` + `champion_item_builds` +
 all its `matchup_notes` rows into a downloadable JSON file; an optional

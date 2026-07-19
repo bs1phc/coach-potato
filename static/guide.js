@@ -30,16 +30,15 @@ const guideState = {
   pendingFocus: null,  // opp_champion to focus once the next load completes (deep link)
   generalNotes: "",     // myChampion's general (non-matchup) Markdown notes
   editingGeneral: false,
-  itemBuild: { core: [], situational: [] }, // myChampion's item build
+  itemBuild: { sections: [] }, // myChampion's item build: ordered labeled sections
   editingItemBuild: false,
-  itemBuildDraft: null,  // working copy while editing: { core: [...], situational: [{label, items}] }
-  itemPickerTarget: null, // { kind: "core" } or { kind: "situational", index } — which list an open picker adds to
+  itemBuildDraft: null,  // working copy while editing: { sections: [{label, items}] }
+  itemPickerIndex: null, // index of the section an open picker adds to
   itemPickerQuery: "",
 };
 
-const MAX_CORE_ITEMS = 6;
-const MAX_SITUATIONAL_SECTIONS = 12;
-const MAX_ITEMS_PER_SECTION = 5;
+const MAX_ITEM_SECTIONS = 12;
+const MAX_ITEMS_PER_SECTION = 6;
 
 const RUNE_TREES = [];
 const SHARD_ROWS = [];
@@ -178,7 +177,7 @@ async function loadGuide() {
     guideState.matchups = [];
     guideState.guide = {};
     guideState.generalNotes = "";
-    guideState.itemBuild = { core: [], situational: [] };
+    guideState.itemBuild = { sections: [] };
     renderGuide();
     renderGuideGeneral();
     renderGuideItemBuild();
@@ -885,7 +884,7 @@ function renderGuideGeneral() {
     }));
 }
 
-// ---------- item build (core + situational sections) ----------
+// ---------- item build (an ordered list of user-labeled item sections) ----------
 
 function itemChip(name, removable, dataAttrs) {
   const item = itemByName(name);
@@ -896,11 +895,16 @@ function itemChip(name, removable, dataAttrs) {
     removable ? `<button class="preset chip-x item-chip-remove" type="button" title="Remove">×</button>` : ""}</span>`;
 }
 
-function itemBuildSectionView(label, items) {
-  if (!items.length) return "";
+// showEmpty: the guide page keeps a labeled-but-item-less section visible (it
+// saved, so it shouldn't silently vanish); the One Pager skips it as noise.
+function itemBuildSectionView(label, items, showEmpty) {
+  if (!items.length && !showEmpty) return "";
+  const body = items.length
+    ? items.map((n) => itemChip(n, false)).join("")
+    : `<span class="muted">No items yet</span>`;
   return `<div class="item-build-section">
     <h5>${escapeHtml(label)}</h5>
-    <div class="item-build-icons">${items.map((n) => itemChip(n, false)).join("")}</div>
+    <div class="item-build-icons">${body}</div>
   </div>`;
 }
 
@@ -918,41 +922,41 @@ function itemPickerHtml() {
   </div>`;
 }
 
+// index of the section card being dragged in the item-build editor
+let itemSectionDragIndex = null;
+
 function itemBuildBlock() {
   const champ = guideState.myChampion;
-  const { core, situational } = guideState.itemBuild;
   if (guideState.editingItemBuild) {
     const draft = guideState.itemBuildDraft;
-    const coreChips = draft.core.map((name, i) =>
-      itemChip(name, true, `data-target="core" data-index="${i}"`)).join("");
-    const coreAdd = draft.core.length < MAX_CORE_ITEMS
-      ? `<button class="preset item-add-btn" type="button" data-target="core">+ Add item</button>` : "";
-    const situationalHtml = draft.situational.map((section, si) => {
+    const sectionsHtml = draft.sections.map((section, si) => {
       const chips = section.items.map((name, ii) =>
-        itemChip(name, true, `data-target="situational" data-section="${si}" data-index="${ii}"`)).join("");
+        itemChip(name, true, `data-section="${si}" data-index="${ii}"`)).join("");
       const addBtn = section.items.length < MAX_ITEMS_PER_SECTION
-        ? `<button class="preset item-add-btn" type="button" data-target="situational" data-section="${si}">+ Add item</button>` : "";
+        ? `<button class="preset item-add-btn" type="button" data-section="${si}">+ Add item</button>` : "";
       return `<div class="item-build-section-editor" data-section="${si}">
         <div class="item-section-head">
+          <span class="item-section-drag" draggable="true" data-section="${si}"
+            title="Drag to reorder" aria-hidden="true">⠿</span>
           <input type="text" class="item-section-label" data-section="${si}"
-            value="${escapeHtml(section.label)}" placeholder="e.g. vs heavy AP">
+            value="${escapeHtml(section.label)}" placeholder="e.g. Core build, vs heavy AP">
+          <button class="preset icon-btn icon-btn-sm item-section-up" type="button" data-section="${si}"
+            title="Move up" aria-label="Move section up"${si === 0 ? " disabled" : ""}>▲</button>
+          <button class="preset icon-btn icon-btn-sm item-section-down" type="button" data-section="${si}"
+            title="Move down" aria-label="Move section down"${si === draft.sections.length - 1 ? " disabled" : ""}>▼</button>
           <button class="preset chip-x item-section-remove" type="button" data-section="${si}" title="Remove section">×</button>
         </div>
         <div class="item-build-icons">${chips}${addBtn}</div>
       </div>`;
     }).join("");
-    const addSectionBtn = draft.situational.length < MAX_SITUATIONAL_SECTIONS
-      ? `<button class="preset item-section-add" type="button">+ Add situational section</button>` : "";
-    const picker = guideState.itemPickerTarget ? itemPickerHtml() : "";
+    const addSectionBtn = draft.sections.length < MAX_ITEM_SECTIONS
+      ? `<button class="preset item-section-add" type="button">+ Add section</button>` : "";
+    const picker = guideState.itemPickerIndex !== null ? itemPickerHtml() : "";
     return `<div class="mu-notes">
       <div class="mu-notes-head"><h4>${displayName(champ)} item build</h4></div>
       <div class="item-build-editor">
-        <div class="item-build-section-editor">
-          <h5>Core build <span class="muted">(first 2-3 items, in order)</span></h5>
-          <div class="item-build-icons">${coreChips}${coreAdd}</div>
-        </div>
-        <h5>Situational <span class="muted">(1-5 items each)</span></h5>
-        ${situationalHtml}
+        <p class="muted">Name each section yourself — e.g. "Core build", "vs heavy AP" (up to ${MAX_ITEMS_PER_SECTION} items each).</p>
+        <div class="item-build-editor-sections">${sectionsHtml}</div>
         ${addSectionBtn}
         ${picker}
         <div class="session-actions">
@@ -963,10 +967,8 @@ function itemBuildBlock() {
       </div>
     </div>`;
   }
-  const sections = [
-    itemBuildSectionView("Core build", core),
-    ...situational.map((s) => itemBuildSectionView(s.label, s.items)),
-  ].join("");
+  const sections = (guideState.itemBuild.sections || [])
+    .map((s) => itemBuildSectionView(s.label, s.items, true)).join("");
   const body = sections
     ? `<div class="item-build-display">${sections}</div>`
     : `<p class="muted">No item build for ${displayName(champ)} yet.</p>`;
@@ -983,33 +985,28 @@ function renderGuideItemBuild() {
     btn.addEventListener("click", () => {
       guideState.editingItemBuild = true;
       guideState.itemBuildDraft = {
-        core: [...guideState.itemBuild.core],
-        situational: guideState.itemBuild.situational.map((s) => ({ label: s.label, items: [...s.items] })),
+        sections: (guideState.itemBuild.sections || []).map(
+          (s) => ({ label: s.label, items: [...s.items] })),
       };
-      guideState.itemPickerTarget = null;
+      guideState.itemPickerIndex = null;
       renderGuideItemBuild();
     }));
   target.querySelectorAll(".item-build-cancel").forEach((btn) =>
     btn.addEventListener("click", () => {
       guideState.editingItemBuild = false;
       guideState.itemBuildDraft = null;
-      guideState.itemPickerTarget = null;
+      guideState.itemPickerIndex = null;
       renderGuideItemBuild();
     }));
   target.querySelectorAll(".item-chip-remove").forEach((btn) =>
     btn.addEventListener("click", () => {
-      const chip = btn.closest("[data-target]");
-      if (chip.dataset.target === "core") {
-        guideState.itemBuildDraft.core.splice(+chip.dataset.index, 1);
-      } else {
-        guideState.itemBuildDraft.situational[+chip.dataset.section].items.splice(+chip.dataset.index, 1);
-      }
+      const chip = btn.closest("[data-section]");
+      guideState.itemBuildDraft.sections[+chip.dataset.section].items.splice(+chip.dataset.index, 1);
       renderGuideItemBuild();
     }));
   target.querySelectorAll(".item-add-btn").forEach((btn) =>
     btn.addEventListener("click", () => {
-      guideState.itemPickerTarget = btn.dataset.target === "core"
-        ? { kind: "core" } : { kind: "situational", index: +btn.dataset.section };
+      guideState.itemPickerIndex = +btn.dataset.section;
       guideState.itemPickerQuery = "";
       renderGuideItemBuild();
       const search = $("#item-picker-search");
@@ -1017,16 +1014,10 @@ function renderGuideItemBuild() {
     }));
   target.querySelectorAll(".item-picker-result").forEach((btn) =>
     btn.addEventListener("click", () => {
-      const name = btn.dataset.name;
-      const t = guideState.itemPickerTarget;
-      if (!t) return;
-      if (t.kind === "core") {
-        if (guideState.itemBuildDraft.core.length < MAX_CORE_ITEMS) guideState.itemBuildDraft.core.push(name);
-      } else {
-        const section = guideState.itemBuildDraft.situational[t.index];
-        if (section.items.length < MAX_ITEMS_PER_SECTION) section.items.push(name);
-      }
-      guideState.itemPickerTarget = null;
+      const section = guideState.itemBuildDraft.sections[guideState.itemPickerIndex];
+      if (!section) return;
+      if (section.items.length < MAX_ITEMS_PER_SECTION) section.items.push(btn.dataset.name);
+      guideState.itemPickerIndex = null;
       renderGuideItemBuild();
     }));
   const search = target.querySelector("#item-picker-search");
@@ -1040,41 +1031,84 @@ function renderGuideItemBuild() {
   }
   target.querySelectorAll(".item-picker-close").forEach((btn) =>
     btn.addEventListener("click", () => {
-      guideState.itemPickerTarget = null;
+      guideState.itemPickerIndex = null;
       renderGuideItemBuild();
     }));
   target.querySelectorAll(".item-section-add").forEach((btn) =>
     btn.addEventListener("click", () => {
-      if (guideState.itemBuildDraft.situational.length >= MAX_SITUATIONAL_SECTIONS) return;
-      guideState.itemBuildDraft.situational.push({ label: "", items: [] });
+      if (guideState.itemBuildDraft.sections.length >= MAX_ITEM_SECTIONS) return;
+      guideState.itemBuildDraft.sections.push({ label: "", items: [] });
       renderGuideItemBuild();
     }));
+  const moveSection = (from, to) => {
+    const sections = guideState.itemBuildDraft.sections;
+    if (to < 0 || to >= sections.length) return;
+    const [moved] = sections.splice(from, 1);
+    sections.splice(to, 0, moved);
+    guideState.itemPickerIndex = null;  // it pointed at an index that just moved
+    renderGuideItemBuild();
+  };
+  target.querySelectorAll(".item-section-up").forEach((btn) =>
+    btn.addEventListener("click", () => moveSection(+btn.dataset.section, +btn.dataset.section - 1)));
+  target.querySelectorAll(".item-section-down").forEach((btn) =>
+    btn.addEventListener("click", () => moveSection(+btn.dataset.section, +btn.dataset.section + 1)));
+  // Drag to reorder, same interaction as the champion-pool chips. The handle
+  // (not the card) carries draggable so the label input stays selectable.
+  target.querySelectorAll(".item-section-drag").forEach((handle) => {
+    const card = handle.closest(".item-build-section-editor");
+    handle.addEventListener("dragstart", (e) => {
+      itemSectionDragIndex = +handle.dataset.section;
+      card.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", handle.dataset.section); // Firefox needs data set
+      e.dataTransfer.setDragImage(card, 10, 10);  // drag the whole card, not the grip
+    });
+    handle.addEventListener("dragend", () => {
+      itemSectionDragIndex = null;
+      card.classList.remove("dragging");
+    });
+  });
+  target.querySelectorAll(".item-build-section-editor").forEach((card) => {
+    card.addEventListener("dragover", (e) => {
+      if (itemSectionDragIndex === null || itemSectionDragIndex === +card.dataset.section) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      card.classList.add("drag-over");
+    });
+    card.addEventListener("dragleave", () => card.classList.remove("drag-over"));
+    card.addEventListener("drop", (e) => {
+      e.preventDefault();
+      card.classList.remove("drag-over");
+      if (itemSectionDragIndex === null) return;
+      moveSection(itemSectionDragIndex, +card.dataset.section);  // right→after, left→before
+    });
+  });
   target.querySelectorAll(".item-section-remove").forEach((btn) =>
     btn.addEventListener("click", () => {
-      guideState.itemBuildDraft.situational.splice(+btn.dataset.section, 1);
+      guideState.itemBuildDraft.sections.splice(+btn.dataset.section, 1);
+      guideState.itemPickerIndex = null;
       renderGuideItemBuild();
     }));
   target.querySelectorAll(".item-section-label").forEach((input) =>
     input.addEventListener("input", (e) => {
-      guideState.itemBuildDraft.situational[+e.target.dataset.section].label = e.target.value;
+      guideState.itemBuildDraft.sections[+e.target.dataset.section].label = e.target.value;
     }));
   target.querySelectorAll(".item-build-save").forEach((btn) =>
     btn.addEventListener("click", async () => {
-      const draft = guideState.itemBuildDraft;
-      const situational = draft.situational
+      const sections = guideState.itemBuildDraft.sections
         .map((s) => ({ label: s.label.trim(), items: s.items }))
-        .filter((s) => s.label || s.items.length);
+        .filter((s) => s.label || s.items.length);  // drop rows the user never filled in
       const response = await fetch(`/api/champions/item-build/${encodeURIComponent(guideState.myChampion)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ core: draft.core, situational }),
+        body: JSON.stringify({ sections }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         target.querySelector(".item-build-status").textContent = body.detail || `error ${response.status}`;
         return;
       }
-      guideState.itemBuild = { core: draft.core, situational };
+      guideState.itemBuild = { sections };
       guideState.editingItemBuild = false;
       guideState.itemBuildDraft = null;
       renderGuideItemBuild();
@@ -1202,7 +1236,7 @@ function wireExportImport() {
 function openOnePager(opp) {
   const my = guideState.myChampion;
   const { notes, runes, patch_version, skill_order } = guideFor(opp);
-  const build = guideState.itemBuild || { core: [], situational: [] };
+  const build = guideState.itemBuild || { sections: [] };
   const sections = [];
   if (runes && runes.length) {
     sections.push(`<section><h3>Runes</h3><div class="op-runes">${
@@ -1216,10 +1250,8 @@ function openOnePager(opp) {
     sections.push(`<section><h3>Skill order</h3>
       <div class="op-skill">${skillGridMini(skill_order)}</div></section>`);
   }
-  const buildSections = [
-    itemBuildSectionView("Core build", build.core || []),
-    ...(build.situational || []).map((s) => itemBuildSectionView(s.label || "Situational", s.items || [])),
-  ].join("");
+  const buildSections = (build.sections || [])
+    .map((s) => itemBuildSectionView(s.label || "Items", s.items || [])).join("");
   if (buildSections) sections.push(`<section><h3>Item build</h3>${buildSections}</section>`);
   if (notes) {
     sections.push(`<section><h3>How to play vs ${escapeHtml(displayName(opp))}</h3>

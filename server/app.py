@@ -492,7 +492,7 @@ def api_export_all():
         champion_notes_rows = [dict(r) for r in conn.execute(
             "SELECT champion, notes, updated_at_ms FROM champion_notes ORDER BY champion")]
         item_build_rows = [dict(r) for r in conn.execute(
-            """SELECT champion, core, situational, updated_at_ms
+            """SELECT champion, sections, updated_at_ms
                FROM champion_item_builds ORDER BY champion""")]
         research_rows = [dict(r) for r in conn.execute(
             """SELECT id, player_name, champion, opp_champion, title, notes,
@@ -512,8 +512,7 @@ def api_export_all():
         row["runes"] = json.loads(row["runes"]) if row["runes"] else []
         row["skill_order"] = json.loads(row["skill_order"]) if row["skill_order"] else []
     for row in item_build_rows:
-        row["core"] = json.loads(row["core"])
-        row["situational"] = json.loads(row["situational"])
+        row["sections"] = json.loads(row["sections"])
     for row in blocks_rows:
         for key in ("pool_snapshot", "start_ranks", "end_ranks"):
             row[key] = json.loads(row[key]) if row[key] else None
@@ -697,10 +696,10 @@ async def api_import_all(file: UploadFile = File(...)):
                     (row["champion"], row.get("notes", ""), row.get("updated_at_ms")))
             for row in payload.get("item_builds") or []:
                 conn.execute(
-                    """INSERT INTO champion_item_builds (champion, core, situational, updated_at_ms)
-                       VALUES (?, ?, ?, ?)""",
-                    (row["champion"], json.dumps(row.get("core") or []),
-                     json.dumps(row.get("situational") or []), row.get("updated_at_ms")))
+                    """INSERT INTO champion_item_builds (champion, sections, updated_at_ms)
+                       VALUES (?, ?, ?)""",
+                    (row["champion"], json.dumps(_item_build_sections(row)),
+                     row.get("updated_at_ms")))
             for row in payload.get("research_entries") or []:
                 conn.execute(
                     """INSERT INTO research_entries
@@ -979,9 +978,8 @@ def api_put_champion_note(champion: str, body: dict):
         conn.close()
 
 
-MAX_CORE_ITEMS = 6
-MAX_SITUATIONAL_SECTIONS = 12
-MAX_ITEMS_PER_SECTION = 5
+MAX_ITEM_SECTIONS = 12
+MAX_ITEMS_PER_SECTION = 6
 
 
 @app.get("/api/champions/item-build/{champion}")
@@ -993,35 +991,43 @@ def api_get_item_build(champion: str):
         conn.close()
 
 
-def _validate_item_build(core, situational):
-    if (not isinstance(core, list) or len(core) > MAX_CORE_ITEMS
-            or not all(isinstance(i, str) and i.strip() for i in core)):
-        raise HTTPException(400, f"core must be a list of up to {MAX_CORE_ITEMS} item names")
-    if not isinstance(situational, list) or len(situational) > MAX_SITUATIONAL_SECTIONS:
-        raise HTTPException(400, f"situational must be a list of up to {MAX_SITUATIONAL_SECTIONS} sections")
-    cleaned_situational = []
-    for section in situational:
+def _item_build_sections(payload):
+    """Pull the section list out of an item-build payload, accepting the
+    pre-v1.39.0 {core, situational} shape too — champ-guide JSON exports and
+    full backups written by older versions still carry it."""
+    payload = payload or {}
+    if payload.get("sections") is not None:
+        return payload.get("sections") or []
+    core = payload.get("core") or []
+    sections = [{"label": "Core build", "items": core}] if core else []
+    return sections + (payload.get("situational") or [])
+
+
+def _validate_item_build(sections):
+    if not isinstance(sections, list) or len(sections) > MAX_ITEM_SECTIONS:
+        raise HTTPException(400, f"sections must be a list of up to {MAX_ITEM_SECTIONS} sections")
+    cleaned = []
+    for section in sections:
         if not isinstance(section, dict):
-            raise HTTPException(400, "each situational section must be an object")
+            raise HTTPException(400, "each item section must be an object")
         label = str(section.get("label") or "").strip()
         items = section.get("items") or []
         if not label:
-            raise HTTPException(400, "each situational section needs a label")
+            raise HTTPException(400, "each item section needs a label")
         if (not isinstance(items, list) or len(items) > MAX_ITEMS_PER_SECTION
                 or not all(isinstance(i, str) and i.strip() for i in items)):
-            raise HTTPException(400, f"each situational section holds up to {MAX_ITEMS_PER_SECTION} items")
-        cleaned_situational.append({"label": label, "items": [i.strip() for i in items]})
-    return [i.strip() for i in core], cleaned_situational
+            raise HTTPException(400, f"each item section holds up to {MAX_ITEMS_PER_SECTION} items")
+        cleaned.append({"label": label, "items": [i.strip() for i in items]})
+    return cleaned
 
 
 @app.put("/api/champions/item-build/{champion}")
 def api_put_item_build(champion: str, body: dict):
-    body = body or {}
     _validate_champion(champion)
-    core, situational = _validate_item_build(body.get("core") or [], body.get("situational") or [])
+    sections = _validate_item_build(_item_build_sections(body))
     conn = get_conn()
     try:
-        db.set_item_build(conn, champion, core, situational)
+        db.set_item_build(conn, champion, sections)
         return {"saved": True}
     finally:
         conn.close()
@@ -1103,7 +1109,7 @@ def _decode_champ_guide_export(body):
     else:
         payload = {
             "general_notes": data.get("general_notes", ""),
-            "item_build": data.get("item_build") or {"core": [], "situational": []},
+            "item_build": data.get("item_build") or {"sections": []},
             "guide": data.get("guide") or {},
         }
     # Validate the payload shape here so both preview and import reject a
@@ -1134,13 +1140,12 @@ def api_import_champ_guide_preview(body: dict):
     finally:
         conn.close()
     opponents = list((payload.get("guide") or {}).keys())
-    item_build = payload.get("item_build") or {}
     return {
         "my_champion": my_champion,
         "opponents": opponents,
         "will_overwrite": sorted(existing & set(opponents)),
         "has_general_notes": bool(payload.get("general_notes")),
-        "has_item_build": bool(item_build.get("core") or item_build.get("situational")),
+        "has_item_build": bool(_item_build_sections(payload.get("item_build"))),
     }
 
 
@@ -1152,11 +1157,9 @@ def api_import_champ_guide(body: dict):
     try:
         if payload.get("general_notes"):
             db.set_champion_note(conn, my_champion, payload["general_notes"])
-        item_build = payload.get("item_build") or {}
-        if item_build.get("core") or item_build.get("situational"):
-            core, situational = _validate_item_build(
-                item_build.get("core") or [], item_build.get("situational") or [])
-            db.set_item_build(conn, my_champion, core, situational)
+        item_build_sections = _item_build_sections(payload.get("item_build"))
+        if item_build_sections:
+            db.set_item_build(conn, my_champion, _validate_item_build(item_build_sections))
         guide = payload.get("guide") or {}
         for opp_champion, entry in guide.items():
             _validate_champion(opp_champion)
