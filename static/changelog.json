@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.38.1",
+      "date": "2026-07-19",
+      "items": [
+        "Macro sections are now collapsible (collapsed by default) — click a section to expand its notes"
+      ]
+    },
+    {
       "version": "1.38.0",
       "date": "2026-07-18",
       "items": [

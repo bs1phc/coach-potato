@@ -218,10 +218,12 @@ change, not a crawler change.
   account crawler — freeform entries: player name, optional champion/
   opponent, one Markdown notes field (covers general + VOD notes together),
   and multiple screenshots — deliberately no timestamp log or video/clip
-  attachments here) in `research.js`; Macros view (own nav tab: a flat,
-  always-expanded list of freeform title + Markdown-notes sections for
-  game-macro notes — not tied to any champion, matchup, or session; sections
-  append at the bottom in creation order, no drag-reorder) in `macros.js`.
+  attachments here) in `research.js`; Macros view (own nav tab: a flat list
+  of collapsible (collapsed by default) freeform title + Markdown-notes
+  sections for game-macro notes — not tied to any champion, matchup, or
+  session; sections append at the bottom in creation order, no drag-reorder;
+  editing a section force-expands it and keeps it expanded after save) in
+  `macros.js`.
 
 ## Schema (data/lol.sqlite)
 
