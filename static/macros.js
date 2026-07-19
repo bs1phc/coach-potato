@@ -1,13 +1,15 @@
 "use strict";
 /* Macros view: freeform title+notes sections for game-macro notes — not
-   tied to any account, champion, matchup, or session. A simple flat,
-   always-expanded list; sections append at the bottom in creation order.
+   tied to any account, champion, matchup, or session. A flat list of
+   collapsible cards (collapsed by default, matching the rest of the app);
+   sections append at the bottom in creation order.
    Uses globals from app.js: $, escapeHtml, renderNotes, getJSON. */
 
 const macrosState = {
   sections: [],
-  editing: null, // section id whose editor is open
-  adding: false, // "+ Add section" form open
+  expanded: new Set(), // section ids currently expanded
+  editing: null,        // section id whose editor is open
+  adding: false,         // "+ Add section" form open
 };
 
 async function initMacros() {
@@ -33,9 +35,24 @@ function macroAddFormHtml() {
   </div>`;
 }
 
+function macroSectionHeader(section, expanded) {
+  return `<div class="mu-notes-head">
+    <button class="preset seg-toggle macro-toggle" data-id="${section.id}"
+      aria-expanded="${expanded}" title="${expanded ? "Collapse" : "Expand"} section">${expanded ? "▾" : "▸"}</button>
+    <h4>${escapeHtml(section.title)}</h4>
+    <button class="preset icon-btn macro-edit" data-id="${section.id}"
+      title="Edit section" aria-label="Edit section">✎</button>
+    <button class="preset icon-btn macro-delete" data-id="${section.id}"
+      title="Delete section" aria-label="Delete section">🗑</button>
+  </div>`;
+}
+
 function macroSectionHtml(section) {
-  if (macrosState.editing === section.id) {
+  const editing = macrosState.editing === section.id;
+  const expanded = editing || macrosState.expanded.has(section.id);
+  if (editing) {
     return `<div class="mu-notes" data-id="${section.id}">
+      ${macroSectionHeader(section, true)}
       <label class="filter-label" for="macro-title-${section.id}">Title</label>
       <input type="text" id="macro-title-${section.id}" value="${escapeHtml(section.title)}">
       <label class="filter-label" for="macro-notes-${section.id}">Notes (Markdown)</label>
@@ -48,13 +65,10 @@ function macroSectionHtml(section) {
     </div>`;
   }
   return `<div class="mu-notes" data-id="${section.id}">
-    <div class="mu-notes-head"><h4>${escapeHtml(section.title)}</h4>
-      <button class="preset icon-btn macro-edit" data-id="${section.id}"
-        title="Edit section" aria-label="Edit section">✎</button>
-      <button class="preset icon-btn macro-delete" data-id="${section.id}"
-        title="Delete section" aria-label="Delete section">🗑</button>
-    </div>
-    <div class="md-body">${section.notes ? renderNotes(section.notes) : `<p class="muted">No notes yet.</p>`}</div>
+    ${macroSectionHeader(section, expanded)}
+    ${expanded
+      ? `<div class="md-body">${section.notes ? renderNotes(section.notes) : `<p class="muted">No notes yet.</p>`}</div>`
+      : ""}
   </div>`;
 }
 
@@ -71,9 +85,18 @@ function renderMacros() {
 }
 
 function wireMacrosHandlers(target) {
+  target.querySelectorAll(".macro-toggle").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const id = +btn.dataset.id;
+      if (macrosState.expanded.has(id)) macrosState.expanded.delete(id);
+      else macrosState.expanded.add(id);
+      renderMacros();
+    }));
   target.querySelectorAll(".macro-edit").forEach((btn) =>
     btn.addEventListener("click", () => {
-      macrosState.editing = +btn.dataset.id;
+      const id = +btn.dataset.id;
+      macrosState.editing = id;
+      macrosState.expanded.add(id);
       renderMacros();
     }));
   target.querySelectorAll(".macro-cancel").forEach((btn) =>
@@ -103,8 +126,10 @@ function wireMacrosHandlers(target) {
     }));
   target.querySelectorAll(".macro-delete").forEach((btn) =>
     btn.addEventListener("click", async () => {
+      const id = +btn.dataset.id;
       if (!confirm("Delete this macro section? This can't be undone.")) return;
-      await fetch(`/api/macros/${btn.dataset.id}`, { method: "DELETE" });
+      await fetch(`/api/macros/${id}`, { method: "DELETE" });
+      macrosState.expanded.delete(id);
       await loadMacros();
     }));
   target.querySelectorAll(".macro-add-open").forEach((btn) =>
@@ -133,6 +158,8 @@ function wireMacrosHandlers(target) {
         status.textContent = body.detail || `error ${response.status}`;
         return;
       }
+      const created = await response.json();
+      macrosState.expanded.add(created.id); // see it right away, not collapsed
       macrosState.adding = false;
       await loadMacros();
     }));
