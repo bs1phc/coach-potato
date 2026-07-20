@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.38.0",
+      "date": "2026-07-20",
+      "items": [
+        "New lane metrics measured directly vs your lane opponent from the match timeline: ΔCS, ΔLevel and ΔGold at ~7 and ~14 minutes — a truer 'was I ahead' signal than the old binary Riot laning flag",
+        "Every stats view (matchups, blocks, coaching progress, trends) now has a metric column picker; the new Δ metrics are off by default — tick them to show. New games capture the timeline automatically; run ./crawl.sh --backfill-lane-deltas to fill in past games"
+      ]
+    },
+    {
       "version": "1.37.1",
       "date": "2026-07-20",
       "items": [

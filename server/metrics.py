@@ -14,10 +14,13 @@ direction: 1 = higher is better, -1 = lower is better, 0 = neutral.
 
 
 def _metric(key, label, group, field, source="challenges", agg="avg",
-            direction=1, decimals=1, suffix=""):
+            direction=1, decimals=1, suffix="", default_hidden=False, signed=False):
     return {"key": key, "label": label, "group": group, "field": field,
             "source": source, "agg": agg, "direction": direction,
-            "decimals": decimals, "suffix": suffix}
+            "decimals": decimals, "suffix": suffix,
+            # default_hidden: off in each view's column picker until ticked.
+            # signed: show a leading + for positive values (deltas).
+            "default_hidden": default_hidden, "signed": signed}
 
 
 METRICS = [
@@ -35,6 +38,22 @@ METRICS = [
     _metric("solo_kills", "Solo kills", "Laning", "soloKills", decimals=2),
     _metric("early_takedowns", "Takedowns before ~15 min", "Laning",
             "takedownsFirstXMinutes", decimals=2),
+    # --- Lane deltas vs the direct lane opponent, from the match timeline
+    # (source="timeline"): my value minus theirs at the frame nearest 7/14
+    # min. Hidden by default; None when there's no lane opponent or the game
+    # ended before the mark. See metrics.parse_timeline_deltas / crawler. ---
+    _metric("cs_diff_7", "ΔCS (7m)", "Laning", "cs_diff_7", source="timeline",
+            decimals=1, default_hidden=True, signed=True),
+    _metric("level_diff_7", "ΔLevel (7m)", "Laning", "level_diff_7", source="timeline",
+            decimals=2, default_hidden=True, signed=True),
+    _metric("gold_diff_7", "ΔGold (7m)", "Laning", "gold_diff_7", source="timeline",
+            decimals=0, default_hidden=True, signed=True),
+    _metric("cs_diff_14", "ΔCS (14m)", "Laning", "cs_diff_14", source="timeline",
+            decimals=1, default_hidden=True, signed=True),
+    _metric("level_diff_14", "ΔLevel (14m)", "Laning", "level_diff_14", source="timeline",
+            decimals=2, default_hidden=True, signed=True),
+    _metric("gold_diff_14", "ΔGold (14m)", "Laning", "gold_diff_14", source="timeline",
+            decimals=0, default_hidden=True, signed=True),
     # --- Damage & fighting ---
     _metric("team_dmg_pct", "Share of team's damage", "Damage & fighting",
             "teamDamagePercentage", agg="pct01", suffix="%"),
@@ -85,8 +104,63 @@ def parse_metrics(match_json, puuid):
     challenges = participant.get("challenges") or {}
     values = {"has_challenges": int(bool(challenges))}
     for m in METRICS:
-        if m["source"] == "participant":
+        if m["source"] == "timeline":
+            values[m["key"]] = None  # filled separately from the match timeline
+        elif m["source"] == "participant":
             values[m["key"]] = participant.get(m["field"])
         else:
             values[m["key"]] = challenges.get(m["field"])
     return values
+
+
+# frame timestamps (ms) we sample the timeline at; a frame must land within
+# FRAME_TOLERANCE_MS of the mark (games that ended earlier yield None)
+LANE_DELTA_MARKS = {7: 420_000, 14: 840_000}
+FRAME_TOLERANCE_MS = 90_000
+TIMELINE_KEYS = [m["key"] for m in METRICS if m["source"] == "timeline"]
+
+
+def _frame_near(frames, target_ms):
+    """Frame whose timestamp is closest to target_ms, or None if none is
+    within FRAME_TOLERANCE_MS (e.g. the game ended before the mark)."""
+    best, best_gap = None, None
+    for f in frames:
+        gap = abs(f.get("timestamp", 0) - target_ms)
+        if best_gap is None or gap < best_gap:
+            best, best_gap = f, gap
+    if best is None or best_gap > FRAME_TOLERANCE_MS:
+        return None
+    return best
+
+
+def _cs(pf):
+    return (pf.get("minionsKilled") or 0) + (pf.get("jungleMinionsKilled") or 0)
+
+
+def parse_timeline_deltas(timeline_json, me_puuid, opp_puuid):
+    """CS/level/gold advantage of me_puuid over opp_puuid at ~7 and ~14 min,
+    read from the match-v5 timeline. Returns {timeline metric key: value},
+    each None when the opponent is unknown or the frame is missing."""
+    blank = {k: None for k in TIMELINE_KEYS}
+    if not timeline_json or not opp_puuid:
+        return blank
+    info = timeline_json.get("info") or {}
+    pid_by_puuid = {p.get("puuid"): p.get("participantId")
+                    for p in info.get("participants") or []}
+    me_pid, opp_pid = pid_by_puuid.get(me_puuid), pid_by_puuid.get(opp_puuid)
+    frames = info.get("frames") or []
+    if me_pid is None or opp_pid is None or not frames:
+        return blank
+    out = dict(blank)
+    for minute, target in LANE_DELTA_MARKS.items():
+        frame = _frame_near(frames, target)
+        if not frame:
+            continue
+        pf = frame.get("participantFrames") or {}
+        mine, theirs = pf.get(str(me_pid)), pf.get(str(opp_pid))
+        if not mine or not theirs:
+            continue
+        out[f"cs_diff_{minute}"] = _cs(mine) - _cs(theirs)
+        out[f"level_diff_{minute}"] = (mine.get("level") or 0) - (theirs.get("level") or 0)
+        out[f"gold_diff_{minute}"] = (mine.get("totalGold") or 0) - (theirs.get("totalGold") or 0)
+    return out

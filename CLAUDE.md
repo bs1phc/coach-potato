@@ -146,13 +146,29 @@ change, not a crawler change.
   Frontend defaults the progress champion filter to Gwen; `#progress` hash
   deep-links the view.
 - Coaching metrics: `server/metrics.py` is the single-source registry
-  (labels/groups/agg kinds/directions) driving the `participant_metrics`
-  DDL, payload parsing, SQL aggregation and frontend meta. Stored for
-  tracked players only; crawler captures on insert;
+  (labels/groups/agg kinds/directions/`default_hidden`/`signed`) driving the
+  `participant_metrics` DDL, payload parsing, SQL aggregation and frontend
+  meta. Stored for tracked players only; crawler captures on insert;
   `crawler.backfill_metrics()` / `./crawl.sh --backfill-metrics` re-fetches
-  older matches. `stats.segment_metrics` (per period) and
+  older matches. Adding a metric grows `participant_metrics` via the
+  additive column loop in `db._migrate` (CREATE TABLE IF NOT EXISTS won't
+  alter an existing table). `stats.segment_metrics` (per period) and
   `stats.trend_buckets` (day/week/month; week = Monday date) feed
-  `/api/stats/metrics` and `/api/stats/trends` (both include `meta`).
+  `/api/stats/metrics` and `/api/stats/trends` (both include `meta`);
+  `/api/metrics/meta` returns the registry alone (for the per-view metric
+  column pickers). Metrics with `source="timeline"` (lane ΔCS/ΔLevel/ΔGold
+  vs the direct lane opponent at ~7 & ~14 min) come from the match-v5
+  TIMELINE, not the detail payload: `metrics.parse_timeline_deltas` reads
+  the frame nearest each mark; the crawler fetches the timeline per new
+  match (`Crawler._safe_timeline`, tolerant of 404/failure) and merges the
+  deltas, setting `has_timeline=1`. `crawler.backfill_lane_deltas()` /
+  `./crawl.sh --backfill-lane-deltas` fills existing rows (has_timeline=0)
+  using only the timeline + stored participants for the lane opponent, via
+  `db.update_participant_timeline` (which never clobbers challenge metrics).
+  These six are `default_hidden` — each metric view (matchups per-game,
+  blocks per-game, trends, coaching progress) has its own column picker
+  (`renderMetricColPicker`, localStorage `cp-metriccols-<view>`) that starts
+  them off.
 - Block learnings: `champion_pool` (role main_blind/core/counter, replaced
   wholesale, `sort` column = user-set priority order via drag'n'drop chips;
   the EDITOR lives in Settings — `#pool-card`, wired by `initSettings`,
@@ -336,9 +352,11 @@ notes here are short freeform text, not full documents. Uses reportlab's
 core Helvetica font (Latin-1/WinAnsi only) — non-Latin note text won't
 render correctly; embedding a Unicode font was judged out of scope.
 `crawl_state(puuid+queue_id PK, newest_ms, complete)` — resume watermarks
-`participant_metrics(match_id+puuid PK, has_challenges, one REAL col per
-metric key)` — coaching metrics, tracked players only, columns generated
-from `server/metrics.py`
+`participant_metrics(match_id+puuid PK, has_challenges, has_timeline, one
+REAL col per metric key)` — coaching metrics, tracked players only, columns
+generated from `server/metrics.py`; `has_timeline` marks that the match
+timeline was processed (lane-delta columns filled, or blank if no opponent/
+timeline) so the backfill skips it
 `participant_runes(match_id+puuid PK, runes)` — the rune page actually
 played, decoded from match-v5's `perks` payload
 (`server/rune_data.decode_perks`) into the same shape as a champ-guide rune

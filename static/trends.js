@@ -37,6 +37,9 @@ async function initTrends() {
       }));
     $("#trend-champion").addEventListener("change", (e) => { trendState.champion = e.target.value; loadTrends(); });
     $("#trend-queue").addEventListener("change", (e) => { trendState.queue = e.target.value; loadTrends(); });
+    renderMetricColPicker($("#trend-metric-cols"), "cp-metriccols-trends", () => {  // app.js
+      if (trendState.data) { renderTrendCharts(); renderTrendTable(); }
+    });
   }
   // options rebuild on every entry so account-scope changes are reflected
   const { champions, queues } = await unionFilterOptions();
@@ -104,7 +107,9 @@ function chartSVG(def, points) {
 }
 
 function renderTrendCharts() {
-  const { buckets, meta } = trendState.data;
+  const { buckets } = trendState.data;
+  const vis = visibleMetricKeys("cp-metriccols-trends");  // app.js
+  const meta = trendState.data.meta.filter((m) => vis.has(m.key));
   const target = $("#trend-charts");
   if (!buckets.length) {
     target.innerHTML = `<div class="table-wrap"><div class="empty">No games match the current filters.</div></div>`;
@@ -141,7 +146,9 @@ function renderTrendCharts() {
 // ---------- breakdown table ----------
 
 function renderTrendTable() {
-  const { buckets, meta } = trendState.data;
+  const { buckets } = trendState.data;
+  const vis = visibleMetricKeys("cp-metriccols-trends");  // app.js
+  const meta = trendState.data.meta.filter((m) => vis.has(m.key));
   const target = $("#trend-table");
   if (!buckets.length) { target.innerHTML = ""; return; }
   const groups = [...new Set(meta.map((m) => m.group))];

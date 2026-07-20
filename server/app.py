@@ -786,6 +786,14 @@ def _tracked_puuids(conn):
             conn.execute("SELECT puuid FROM players WHERE is_tracked=1")]
 
 
+@app.get("/api/metrics/meta")
+def api_metrics_meta():
+    """The metric registry (labels/groups/decimals/default_hidden/…) on its
+    own, so the frontend can build per-view metric column pickers before any
+    stats panel has loaded."""
+    return {"meta": METRICS}
+
+
 @app.get("/api/stats/metrics")
 def api_metrics(request: Request, from_ms: int | None = None, to_ms: int | None = None):
     params = dict(request.query_params)

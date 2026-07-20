@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS participant_metrics (
     match_id TEXT NOT NULL,
     puuid TEXT NOT NULL,
     has_challenges INTEGER NOT NULL DEFAULT 0,
+    has_timeline INTEGER NOT NULL DEFAULT 0,
     {metric_columns},
     PRIMARY KEY (match_id, puuid)
 );
@@ -267,6 +268,17 @@ def _migrate(conn):
         # v1.14.0..v1.31.x shape — saved skill-order builds added in v1.32.0
         conn.execute(
             "ALTER TABLE matchup_notes ADD COLUMN skill_order TEXT NOT NULL DEFAULT ''")
+    # participant_metrics grows a column whenever a metric is added to the
+    # registry (CREATE TABLE IF NOT EXISTS won't touch an existing table).
+    # Additively backfill any missing metric columns + the has_timeline flag.
+    pm_columns = {r["name"] for r in conn.execute("PRAGMA table_info(participant_metrics)")}
+    if pm_columns:
+        if "has_timeline" not in pm_columns:
+            conn.execute(
+                "ALTER TABLE participant_metrics ADD COLUMN has_timeline INTEGER NOT NULL DEFAULT 0")
+        for key in metric_keys():
+            if key not in pm_columns:
+                conn.execute(f"ALTER TABLE participant_metrics ADD COLUMN {key} REAL")
     conn.commit()
 
 
@@ -489,14 +501,30 @@ def seed_rank_history(conn):
 
 
 def insert_participant_metrics(conn, match_id, puuid, values):
-    """values: has_challenges + one entry per metric key (None allowed)."""
-    columns = ["match_id", "puuid", "has_challenges", *metric_keys()]
+    """values: has_challenges (+ optional has_timeline) + one entry per metric
+    key (None allowed). INSERT OR REPLACE rewrites the whole row."""
+    columns = ["match_id", "puuid", "has_challenges", "has_timeline", *metric_keys()]
+    row = {"has_timeline": 0, **values, "match_id": match_id, "puuid": puuid}
     placeholders = ", ".join(f":{c}" for c in columns)
     with conn:
         conn.execute(
             f"INSERT OR REPLACE INTO participant_metrics ({', '.join(columns)}) "
             f"VALUES ({placeholders})",
-            {**values, "match_id": match_id, "puuid": puuid},
+            row,
+        )
+
+
+def update_participant_timeline(conn, match_id, puuid, deltas):
+    """Update only the timeline-derived delta columns (+ has_timeline flag) on
+    an existing metrics row, leaving challenge/participant metrics intact. Used
+    by the timeline backfill, which must not clobber already-stored metrics."""
+    keys = list(deltas)
+    assignments = ", ".join(f"{k}=:{k}" for k in keys)
+    with conn:
+        conn.execute(
+            f"UPDATE participant_metrics SET has_timeline=1{', ' + assignments if keys else ''} "
+            f"WHERE match_id=:match_id AND puuid=:puuid",
+            {**deltas, "match_id": match_id, "puuid": puuid},
         )
 
 

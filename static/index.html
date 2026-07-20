@@ -57,7 +57,8 @@
       <select id="progress-queue"><option value="">All</option></select>
     </div>
     <span class="muted">Selected accounts · top lane only</span>
-    <span id="progress-cols" style="margin-left:auto"></span>
+    <span id="progress-metric-cols" style="margin-left:auto"></span>
+    <span id="progress-cols"></span>
   </section>
 
   <section>
@@ -287,6 +288,7 @@
       <h2>Blocks</h2>
       <div class="head-actions">
         <span id="blocks-export-status" class="muted"></span>
+        <span id="blocks-metric-cols"></span>
         <span id="blocks-cols"></span>
         <details class="col-picker">
           <summary class="preset icon-btn" title="Export all blocks" aria-label="Export all blocks">📤</summary>
@@ -346,6 +348,7 @@
       <button id="mu-view-flat" class="active" role="tab">By matchup</button>
       <button id="mu-view-rank" role="tab">Grouped by opponent rank</button>
     </div>
+    <span id="mu-metric-cols" style="margin-left:auto"></span>
   </div>
   <p class="muted">Expand a matchup for the win/loss timeline and block notes. Pick a
     "My champion" filter to jump to its Matchup guide (📖) for runes, patch, and
@@ -457,6 +460,7 @@
       <select id="trend-queue"><option value="">All</option></select>
     </div>
     <span class="muted">Selected accounts · top lane only</span>
+    <span id="trend-metric-cols" style="margin-left:auto"></span>
   </section>
 
   <div id="trend-charts"></div>

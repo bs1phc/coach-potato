@@ -41,13 +41,38 @@ def match_json(match_id, creation_ms, queue_id=420, tracked_pos="TOP",
     }
 
 
+def timeline_json(match_id, me_puuid=TRACKED_PUUID, opp_puuid="opp-1"):
+    """Minimal match-v5 timeline: participantIds 1 (me) and 2 (opp), frames
+    at 0/7/14 min where `me` leads the opponent."""
+    def frame(ts, mine, theirs):
+        return {"timestamp": ts, "participantFrames": {
+            "1": dict(zip(("minionsKilled", "jungleMinionsKilled", "level", "totalGold"), mine)),
+            "2": dict(zip(("minionsKilled", "jungleMinionsKilled", "level", "totalGold"), theirs))}}
+    return {"metadata": {"matchId": match_id}, "info": {
+        "participants": [{"participantId": 1, "puuid": me_puuid},
+                         {"participantId": 2, "puuid": opp_puuid}],
+        "frames": [
+            frame(0, (0, 0, 1, 500), (0, 0, 1, 500)),
+            frame(420_000, (50, 5, 6, 2600), (40, 0, 5, 2200)),
+            frame(840_000, (110, 10, 10, 5300), (90, 0, 9, 4500)),
+        ]}}
+
+
 class FakeClient:
-    def __init__(self, matches):
+    def __init__(self, matches, timelines=None):
         # matches: list of match JSON, any order; served newest-first like Riot
         self.matches = {m["metadata"]["matchId"]: m for m in matches}
+        self.timelines = {t["metadata"]["matchId"]: t for t in (timelines or [])}
         self.detail_calls = 0
+        self.timeline_calls = 0
         self.league_calls = []
         self.ranks = {}  # puuid -> list of league entries
+
+    def get_match_timeline(self, match_id):
+        self.timeline_calls += 1
+        if match_id not in self.timelines:
+            raise KeyError(match_id)  # exercises the crawler's tolerant fetch
+        return self.timelines[match_id]
 
     def get_account(self, game_name, tag_line):
         return {"puuid": TRACKED_PUUID, "gameName": game_name, "tagLine": tag_line}
@@ -239,6 +264,62 @@ def test_backfill_runes_fetches_missing_only(conn):
     assert client.detail_calls == 1
     # 2 rows per match (tracked + lane opponent) x 2 matches
     assert conn.execute("SELECT COUNT(*) c FROM participant_runes").fetchone()["c"] == 4
+
+
+def test_crawl_stores_lane_deltas_inline_from_timeline(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)  # opp_pos TOP shares the lane
+    client = FakeClient([match], timelines=[timeline_json("EUW1_1")])
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        """SELECT has_timeline, cs_diff_7, level_diff_7, gold_diff_7,
+                  cs_diff_14, gold_diff_14 FROM participant_metrics
+           WHERE match_id='EUW1_1' AND puuid=?""", (TRACKED_PUUID,)).fetchone()
+    assert row["has_timeline"] == 1
+    assert row["cs_diff_7"] == (50 + 5) - 40   # 15
+    assert row["level_diff_7"] == 1
+    assert row["gold_diff_7"] == 400
+    assert row["cs_diff_14"] == (110 + 10) - 90  # 30
+    assert row["gold_diff_14"] == 800
+
+
+def test_crawl_tolerates_missing_timeline(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    client = FakeClient([match])  # no timelines — get_match_timeline raises
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        "SELECT has_timeline, cs_diff_7 FROM participant_metrics WHERE puuid=?",
+        (TRACKED_PUUID,)).fetchone()
+    assert row["has_timeline"] == 1  # marked done so backfill won't retry forever
+    assert row["cs_diff_7"] is None  # no timeline data available
+
+
+def test_backfill_lane_deltas_fills_missing_only(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)
+    m2 = match_json("EUW1_2", 1_700_000_100_000)
+    # crawl with no timelines available, so metrics rows exist but has_timeline=0
+    client = FakeClient([m1, m2])
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM participant_metrics WHERE has_timeline=1").fetchone()["c"] == 2
+    # ^ tolerant fetch already marked them done; reset to simulate pre-upgrade rows
+    conn.execute("UPDATE participant_metrics SET has_timeline=0, cs_diff_7=NULL")
+    conn.commit()
+    # now timelines are available for the backfill
+    client.timelines = {t["metadata"]["matchId"]: t
+                        for t in (timeline_json("EUW1_1"), timeline_json("EUW1_2"))}
+    client.timeline_calls = 0
+    assert crawler.backfill_lane_deltas() == 2
+    assert client.timeline_calls == 2
+    assert crawler.backfill_lane_deltas() == 0  # nothing left with has_timeline=0
+    row = conn.execute(
+        "SELECT cs_diff_7 FROM participant_metrics WHERE match_id='EUW1_1' AND puuid=?",
+        (TRACKED_PUUID,)).fetchone()
+    assert row["cs_diff_7"] == 15
+    # backfill must not have wiped the challenge-derived metrics on the row
+    other = conn.execute(
+        "SELECT COUNT(*) c FROM participant_metrics WHERE has_timeline=1").fetchone()["c"]
+    assert other == 2
 
 
 def test_backfill_metrics_fetches_missing_only(conn):

@@ -59,6 +59,8 @@ async function initMatchups() {
     });
     $("#mu-view-flat").addEventListener("click", () => setMatchupView("flat"));
     $("#mu-view-rank").addEventListener("click", () => setMatchupView("rank"));
+    renderMetricColPicker($("#mu-metric-cols"), "cp-metriccols-matchups",
+      () => renderMU(muState.rows));  // app.js — refilters the expanded stat panels
   }
   await loadMatchupFilterOptions();
   await loadMatchups();
@@ -279,7 +281,8 @@ function matchupGamesTable(key) {
         data-puuid="${g.my_puuid}" title="Add to current block">+ Block</button></td>
     </tr>`;
     if (open) {
-      html += `<tr class="games-row"><td colspan="10">${metricGroupsPanel(muState.statsCache.get(gkey))}</td></tr>`;
+      html += `<tr class="games-row"><td colspan="10">${
+        metricGroupsPanel(muState.statsCache.get(gkey), "cp-metriccols-matchups")}</td></tr>`;
     }
     return html;
   }).join("");

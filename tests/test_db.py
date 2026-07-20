@@ -531,6 +531,33 @@ def test_matchup_notes_skill_order_column_migration(tmp_path):
     c.close()
 
 
+def test_participant_metrics_gains_new_columns_on_upgrade(tmp_path):
+    """Adding a metric to the registry must additively grow an existing
+    participant_metrics table (CREATE TABLE IF NOT EXISTS won't) and add the
+    has_timeline flag, without dropping stored rows."""
+    path = tmp_path / "old_metrics.sqlite"
+    raw = sqlite3.connect(path)
+    # a minimal pre-timeline metrics table: only a couple of columns, no
+    # has_timeline, no lane-delta columns
+    raw.execute("""CREATE TABLE participant_metrics (
+        match_id TEXT NOT NULL, puuid TEXT NOT NULL,
+        has_challenges INTEGER NOT NULL DEFAULT 0, cs_at_10 REAL,
+        PRIMARY KEY (match_id, puuid))""")
+    raw.execute("INSERT INTO participant_metrics (match_id, puuid, has_challenges, cs_at_10) "
+                "VALUES ('M1', 'p1', 1, 80)")
+    raw.commit()
+    raw.close()
+    c = db.connect(path)  # _migrate adds the missing columns
+    cols = {r["name"] for r in c.execute("PRAGMA table_info(participant_metrics)")}
+    assert "has_timeline" in cols
+    assert {"cs_diff_7", "level_diff_14", "gold_diff_7"} <= cols
+    row = c.execute("SELECT cs_at_10, has_timeline, cs_diff_7 FROM participant_metrics").fetchone()
+    assert row["cs_at_10"] == 80  # preserved
+    assert row["has_timeline"] == 0
+    assert row["cs_diff_7"] is None
+    c.close()
+
+
 def test_champion_note_roundtrip(conn):
     assert db.get_champion_note(conn, "Gwen") == ""
     db.set_champion_note(conn, "Gwen", "- always take Conqueror\n- build Nashor's first")

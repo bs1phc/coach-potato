@@ -71,6 +71,8 @@ async function initBlocks() {
     });
     renderColPicker($("#blocks-cols"), "cp-cols-blocks", BLOCK_COLS, blockCols,
       () => renderBlocks());
+    renderMetricColPicker($("#blocks-metric-cols"), "cp-metriccols-blocks",
+      () => renderBlocks());  // app.js — refilters expanded game stat panels
     await loadChampionRoster();
   }
   await Promise.all([loadPool(), loadBlocks()]);
@@ -304,17 +306,10 @@ async function loadBlocks() {
 
 function gameMetricsPanel(entryId, game) {
   const data = blockState.gameMetricsCache.get(entryId);
-  const metrics = data === null
-    ? `<div class="muted">No detailed metrics recorded for this game.</div>`
-    : !data ? `<div class="muted">Loading…</div>`
-    : `<div class="metric-groups">` + [...new Set(data.meta.map((m) => m.group))].map((g) => {
-        const rows = data.meta.filter((m) => m.group === g).map((m) => `
-          <div class="metric-row">
-            <span class="metric-label">${m.label}</span>
-            <span class="metric-value">${fmtMetric(data.metrics[m.key], m)}</span>
-          </div>`).join("");
-        return `<div class="metric-group"><h4>${g}</h4>${rows}</div>`;
-      }).join("") + `</div>`;
+  // metricGroupsPanel (app.js) handles loading/empty/filtering by the view's
+  // visible metric set (undefined cache entry → "Loading…")
+  const metrics = metricGroupsPanel(data === undefined ? undefined : data,
+                                    "cp-metriccols-blocks");
   const runes = (game.runes || game.opp_runes) ? `<div class="runes-compare">${
     runesCompareCol(game.my_champion, game.runes, "you")}${
     game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""

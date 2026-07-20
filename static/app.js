@@ -143,13 +143,15 @@ function wrCell(winrate) {
 }
 
 // per-game "standard metrics" panel (same groups as the coaching/blocks views)
-function metricGroupsPanel(data) {
+function metricGroupsPanel(data, storageKey) {
   if (data === undefined) return `<div class="muted">Loading…</div>`;
   if (data === null) return `<div class="muted">No detailed metrics recorded for this game.</div>`;
-  const groups = [...new Set(data.meta.map((m) => m.group))];
+  const vis = storageKey ? visibleMetricKeys(storageKey) : null;
+  const meta = vis ? data.meta.filter((m) => vis.has(m.key)) : data.meta;
+  const groups = [...new Set(meta.map((m) => m.group))];
   return `<div class="metric-groups">` + groups.map((g) =>
     `<div class="metric-group"><h4>${g}</h4>` +
-    data.meta.filter((m) => m.group === g).map((m) => `<div class="metric-row">
+    meta.filter((m) => m.group === g).map((m) => `<div class="metric-row">
         <span class="metric-label">${m.label}</span>
         <span class="metric-value">${fmtMetric(data.metrics[m.key], m)}</span>
       </div>`).join("") + `</div>`).join("") + `</div>`;
@@ -583,7 +585,37 @@ async function ensureSegmentMetrics(segment) {
 }
 
 function fmtMetric(value, m) {
-  return value == null ? "–" : value.toFixed(m.decimals) + (m.suffix || "");
+  if (value == null) return "–";
+  const sign = m.signed && value > 0 ? "+" : "";
+  return sign + value.toFixed(m.decimals) + (m.suffix || "");
+}
+
+// ---------- per-view metric column pickers ----------
+// All metric panels render from the shared registry meta; each view keeps its
+// own visible set (default_hidden metrics — e.g. the lane Δ's — start off).
+
+async function ensureMetricsMeta() {
+  if (!state.metricsMeta) state.metricsMeta = (await getJSON("/api/metrics/meta")).meta;
+  return state.metricsMeta;
+}
+
+// visible metric keys for a view, honouring default_hidden and saved prefs
+function visibleMetricKeys(storageKey) {
+  const meta = state.metricsMeta || [];
+  return colPrefs(storageKey, meta.map((m) => m.key),
+                  meta.filter((m) => !m.default_hidden).map((m) => m.key));
+}
+
+// meta filtered to a view's visible metrics, for a panel to render
+function visibleMeta(storageKey) {
+  const vis = visibleMetricKeys(storageKey);
+  return (state.metricsMeta || []).filter((m) => vis.has(m.key));
+}
+
+function renderMetricColPicker(target, storageKey, onChange) {
+  const meta = state.metricsMeta || [];
+  renderColPicker(target, storageKey, meta.map((m) => ({ key: m.key, label: m.label })),
+                  visibleMetricKeys(storageKey), onChange);
 }
 
 function metricDelta(current, previous, m) {
@@ -602,7 +634,7 @@ function segmentMetricsPanel(segment) {
   if (!data) return `<div class="muted">Loading…</div>`;
   const prev = prevNonEmpty(segment);
   const prevData = prev ? segmentUi.cache.get("metrics:" + segKey(prev)) : null;
-  const meta = state.metricsMeta || [];
+  const meta = visibleMeta("cp-metriccols-progress");
   const groups = [...new Set(meta.map((m) => m.group))];
   const coverage = data.metrics_games < data.games
     ? `<div class="muted" style="margin-bottom:8px">Detailed metrics available for
@@ -1573,6 +1605,8 @@ function wireFilters() {
   $("#min-games").addEventListener("change", (e) => { state.minGames = Math.max(1, +e.target.value || 1); refresh(); });
   renderColPicker($("#progress-cols"), "cp-cols-progress", PROGRESS_COLS, progressCols,
     () => renderProgress(segmentUi.segments));
+  renderMetricColPicker($("#progress-metric-cols"), "cp-metriccols-progress",
+    () => renderProgress(segmentUi.segments));
   $("#crawl-btn").addEventListener("click", startCrawl);
   $("#champion-table-toggle").addEventListener("click", () => {
     const btn = $("#champion-table-toggle");
@@ -1609,6 +1643,7 @@ async function init(firstLoad = true) {
   state.players = await getJSON("/api/players");
   if (firstLoad) {
     await loadDdragonVersion();
+    await ensureMetricsMeta(); // metric column pickers (wired below) need it
     wireFilters();
     wireProgress();
     wireChangelog();
