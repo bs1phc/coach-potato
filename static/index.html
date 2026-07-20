@@ -149,6 +149,13 @@
         Ask before auto-closing a block</label>
       <p class="muted">Untick to auto-close silently when the time gap is exceeded.</p>
     </div>
+    <div class="settings-field">
+      <label><input type="checkbox" id="setting-block-series" checked>
+        Group blocks into series</label>
+      <p class="muted">A series (e.g. a 2-week challenge) gives your blocks a shared
+        title with a per-series number after it, and a "+ New series" button on the
+        Blocks page. Untick to just number blocks continuously as "#1, #2, …".</p>
+    </div>
 
     <h3 class="settings-group-head">Interface</h3>
     <div class="settings-field">
@@ -289,6 +296,8 @@
       <span id="blocks-timeline-status" class="muted"></span>
       <div class="head-actions">
         <span id="blocks-export-status" class="muted"></span>
+        <button id="new-series-btn" class="preset hidden" type="button"
+          title="Start a new block series (e.g. a 2-week challenge)">+ New series</button>
         <span id="blocks-cols"></span>
         <details class="col-picker">
           <summary class="preset icon-btn" title="Export all blocks" aria-label="Export all blocks">📤</summary>

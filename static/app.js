@@ -1186,6 +1186,7 @@ async function initSettings() {
   $("#setting-block-size").value = data.block_size;
   $("#setting-block-gap").value = data.block_gap_hours;
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
+  $("#setting-block-series").checked = Boolean(data.block_series_enabled);
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   await loadChampionRoster(); // pool chips + legacy select need display names
   loadPool(); // blocks.js — hydrates the pool editor now hosted in Settings
@@ -1352,6 +1353,7 @@ async function initSettings() {
         block_size: Math.max(1, parseInt($("#setting-block-size").value, 10) || 3),
         block_gap_hours: Math.min(168, Math.max(0, parseFloat($("#setting-block-gap").value) || 0)),
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
+        block_series_enabled: $("#setting-block-series").checked,
         hide_my_rank: $("#setting-hide-rank").checked,
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
         accent_color: $("#setting-accent-reset").classList.contains("hidden")

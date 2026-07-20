@@ -178,6 +178,18 @@ change, not a crawler change.
   double-drives the rate limiter). `block_games_detailed` returns
   `has_timeline` per game; blocks.js shows a ⏳ marker on games still being
   fetched and polls `/api/blocks/timeline-status`.
+- Block series: `block_series(id, title, created_at_ms)`; every `blocks` row
+  has a `series_id` (added in `_migrate`; `seed_block_series` on connect
+  ensures ≥1 series exists and assigns orphan/legacy blocks to it).
+  `create_block` attaches the current (newest) series; `start_new_series`
+  (POST `/api/blocks/series`) opens a fresh one, finalizing an in-progress
+  non-empty block or absorbing an empty one so the next game starts clean.
+  Block header label is series-title + a less-prominent per-series index
+  when the `block_series_enabled` setting is on (default), else a bare
+  continuous `#global_index`. BOTH indices are positional/gapless (computed
+  in `_blocks_payload`, not `blocks.id`) — deleting then recreating a block
+  never skips a number. `/api/blocks` returns `series_title`/`series_index`/
+  `global_index` per block + top-level `series_enabled`.
 - Block learnings: `champion_pool` (role main_blind/core/counter, replaced
   wholesale, `sort` column = user-set priority order via drag'n'drop chips;
   the EDITOR lives in Settings — `#pool-card`, wired by `initSettings`,

@@ -230,6 +230,48 @@ def test_add_game_auto_advances_blocks(conn):
     assert [b["id"] for b in blocks] == [2, 1]  # newest first
 
 
+def test_new_blocks_join_the_current_series(conn):
+    ids = _seed_block_matches(conn, 2)
+    db.add_game_to_block(conn, ids[0], "me")  # block 1, default series
+    default_sid = db.current_series_id(conn)
+    new_sid = db.start_new_series(conn, "Playoffs")
+    assert new_sid != default_sid
+    # block 1 had a game -> finalized under the old series; next game starts a
+    # new block under the new series
+    b2 = db.add_game_to_block(conn, ids[1], "me")
+    row = conn.execute("SELECT series_id FROM blocks WHERE id=?", (b2,)).fetchone()
+    assert row["series_id"] == new_sid
+
+
+def test_start_new_series_moves_empty_open_block(conn):
+    db.create_block(conn)  # empty open block in the default series
+    default_sid = db.current_series_id(conn)
+    new_sid = db.start_new_series(conn, "Fresh")
+    assert new_sid != default_sid
+    # the empty open block is pulled into the new series rather than stranded
+    row = conn.execute("SELECT series_id FROM blocks").fetchone()
+    assert row["series_id"] == new_sid
+
+
+def test_seed_block_series_backfills_legacy_blocks(tmp_path):
+    """Upgrading a db whose blocks predate series: every block must be assigned
+    to a default series so indexing/labels work."""
+    path = tmp_path / "pre_series.sqlite"
+    raw = sqlite3.connect(path)
+    raw.execute("""CREATE TABLE blocks (id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL DEFAULT '', learnings TEXT NOT NULL DEFAULT '',
+        pool_snapshot TEXT, start_ranks TEXT, end_ranks TEXT,
+        closed_at_ms INTEGER, created_at_ms INTEGER)""")
+    raw.execute("INSERT INTO blocks (title) VALUES ('old block')")
+    raw.commit()
+    raw.close()
+    c = db.connect(path)  # _migrate adds series_id, seed_block_series assigns it
+    row = c.execute("SELECT series_id FROM blocks").fetchone()
+    assert row["series_id"] is not None
+    assert c.execute("SELECT COUNT(*) n FROM block_series").fetchone()["n"] == 1
+    c.close()
+
+
 def test_add_duplicate_game_raises_and_is_findable(conn):
     import sqlite3
     ids = _seed_block_matches(conn, 1)

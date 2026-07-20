@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.40.0",
+      "date": "2026-07-20",
+      "items": [
+        "Block series — group blocks into a named run (e.g. a 2-week challenge) with a \"+ New series\" button on the Blocks page; each series names your blocks and numbers them from #1. Defaults to a generated \"Since M/D/YYYY\" title you can rename",
+        "Block numbers are now continuous — deleting a block and starting a new one no longer skips a number",
+        "Block series can be turned off in Settings — blocks then just number continuously as \"#1, #2, …\""
+      ]
+    },
+    {
       "version": "1.39.0",
       "date": "2026-07-20",
       "items": [

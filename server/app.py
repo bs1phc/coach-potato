@@ -170,6 +170,7 @@ def _extra_settings(conn):
         "block_size": db.get_block_size(conn),
         "block_gap_hours": db.get_block_gap_ms(conn) / 3_600_000,
         "block_gap_confirm": stored.get("block_gap_confirm") != "0",
+        "block_series_enabled": stored.get("block_series_enabled") != "0",
         "ui_opacity": int(stored.get("ui_opacity") or 100),
         "background_image": bool(stored.get("background_image_file")),
         "accent_color": stored.get("accent_color") or None,
@@ -269,6 +270,9 @@ def api_put_settings(body: dict):
     gap_confirm = body.get("block_gap_confirm", True)
     if not isinstance(gap_confirm, bool):
         raise HTTPException(400, "block_gap_confirm must be a boolean")
+    series_enabled = body.get("block_series_enabled", True)
+    if not isinstance(series_enabled, bool):
+        raise HTTPException(400, "block_series_enabled must be a boolean")
     ui_opacity = body.get("ui_opacity", 100)
     if (not isinstance(ui_opacity, int) or isinstance(ui_opacity, bool)
             or not 20 <= ui_opacity <= 100):
@@ -289,6 +293,7 @@ def api_put_settings(body: dict):
             "block_size": str(block_size),
             "block_gap_hours": str(gap_hours),
             "block_gap_confirm": "1" if gap_confirm else "0",
+            "block_series_enabled": "1" if series_enabled else "0",
             "ui_opacity": str(ui_opacity),
             "accent_color": accent_color or "",
         })
@@ -1299,15 +1304,30 @@ def _blocks_payload(conn):
     for game in stats.block_games_detailed(conn):
         game["account"] = names.get(game["puuid"], "?")
         games_by_block.setdefault(game["block_id"], []).append(game)
+    series_titles = {r["id"]: r["title"] for r in
+                     conn.execute("SELECT id, title FROM block_series")}
+    # positional, gapless indices (by creation order) — deleting a block and
+    # making a new one never skips a number. global_index numbers across all
+    # blocks (series-off display); series_index restarts per series (series-on).
+    rows = db.list_blocks(conn)  # newest first
+    ordered = sorted(rows, key=lambda r: r["id"])
+    global_index = {r["id"]: i + 1 for i, r in enumerate(ordered)}
+    series_index, per_series = {}, {}
+    for r in ordered:
+        per_series[r["series_id"]] = per_series.get(r["series_id"], 0) + 1
+        series_index[r["id"]] = per_series[r["series_id"]]
     blocks = []
     size = db.get_block_size(conn)
-    for row in db.list_blocks(conn):
+    for row in rows:
         games = games_by_block.get(row["id"], [])
         closed = row["closed_at_ms"] is not None
         # pool_snapshot marks a block finalized under an earlier size setting
         finalized = closed or row["pool_snapshot"] is not None
         record = {**dict(row), "games": games, "closed": closed,
-                  "complete": finalized or len(games) >= size}
+                  "complete": finalized or len(games) >= size,
+                  "series_title": series_titles.get(row["series_id"], ""),
+                  "series_index": series_index[row["id"]],
+                  "global_index": global_index[row["id"]]}
         snapshot = record.pop("pool_snapshot", None)
         record["pool"] = json.loads(snapshot) if snapshot else None
         for key in ("start_ranks", "end_ranks"):
@@ -1321,7 +1341,21 @@ def _blocks_payload(conn):
 def api_blocks():
     conn = get_conn()
     try:
-        return {"blocks": _blocks_payload(conn), "block_size": db.get_block_size(conn)}
+        return {"blocks": _blocks_payload(conn), "block_size": db.get_block_size(conn),
+                "series_enabled": db.get_settings(conn).get("block_series_enabled") != "0"}
+    finally:
+        conn.close()
+
+
+@app.post("/api/blocks/series")
+def api_start_block_series(body: dict):
+    """Start a new block series so subsequent blocks number from #1 under it.
+    Optional `title`; blank → a generated "Since M/D/YYYY"."""
+    title = str((body or {}).get("title") or "").strip()
+    conn = get_conn()
+    try:
+        series_id = db.start_new_series(conn, title or None)
+        return {"series_id": series_id}
     finally:
         conn.close()
 

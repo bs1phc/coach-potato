@@ -65,6 +65,7 @@ async function initBlocks() {
     blockState.wired = true;
     // the pool editor itself lives in Settings (wired by initSettings) —
     // Blocks only shows the read-only summary with an edit shortcut
+    $("#new-series-btn").addEventListener("click", startNewSeries);
     $("#pool-edit-btn").addEventListener("click", () => {
       setMainView("settings");
       requestAnimationFrame(() =>
@@ -92,7 +93,9 @@ function discordMarkdown(blocks) {
   for (const block of blocks) {
     const wins = block.games.filter((g) => g.win).length;
     const title = block.title ? ` — ${block.title}` : "";
-    lines.push(`**Block #${block.id}${title}** (${wins}–${block.games.length - wins})`);
+    const heading = blockState.seriesEnabled
+      ? `${block.series_title} #${block.series_index}` : `Block #${block.global_index}`;
+    lines.push(`**${heading}${title}** (${wins}–${block.games.length - wins})`);
     if (block.pool) {
       lines.push(`Pool: ★ ${champDisplay(block.pool.main_blind) || "–"}` +
         ` · Core: ${block.pool.core.map(champDisplay).join(", ") || "–"}` +
@@ -298,6 +301,7 @@ async function loadBlocks() {
   const data = await getJSON("/api/blocks");
   blockState.blocks = data.blocks;
   blockState.blockSize = data.block_size;
+  blockState.seriesEnabled = data.series_enabled;
   renderBlocks();
   maybeBackfillBlockTimelines();
   if (blockState.focusId != null) {
@@ -451,6 +455,29 @@ function blockPoolChips(pool) {
   return `<div class="block-pool"><span class="muted">Pool at completion:</span> ${chips}</div>`;
 }
 
+// Header label: with series on, the series title with a less-prominent index
+// after it (per-series, gapless); with series off, just the continuous
+// global "#index" (no "Block " prefix).
+function blockLabel(block) {
+  if (blockState.seriesEnabled) {
+    return `${escapeHtml(block.series_title || "Series")}<span class="block-index">#${block.series_index}</span>`;
+  }
+  return `<span class="block-index-plain">#${block.global_index}</span>`;
+}
+
+async function startNewSeries() {
+  const d = new Date();
+  const suggested = `Since ${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+  const title = prompt("Name this block series (blocks in it number from #1):", suggested);
+  if (title === null) return; // cancelled
+  await fetch("/api/blocks/series", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title.trim() }),
+  });
+  loadBlocks();
+}
+
 function blockCard(block, isCurrent) {
   const wins = block.games.filter((g) => g.win).length;
   const collapsed = blockState.collapsed.has(block.id);
@@ -480,7 +507,7 @@ function blockCard(block, isCurrent) {
       <button class="preset session-toggle block-collapse" data-id="${block.id}"
         aria-expanded="${!collapsed}" title="${collapsed ? "Expand" : "Collapse"} block">
         ${collapsed ? "▸" : "▾"}</button>
-      <span class="session-date">Block #${block.id}</span>
+      <span class="session-date">${blockLabel(block)}</span>
       ${isCurrent ? `<span class="block-badge">current</span>` : ""}
       ${block.closed ? `<span class="block-badge block-closed"
         title="Closed before reaching ${blockState.blockSize} games">closed early</span>` : ""}
@@ -524,9 +551,10 @@ function blockCard(block, isCurrent) {
 }
 
 function renderBlocks() {
+  $("#new-series-btn").classList.toggle("hidden", !blockState.seriesEnabled);
   const target = $("#blocks-list");
   if (!blockState.blocks.length) {
-    target.innerHTML = `<div class="muted">No blocks yet — add a game below to start Block #1.</div>`;
+    target.innerHTML = `<div class="muted">No blocks yet — add a game below to start your first block.</div>`;
     return;
   }
   const currentId = Math.max(...blockState.blocks.map((b) => b.id));

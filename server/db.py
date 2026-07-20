@@ -1,4 +1,5 @@
 """SQLite storage layer. All timestamps are ms epoch (Riot convention)."""
+import datetime
 import json
 import sqlite3
 from pathlib import Path
@@ -81,8 +82,15 @@ CREATE TABLE IF NOT EXISTS champion_pool (
     sort INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS block_series (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL DEFAULT '',
+    created_at_ms INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS blocks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    series_id INTEGER,
     title TEXT NOT NULL DEFAULT '',
     learnings TEXT NOT NULL DEFAULT '',
     pool_snapshot TEXT,
@@ -195,6 +203,7 @@ def connect(db_path) -> sqlite3.Connection:
     metric_columns = ",\n    ".join(f"{k} REAL" for k in metric_keys())
     conn.executescript(SCHEMA.format(metric_columns=metric_columns))
     seed_rank_history(conn)
+    seed_block_series(conn)
     return conn
 
 
@@ -220,6 +229,8 @@ def _migrate(conn):
             conn.execute("ALTER TABLE blocks ADD COLUMN end_ranks TEXT")
         if "closed_at_ms" not in block_columns:
             conn.execute("ALTER TABLE blocks ADD COLUMN closed_at_ms INTEGER")
+        if "series_id" not in block_columns:  # block series added in v1.40.0
+            conn.execute("ALTER TABLE blocks ADD COLUMN series_id INTEGER")
     matchup_notes_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matchup_notes)")}
     if matchup_notes_columns and "my_champion" not in matchup_notes_columns:
         # Pre-v1.14.0 shapes had opp_champion as the sole PK (no per-champion
@@ -693,11 +704,58 @@ def _now_expr():
     return "CAST(strftime('%s','now') AS INTEGER) * 1000"
 
 
+# ---------- block series (named groupings, e.g. a 2-week challenge) ----------
+
+def _generated_series_title():
+    d = datetime.date.today()
+    return f"Since {d.month}/{d.day}/{d.year}"
+
+
+def create_block_series(conn, title=None):
+    with conn:
+        cursor = conn.execute(
+            f"INSERT INTO block_series (title, created_at_ms) VALUES (?, {_now_expr()})",
+            (title if title else _generated_series_title(),))
+    return cursor.lastrowid
+
+
+def current_series_id(conn):
+    """Newest series' id, creating a default one if none exists yet."""
+    row = conn.execute("SELECT id FROM block_series ORDER BY id DESC LIMIT 1").fetchone()
+    return row["id"] if row else create_block_series(conn)
+
+
+def seed_block_series(conn):
+    """Ensure a series exists and every block belongs to one — runs on connect
+    (idempotent). First upgrade: all existing blocks join the default series."""
+    sid = current_series_id(conn)
+    with conn:
+        conn.execute("UPDATE blocks SET series_id=? WHERE series_id IS NULL", (sid,))
+
+
+def start_new_series(conn, title=None):
+    """Begin a fresh series so subsequent blocks number from #1 under it. Any
+    in-progress (open) block is finalized if it has games, or moved into the
+    new series if empty, so the next game starts the new series cleanly."""
+    open_block = _open_block(conn)
+    new_sid = create_block_series(conn, title)
+    if open_block is not None:
+        count = conn.execute(
+            "SELECT COUNT(*) c FROM block_games WHERE block_id=?", (open_block,)).fetchone()["c"]
+        if count:
+            snapshot_pool_to_block(conn, open_block)  # close it out under the old series
+        else:
+            with conn:  # empty open block — just move it into the new series
+                conn.execute("UPDATE blocks SET series_id=? WHERE id=?", (new_sid, open_block))
+    return new_sid
+
+
 def create_block(conn):
     with conn:
         cursor = conn.execute(
-            f"INSERT INTO blocks (start_ranks, created_at_ms) VALUES (?, {_now_expr()})",
-            (json.dumps(tracked_ranks(conn)),))
+            f"""INSERT INTO blocks (series_id, start_ranks, created_at_ms)
+                VALUES (?, ?, {_now_expr()})""",
+            (current_series_id(conn), json.dumps(tracked_ranks(conn))))
     return cursor.lastrowid
 
 

@@ -1183,6 +1183,43 @@ def test_block_timeline_backfill_counts_pending_without_starting_when_busy(clien
     monkeypatch.setitem(app_module.CRAWL_STATE, "running", False)
 
 
+def test_block_indices_gapless_after_delete(client):
+    games = client.get("/api/stats/games").json()
+    client.post("/api/blocks/games",
+                json={"match_id": games[0]["match_id"], "puuid": games[0]["my_puuid"]})
+    blocks = client.get("/api/blocks").json()["blocks"]
+    assert blocks[0]["global_index"] == 1 and blocks[0]["series_index"] == 1
+    client.delete(f"/api/blocks/{blocks[0]['id']}")
+    # a new block after deleting the first must reuse #1, not skip to #2
+    client.post("/api/blocks/games",
+                json={"match_id": games[1]["match_id"], "puuid": games[1]["my_puuid"]})
+    blocks = client.get("/api/blocks").json()["blocks"]
+    assert blocks[0]["global_index"] == 1
+    assert blocks[0]["id"] != 1  # a fresh row id, but the displayed index is still #1
+
+
+def test_block_series_endpoint_and_setting(client):
+    assert client.get("/api/settings").json()["block_series_enabled"] is True
+    assert client.get("/api/blocks").json()["series_enabled"] is True
+    games = client.get("/api/stats/games").json()
+    # a game before starting a series lands in the default series at #1
+    client.post("/api/blocks/games",
+                json={"match_id": games[0]["match_id"], "puuid": games[0]["my_puuid"]})
+    # start a named series; the just-added (non-empty) block closes, the next
+    # game opens a new block that is #1 of the new series
+    assert client.post("/api/blocks/series", json={"title": "2 Week Challenge"}).status_code == 200
+    client.post("/api/blocks/games",
+                json={"match_id": games[1]["match_id"], "puuid": games[1]["my_puuid"]})
+    blocks = client.get("/api/blocks").json()["blocks"]  # newest first
+    assert blocks[0]["series_title"] == "2 Week Challenge"
+    assert blocks[0]["series_index"] == 1        # per-series numbering restarts
+    assert blocks[0]["global_index"] == 2        # but the global count continues
+    # toggling the setting off is reflected
+    assert _put_settings(client, block_series_enabled=False).status_code == 200
+    assert client.get("/api/blocks").json()["series_enabled"] is False
+    assert _put_settings(client, block_series_enabled="nope").status_code == 400
+
+
 def test_clip_link_roundtrip_for_session(client):
     session_id = _make_session(client)
     assert client.get(f"/api/clips?owner_type=session&owner_id={session_id}").json() == []
