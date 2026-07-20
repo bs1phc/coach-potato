@@ -141,5 +141,8 @@ class RiotClient:
     def get_match(self, match_id):
         return self._get(f"{self.match_host}/lol/match/v5/matches/{match_id}")
 
+    def get_match_timeline(self, match_id):
+        return self._get(f"{self.match_host}/lol/match/v5/matches/{match_id}/timeline")
+
     def get_league_entries(self, puuid):
         return self._get(f"{self.platform_host}/lol/league/v4/entries/by-puuid/{puuid}")

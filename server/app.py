@@ -26,6 +26,16 @@ app = FastAPI(title="Coach Potato")
 
 CRAWL_STATE = {"running": False, "message": "idle", "last_result": None, "error": None,
                "rate_limited": False}
+# Background fetch of match timelines for block games (deeper lane-delta
+# stats), separate from the full crawl but sharing the same Riot rate budget.
+TIMELINE_STATE = {"running": False, "done": 0, "total": 0, "error": None}
+
+
+def _riot_job_running():
+    """True while any background job is making Riot API calls — a full crawl
+    or the block-timeline backfill. Both must not run at once or they'd each
+    drive their own rate limiter and together exceed Riot's limits."""
+    return CRAWL_STATE["running"] or TIMELINE_STATE["running"]
 
 
 def _champion_ids():
@@ -160,9 +170,11 @@ def _extra_settings(conn):
         "block_size": db.get_block_size(conn),
         "block_gap_hours": db.get_block_gap_ms(conn) / 3_600_000,
         "block_gap_confirm": stored.get("block_gap_confirm") != "0",
+        "block_series_enabled": stored.get("block_series_enabled") != "0",
         "ui_opacity": int(stored.get("ui_opacity") or 100),
         "background_image": bool(stored.get("background_image_file")),
         "accent_color": stored.get("accent_color") or None,
+        "date_format": stored.get("date_format") or "iso",
     }
 
 
@@ -259,6 +271,9 @@ def api_put_settings(body: dict):
     gap_confirm = body.get("block_gap_confirm", True)
     if not isinstance(gap_confirm, bool):
         raise HTTPException(400, "block_gap_confirm must be a boolean")
+    series_enabled = body.get("block_series_enabled", True)
+    if not isinstance(series_enabled, bool):
+        raise HTTPException(400, "block_series_enabled must be a boolean")
     ui_opacity = body.get("ui_opacity", 100)
     if (not isinstance(ui_opacity, int) or isinstance(ui_opacity, bool)
             or not 20 <= ui_opacity <= 100):
@@ -267,6 +282,9 @@ def api_put_settings(body: dict):
     if accent_color is not None and (not isinstance(accent_color, str)
                                       or not HEX_COLOR_RE.match(accent_color)):
         raise HTTPException(400, "accent_color must be a #rrggbb hex string or null")
+    date_format = body.get("date_format", "iso")
+    if date_format not in ("iso", "us", "eu"):
+        raise HTTPException(400, "date_format must be one of: iso, us, eu")
     conn = get_conn()
     try:
         db.set_settings(conn, {
@@ -279,8 +297,10 @@ def api_put_settings(body: dict):
             "block_size": str(block_size),
             "block_gap_hours": str(gap_hours),
             "block_gap_confirm": "1" if gap_confirm else "0",
+            "block_series_enabled": "1" if series_enabled else "0",
             "ui_opacity": str(ui_opacity),
             "accent_color": accent_color or "",
+            "date_format": date_format,
         })
         settings = config.resolve_settings(conn)
         settings["platforms"] = sorted(PLATFORM_ROUTING)
@@ -798,6 +818,14 @@ def _tracked_puuids(conn):
             conn.execute("SELECT puuid FROM players WHERE is_tracked=1")]
 
 
+@app.get("/api/metrics/meta")
+def api_metrics_meta():
+    """The metric registry (labels/groups/decimals/default_hidden/…) on its
+    own, so the frontend can build per-view metric column pickers before any
+    stats panel has loaded."""
+    return {"meta": METRICS}
+
+
 @app.get("/api/stats/metrics")
 def api_metrics(request: Request, from_ms: int | None = None, to_ms: int | None = None):
     params = dict(request.query_params)
@@ -1297,15 +1325,30 @@ def _blocks_payload(conn):
     for game in stats.block_games_detailed(conn):
         game["account"] = names.get(game["puuid"], "?")
         games_by_block.setdefault(game["block_id"], []).append(game)
+    series_titles = {r["id"]: r["title"] for r in
+                     conn.execute("SELECT id, title FROM block_series")}
+    # positional, gapless indices (by creation order) — deleting a block and
+    # making a new one never skips a number. global_index numbers across all
+    # blocks (series-off display); series_index restarts per series (series-on).
+    rows = db.list_blocks(conn)  # newest first
+    ordered = sorted(rows, key=lambda r: r["id"])
+    global_index = {r["id"]: i + 1 for i, r in enumerate(ordered)}
+    series_index, per_series = {}, {}
+    for r in ordered:
+        per_series[r["series_id"]] = per_series.get(r["series_id"], 0) + 1
+        series_index[r["id"]] = per_series[r["series_id"]]
     blocks = []
     size = db.get_block_size(conn)
-    for row in db.list_blocks(conn):
+    for row in rows:
         games = games_by_block.get(row["id"], [])
         closed = row["closed_at_ms"] is not None
         # pool_snapshot marks a block finalized under an earlier size setting
         finalized = closed or row["pool_snapshot"] is not None
         record = {**dict(row), "games": games, "closed": closed,
-                  "complete": finalized or len(games) >= size}
+                  "complete": finalized or len(games) >= size,
+                  "series_title": series_titles.get(row["series_id"], ""),
+                  "series_index": series_index[row["id"]],
+                  "global_index": global_index[row["id"]]}
         snapshot = record.pop("pool_snapshot", None)
         record["pool"] = json.loads(snapshot) if snapshot else None
         for key in ("start_ranks", "end_ranks"):
@@ -1319,7 +1362,21 @@ def _blocks_payload(conn):
 def api_blocks():
     conn = get_conn()
     try:
-        return {"blocks": _blocks_payload(conn), "block_size": db.get_block_size(conn)}
+        return {"blocks": _blocks_payload(conn), "block_size": db.get_block_size(conn),
+                "series_enabled": db.get_settings(conn).get("block_series_enabled") != "0"}
+    finally:
+        conn.close()
+
+
+@app.post("/api/blocks/series")
+def api_start_block_series(body: dict):
+    """Start a new block series so subsequent blocks number from #1 under it.
+    Optional `title`; blank → a generated "Since M/D/YYYY"."""
+    title = str((body or {}).get("title") or "").strip()
+    conn = get_conn()
+    try:
+        series_id = db.start_new_series(conn, title or None)
+        return {"series_id": series_id}
     finally:
         conn.close()
 
@@ -1881,6 +1938,7 @@ def _run_crawl():
         CRAWL_STATE["message"] = "fetching opponent ranks"
         crawler.enrich_ranks()
         crawler.backfill_metrics()
+        crawler.backfill_lane_deltas(block_games_only=True)  # deepen block-game stats
         crawler.refresh_tracked_ranks()
         db.set_settings(conn, {"last_crawl_ms": str(int(time.time() * 1000))})
         conn.close()
@@ -1896,12 +1954,67 @@ def _run_crawl():
 
 @app.post("/api/crawl")
 def api_crawl():
-    if CRAWL_STATE["running"]:
-        return JSONResponse({"detail": "crawl already running"}, status_code=409)
+    if _riot_job_running():
+        return JSONResponse({"detail": "a crawl or timeline fetch is already running"},
+                            status_code=409)
     CRAWL_STATE.update({"running": True, "message": "starting", "error": None,
                         "rate_limited": False})
     threading.Thread(target=_run_crawl, daemon=True).start()
     return {"started": True}
+
+
+def _run_timeline_backfill():
+    try:
+        from .crawler import Crawler
+        from .riot_client import RateLimiter, RiotClient
+
+        conn = db.connect(get_db_path())
+        settings = config.resolve_settings(conn)
+        if not settings["configured"]:
+            raise RuntimeError("not configured")
+        client = RiotClient(settings["riot_api_key"], platform=settings["platform"],
+                            limiter=RateLimiter())
+
+        def status_cb(msg):  # "lane-delta backfill: 3/8 matches"
+            head, _, tail = msg.partition(": ")
+            done, _, total = tail.replace(" matches", "").partition("/")
+            TIMELINE_STATE["done"] = int(done or 0)
+            TIMELINE_STATE["total"] = int(total or 0)
+
+        crawler = Crawler(client, conn, status_cb=status_cb)
+        crawler.backfill_lane_deltas(block_games_only=True)
+        conn.close()
+        TIMELINE_STATE["error"] = None
+    except Exception as exc:  # surfaced via /api/blocks/timeline-status
+        TIMELINE_STATE["error"] = str(exc)
+    finally:
+        TIMELINE_STATE["running"] = False
+
+
+@app.post("/api/blocks/backfill-timelines")
+def api_backfill_block_timelines():
+    """Kick off a background fetch of match timelines for block games missing
+    lane deltas (has_timeline=0). No-op (not an error) if nothing is pending
+    or a Riot job is already running."""
+    conn = get_conn()
+    try:
+        pending = conn.execute(
+            """SELECT COUNT(*) c FROM participant_metrics pm
+               WHERE pm.has_timeline = 0 AND EXISTS (
+                 SELECT 1 FROM block_games bg
+                 WHERE bg.match_id = pm.match_id AND bg.puuid = pm.puuid)""").fetchone()["c"]
+    finally:
+        conn.close()
+    if _riot_job_running() or not pending:
+        return {"started": False, "pending": pending}
+    TIMELINE_STATE.update({"running": True, "done": 0, "total": pending, "error": None})
+    threading.Thread(target=_run_timeline_backfill, daemon=True).start()
+    return {"started": True, "pending": pending}
+
+
+@app.get("/api/blocks/timeline-status")
+def api_block_timeline_status():
+    return TIMELINE_STATE
 
 
 @app.get("/api/crawl/status")

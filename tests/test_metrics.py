@@ -1,4 +1,4 @@
-from server.metrics import METRICS, metric_keys, parse_metrics
+from server.metrics import METRICS, metric_keys, parse_metrics, parse_timeline_deltas
 
 
 def sample_match(puuid="p1", challenges=True):
@@ -55,6 +55,57 @@ def test_parse_metrics_extracts_all_fields():
     assert values["time_dead"] == 259
     assert values["vision_adv"] == -0.439
     assert set(values) == set(metric_keys()) | {"has_challenges"}
+    # timeline-sourced metrics are unknown at parse time (no timeline here)
+    assert values["cs_diff_7"] is None
+    assert values["gold_diff_14"] is None
+
+
+def _timeline(me_pid=1, opp_pid=6, frames=None):
+    return {"info": {
+        "participants": [{"participantId": me_pid, "puuid": "me"},
+                         {"participantId": opp_pid, "puuid": "opp"}],
+        "frames": frames or [],
+    }}
+
+
+def _frame(ts, pids):
+    # pids: {participantId: (cs, jungleCs, level, gold)}
+    return {"timestamp": ts, "participantFrames": {
+        str(pid): {"minionsKilled": cs, "jungleMinionsKilled": jg,
+                   "level": lvl, "totalGold": gold}
+        for pid, (cs, jg, lvl, gold) in pids.items()}}
+
+
+def test_parse_timeline_deltas_computes_advantage_vs_opponent():
+    tl = _timeline(frames=[
+        _frame(0, {1: (0, 0, 1, 500), 6: (0, 0, 1, 500)}),
+        _frame(420_000, {1: (55, 4, 6, 2600), 6: (40, 0, 5, 2100)}),   # ~7 min
+        _frame(840_000, {1: (120, 8, 10, 5200), 6: (95, 0, 9, 4300)}),  # ~14 min
+    ])
+    d = parse_timeline_deltas(tl, "me", "opp")
+    assert d["cs_diff_7"] == (55 + 4) - 40      # 19
+    assert d["level_diff_7"] == 1
+    assert d["gold_diff_7"] == 500
+    assert d["cs_diff_14"] == (120 + 8) - 95    # 33
+    assert d["gold_diff_14"] == 900
+
+
+def test_parse_timeline_deltas_none_when_no_opponent_or_no_timeline():
+    tl = _timeline(frames=[_frame(420_000, {1: (10, 0, 4, 900), 6: (5, 0, 3, 700)})])
+    assert all(v is None for v in parse_timeline_deltas(tl, "me", None).values())
+    assert all(v is None for v in parse_timeline_deltas(None, "me", "opp").values())
+
+
+def test_parse_timeline_deltas_short_game_leaves_14m_none():
+    # only an early frame — nothing within tolerance of the 14-min mark
+    tl = _timeline(frames=[
+        _frame(0, {1: (0, 0, 1, 500), 6: (0, 0, 1, 500)}),
+        _frame(420_000, {1: (50, 0, 6, 2500), 6: (45, 0, 6, 2400)}),
+    ])
+    d = parse_timeline_deltas(tl, "me", "opp")
+    assert d["cs_diff_7"] == 5
+    assert d["cs_diff_14"] is None
+    assert d["gold_diff_14"] is None
 
 
 def test_parse_metrics_without_challenges_gives_nulls_for_challenge_fields():

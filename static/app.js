@@ -16,6 +16,7 @@ const state = {
   ddragonVersion: null,
   ddragonVersions: [], // recent DDragon versions, newest first (patch picker)
   poolOrder: null, // champion pool flattened in priority order; null = not fetched
+  dateFormat: "iso", // iso | us | eu — drives fmtDate/fmtTime
 };
 
 const QUEUE_NAMES = { 400: "Normal Draft", 420: "Ranked Solo", 430: "Normal Blind",
@@ -58,12 +59,28 @@ function fmtDuration(seconds) {
   return `${Math.floor(seconds / 60)}:${String(Math.round(seconds) % 60).padStart(2, "0")}`;
 }
 
+// date/time rendering honours the user's date_format setting
+// (state.dateFormat: "iso" YYYY-MM-DD / "us" M/D/YYYY / "eu" D/M/YYYY;
+// iso & eu use 24h time, us uses 12h). Full year — blocks now show dates.
 function fmtDate(ms) {
-  return new Date(ms).toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" });
+  const d = new Date(ms);
+  const y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
+  if (state.dateFormat === "us") return `${m}/${day}/${y}`;
+  if (state.dateFormat === "eu") return `${day}/${m}/${y}`;
+  return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`; // iso (default)
+}
+
+function fmtTime(ms) {
+  const d = new Date(ms);
+  if (state.dateFormat === "us") {
+    const h = d.getHours(), am = h < 12 ? "AM" : "PM", h12 = h % 12 || 12;
+    return `${h12}:${String(d.getMinutes()).padStart(2, "0")} ${am}`;
+  }
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function fmtDateTime(ms) {
-  return `${fmtDate(ms)} ${new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  return `${fmtDate(ms)} ${fmtTime(ms)}`;
 }
 
 function titleCase(tier) {
@@ -111,6 +128,64 @@ function renderColPicker(target, storageKey, columns, visible, onChange) {
     }));
 }
 
+// ---------- shared table sorting ----------
+// Column spec entry: {key, label, type: "num"|"text", get?(row), sortable?,
+// cls?}. sortState is {key, dir} (dir 1 asc / -1 desc) held in a view's state.
+// Rank tiers order low→high; UNKNOWN sorts last.
+const RANK_ORDINAL = { IRON: 0, BRONZE: 1, SILVER: 2, GOLD: 3, PLATINUM: 4,
+  EMERALD: 5, DIAMOND: 6, MASTER: 7, GRANDMASTER: 8, CHALLENGER: 9, UNKNOWN: -1 };
+
+function defaultSortDir(col) {
+  return col.type === "text" ? 1 : -1; // names A→Z, stats high→low
+}
+
+// a <thead> where sortable columns carry click-to-sort affordances.
+// `leading`/`trailing` are raw <th> strings for non-data columns (toggles).
+function sortableThead(columns, sortState, leading = "", trailing = "") {
+  const cells = columns.map((c) => {
+    if (c.sortable === false) return `<th class="${c.cls || ""}">${c.label}</th>`;
+    const active = sortState.key === c.key;
+    const arrow = active ? (sortState.dir === 1 ? "▲" : "▼") : "";
+    const ariaSort = active ? (sortState.dir === 1 ? "ascending" : "descending") : "none";
+    return `<th class="sortable ${c.cls || ""}${active ? " sorted" : ""}"
+      data-sort="${c.key}" aria-sort="${ariaSort}" title="Sort by ${escapeHtml(c.label)}"
+      >${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+  }).join("");
+  return `<thead><tr>${leading}${cells}${trailing}</tr></thead>`;
+}
+
+function sortRows(rows, sortState, columns) {
+  const col = columns.find((c) => c.key === sortState.key);
+  if (!col) return rows.slice();
+  const get = col.get || ((r) => r[col.key]);
+  const dir = sortState.dir;
+  return rows.slice().sort((a, b) => {
+    const va = get(a), vb = get(b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;   // nulls always last, regardless of direction
+    if (vb == null) return -1;
+    const cmp = (typeof va === "string" || typeof vb === "string")
+      ? String(va).localeCompare(String(vb)) : va - vb;
+    return dir * cmp;
+  });
+}
+
+// wire click-to-sort on a rendered table; toggles direction on the active
+// column, else switches to the clicked column at its natural default
+function wireSortable(container, sortState, columns, rerender) {
+  container.querySelectorAll("th[data-sort]").forEach((th) =>
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      if (sortState.key === key) {
+        sortState.dir *= -1;
+      } else {
+        sortState.key = key;
+        sortState.dir = defaultSortDir(columns.find((c) => c.key === key) || {});
+      }
+      rerender();
+    }));
+}
+
 function queryString() {
   const params = accountParams();
   if (state.range === "custom") {
@@ -143,13 +218,15 @@ function wrCell(winrate) {
 }
 
 // per-game "standard metrics" panel (same groups as the coaching/blocks views)
-function metricGroupsPanel(data) {
+function metricGroupsPanel(data, storageKey) {
   if (data === undefined) return `<div class="muted">Loading…</div>`;
   if (data === null) return `<div class="muted">No detailed metrics recorded for this game.</div>`;
-  const groups = [...new Set(data.meta.map((m) => m.group))];
+  const vis = storageKey ? visibleMetricKeys(storageKey) : null;
+  const meta = vis ? data.meta.filter((m) => vis.has(m.key)) : data.meta;
+  const groups = [...new Set(meta.map((m) => m.group))];
   return `<div class="metric-groups">` + groups.map((g) =>
     `<div class="metric-group"><h4>${g}</h4>` +
-    data.meta.filter((m) => m.group === g).map((m) => `<div class="metric-row">
+    meta.filter((m) => m.group === g).map((m) => `<div class="metric-row">
         <span class="metric-label">${m.label}</span>
         <span class="metric-value">${fmtMetric(data.metrics[m.key], m)}</span>
       </div>`).join("") + `</div>`).join("") + `</div>`;
@@ -356,13 +433,24 @@ function renderRankChart() {
   });
 }
 
+const CHAMP_SORT_COLS = [
+  { key: "champion", label: "Champion", type: "text", get: (r) => displayName(r.champion) },
+  { key: "games", label: "Games", type: "num" },
+  { key: "wins", label: "W–L", type: "num", get: (r) => r.wins },
+  { key: "winrate", label: "Winrate", type: "num", cls: "wr-col" },
+  { key: "kda", label: "KDA", type: "num" },
+  { key: "cs_min", label: "CS/min", type: "num" },
+];
+const champSort = { key: "games", dir: -1 };
+
 function renderChampionTable(byChampion) {
   const target = $("#champion-table");
   if (!byChampion.length) {
     target.innerHTML = `<div class="table-wrap"><div class="empty">No games.</div></div>`;
     return;
   }
-  const body = byChampion.map((row) => `<tr>
+  state.byChampion = byChampion;
+  const body = sortRows(byChampion, champSort, CHAMP_SORT_COLS).map((row) => `<tr>
       <td><span class="champ-cell">${champIcon(row.champion)}${displayName(row.champion)}</span></td>
       <td>${row.games}</td>
       <td>${row.wins}–${row.games - row.wins}</td>
@@ -371,11 +459,14 @@ function renderChampionTable(byChampion) {
       <td>${fmt(row.cs_min)}</td>
     </tr>`).join("");
   target.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Champion</th><th>Games</th><th>W–L</th><th class="wr-col">Winrate</th><th>KDA</th><th>CS/min</th></tr></thead>
+    ${sortableThead(CHAMP_SORT_COLS, champSort)}
     <tbody>${body}</tbody></table></div>`;
+  wireSortable(target, champSort, CHAMP_SORT_COLS, () => renderChampionTable(state.byChampion));
 }
 
-const recentUi = { runesOpen: new Set() };
+const recentUi = { runesOpen: new Set(), sort: { key: "date", dir: -1 } };
+
+function kdaRatio(g) { return (g.kills + g.assists) / Math.max(1, g.deaths); }
 
 function runesCompareCol(champ, runes, whose) {
   const body = runes
@@ -398,7 +489,23 @@ function renderRecent(recent) {
   const multi = selectedPuuids().length > 1;
   const colCount = 10 + (multi ? 1 : 0);
   const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
-  const body = recent.map((g) => {
+  const cols = [
+    { key: "date", label: "Date", type: "num", get: (g) => g.game_creation_ms },
+    ...(multi ? [{ key: "account", label: "Account", type: "text",
+                   get: (g) => names.get(g.my_puuid) ?? "?" }] : []),
+    { key: "queue", label: "Queue", type: "text", get: (g) => QUEUE_NAMES[g.queue_id] ?? String(g.queue_id) },
+    { key: "me", label: "Me", type: "text", get: (g) => displayName(g.my_champion) },
+    { key: "opponent", label: "Opponent", type: "text",
+      get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
+    { key: "opp_rank", label: "Opp. rank", type: "num",
+      get: (g) => (g.opp_champion ? RANK_ORDINAL[g.rank_tier] : null) },
+    { key: "result", label: "Result", type: "num", get: (g) => (g.win ? 1 : 0) },
+    { key: "kda", label: "K/D/A", type: "num", get: kdaRatio },
+    { key: "length", label: "Length", type: "num", get: (g) => g.game_duration_s },
+    { key: "runes", label: "Runes", sortable: false },
+    { key: "block", label: "", sortable: false },
+  ];
+  const body = sortRows(recent, recentUi.sort, cols).map((g) => {
     const gkey = `${g.match_id}:${g.my_puuid}`;
     const open = recentUi.runesOpen.has(gkey);
     const hasRunes = g.runes || g.opp_runes;
@@ -428,9 +535,9 @@ function renderRecent(recent) {
     return html;
   }).join("");
   target.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Date</th>${multi ? "<th>Account</th>" : ""}<th>Queue</th><th>Me</th><th>Opponent</th><th>Opp. rank</th>
-    <th>Result</th><th>K/D/A</th><th>Length</th><th>Runes</th><th></th></tr></thead>
+    ${sortableThead(cols, recentUi.sort)}
     <tbody>${body}</tbody></table></div>`;
+  wireSortable(target, recentUi.sort, cols, () => renderRecent(recent));
   wirePromoteButtons(target);
   target.querySelectorAll(".runes-toggle").forEach((btn) =>
     btn.addEventListener("click", () => {
@@ -583,7 +690,37 @@ async function ensureSegmentMetrics(segment) {
 }
 
 function fmtMetric(value, m) {
-  return value == null ? "–" : value.toFixed(m.decimals) + (m.suffix || "");
+  if (value == null) return "–";
+  const sign = m.signed && value > 0 ? "+" : "";
+  return sign + value.toFixed(m.decimals) + (m.suffix || "");
+}
+
+// ---------- per-view metric column pickers ----------
+// All metric panels render from the shared registry meta; each view keeps its
+// own visible set (default_hidden metrics — e.g. the lane Δ's — start off).
+
+async function ensureMetricsMeta() {
+  if (!state.metricsMeta) state.metricsMeta = (await getJSON("/api/metrics/meta")).meta;
+  return state.metricsMeta;
+}
+
+// visible metric keys for a view, honouring default_hidden and saved prefs
+function visibleMetricKeys(storageKey) {
+  const meta = state.metricsMeta || [];
+  return colPrefs(storageKey, meta.map((m) => m.key),
+                  meta.filter((m) => !m.default_hidden).map((m) => m.key));
+}
+
+// meta filtered to a view's visible metrics, for a panel to render
+function visibleMeta(storageKey) {
+  const vis = visibleMetricKeys(storageKey);
+  return (state.metricsMeta || []).filter((m) => vis.has(m.key));
+}
+
+function renderMetricColPicker(target, storageKey, onChange) {
+  const meta = state.metricsMeta || [];
+  renderColPicker(target, storageKey, meta.map((m) => ({ key: m.key, label: m.label })),
+                  visibleMetricKeys(storageKey), onChange);
 }
 
 function metricDelta(current, previous, m) {
@@ -602,7 +739,7 @@ function segmentMetricsPanel(segment) {
   if (!data) return `<div class="muted">Loading…</div>`;
   const prev = prevNonEmpty(segment);
   const prevData = prev ? segmentUi.cache.get("metrics:" + segKey(prev)) : null;
-  const meta = state.metricsMeta || [];
+  const meta = visibleMeta("cp-metriccols-progress");
   const groups = [...new Set(meta.map((m) => m.group))];
   const coverage = data.metrics_games < data.games
     ? `<div class="muted" style="margin-bottom:8px">Detailed metrics available for
@@ -1156,6 +1293,8 @@ async function initSettings() {
   $("#setting-block-size").value = data.block_size;
   $("#setting-block-gap").value = data.block_gap_hours;
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
+  $("#setting-block-series").checked = Boolean(data.block_series_enabled);
+  $("#setting-date-format").value = data.date_format || "iso";
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   await loadChampionRoster(); // pool chips + legacy select need display names
   loadPool(); // blocks.js — hydrates the pool editor now hosted in Settings
@@ -1322,6 +1461,8 @@ async function initSettings() {
         block_size: Math.max(1, parseInt($("#setting-block-size").value, 10) || 3),
         block_gap_hours: Math.min(168, Math.max(0, parseFloat($("#setting-block-gap").value) || 0)),
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
+        block_series_enabled: $("#setting-block-series").checked,
+        date_format: $("#setting-date-format").value,
         hide_my_rank: $("#setting-hide-rank").checked,
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
         accent_color: $("#setting-accent-reset").classList.contains("hidden")
@@ -1336,6 +1477,10 @@ async function initSettings() {
       }
       applyHiddenViews(body.hidden_views);
       applyAppearance(body);
+      if (state.dateFormat !== body.date_format) {
+        state.dateFormat = body.date_format;
+        refresh(); // re-render visible dates in the new format
+      }
       $("#settings-banner").classList.add("hidden");
       if (settingsUi.wasUnconfigured && body.configured) {
         settingsUi.wasUnconfigured = false;
@@ -1576,6 +1721,8 @@ function wireFilters() {
   $("#min-games").addEventListener("change", (e) => { state.minGames = Math.max(1, +e.target.value || 1); refresh(); });
   renderColPicker($("#progress-cols"), "cp-cols-progress", PROGRESS_COLS, progressCols,
     () => renderProgress(segmentUi.segments));
+  renderMetricColPicker($("#progress-metric-cols"), "cp-metriccols-progress",
+    () => renderProgress(segmentUi.segments));
   $("#crawl-btn").addEventListener("click", startCrawl);
   $("#champion-table-toggle").addEventListener("click", () => {
     const btn = $("#champion-table-toggle");
@@ -1612,6 +1759,7 @@ async function init(firstLoad = true) {
   state.players = await getJSON("/api/players");
   if (firstLoad) {
     await loadDdragonVersion();
+    await ensureMetricsMeta(); // metric column pickers (wired below) need it
     wireFilters();
     wireProgress();
     wireChangelog();
@@ -1619,6 +1767,7 @@ async function init(firstLoad = true) {
     checkForUpdates();
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
+    state.dateFormat = settings.date_format || "iso";
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);

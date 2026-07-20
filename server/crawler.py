@@ -2,8 +2,10 @@
 import time
 
 from . import db, rune_data
-from .metrics import parse_metrics
+from .metrics import parse_metrics, parse_timeline_deltas
 from .parsing import parse_match
+
+_NO_TIMELINE = object()  # _store_metrics sentinel: no timeline fetch was attempted
 
 RANK_TTL_MS = 7 * 86_400_000  # re-fetch a player's rank after 7 days
 PAGE_SIZE = 100
@@ -54,7 +56,8 @@ class Crawler:
                     match_json = self.client.get_match(match_id)
                     match_row, participant_rows = parse_match(match_json)
                     if db.insert_match(self.conn, match_row, participant_rows):
-                        self._store_metrics(match_json)
+                        timeline = self._safe_timeline(match_id)
+                        self._store_metrics(match_json, timeline)
                         self._store_runes(match_json)
                         new_matches += 1
                         self.status_cb(
@@ -78,14 +81,44 @@ class Crawler:
         return {r["puuid"] for r in
                 self.conn.execute("SELECT puuid FROM players WHERE is_tracked=1")}
 
-    def _store_metrics(self, match_json):
+    def _lane_opponent(self, match_json, puuid):
+        """Enemy in the same teamPosition (the direct lane opponent), or None."""
+        participants = match_json["info"]["participants"]
+        me = next((p for p in participants if p["puuid"] == puuid), None)
+        if not me or not me.get("teamPosition"):
+            return None
+        enemy = next((q for q in participants
+                      if q["teamId"] != me["teamId"]
+                      and q.get("teamPosition") == me["teamPosition"]), None)
+        return enemy["puuid"] if enemy else None
+
+    def _safe_timeline(self, match_id):
+        """Fetch the match timeline, tolerating failure — lane deltas are a
+        bonus, not worth aborting a crawl over (older matches can 404)."""
+        try:
+            return self.client.get_match_timeline(match_id)
+        except Exception:  # noqa: BLE001 — never let a timeline break the crawl
+            return None
+
+    def _store_metrics(self, match_json, timeline=_NO_TIMELINE):
+        """Store challenge/participant metrics for tracked players. When a
+        timeline was fetched (crawl path — pass it even if the fetch returned
+        None), also fill the lane-delta columns and mark has_timeline=1 so the
+        backfill skips the match. Omitting `timeline` (backfill_metrics path)
+        leaves the timeline columns untouched."""
         tracked = self._tracked_puuids()
         match_id = match_json["metadata"]["matchId"]
+        attempted_timeline = timeline is not _NO_TIMELINE
         for participant in match_json["info"]["participants"]:
-            if participant["puuid"] in tracked:
-                values = parse_metrics(match_json, participant["puuid"])
-                db.insert_participant_metrics(self.conn, match_id,
-                                              participant["puuid"], values)
+            if participant["puuid"] not in tracked:
+                continue
+            puuid = participant["puuid"]
+            values = parse_metrics(match_json, puuid)
+            if attempted_timeline:
+                opp = self._lane_opponent(match_json, puuid)
+                values.update(parse_timeline_deltas(timeline, puuid, opp))  # None -> all None
+                values["has_timeline"] = 1
+            db.insert_participant_metrics(self.conn, match_id, puuid, values)
 
     def backfill_metrics(self, limit=None):
         """Re-fetch details for stored matches whose tracked participants
@@ -154,6 +187,39 @@ class Crawler:
             self._store_runes(self.client.get_match(row["match_id"]))
             count += 1
             self.status_cb(f"runes backfill: {count}/{len(rows)} matches")
+        return count
+
+    def backfill_lane_deltas(self, limit=None, block_games_only=False):
+        """Fetch the match timeline for tracked-participant metrics rows that
+        don't have lane deltas yet (has_timeline=0) and fill in the ΔCS/level/
+        gold-vs-opponent columns. The lane opponent comes from the stored
+        participants (same team_position, other team), so this needs only the
+        timeline — not the match detail. A missing/failed timeline still marks
+        the row done (blank deltas) so it isn't retried forever.
+        block_games_only restricts to games sitting in a block (used by the
+        web app to deepen block insights proactively). Returns matches fetched."""
+        block_filter = ("AND EXISTS (SELECT 1 FROM block_games bg "
+                        "WHERE bg.match_id = pm.match_id AND bg.puuid = pm.puuid)"
+                        if block_games_only else "")
+        rows = self.conn.execute(
+            f"""SELECT me.match_id, me.puuid, opp.puuid AS opp_puuid
+               FROM participant_metrics pm
+               JOIN participants me ON me.match_id = pm.match_id AND me.puuid = pm.puuid
+               JOIN players pl ON pl.puuid = me.puuid AND pl.is_tracked = 1
+               LEFT JOIN participants opp
+                 ON opp.match_id = me.match_id AND opp.team_id != me.team_id
+                    AND opp.team_position = me.team_position AND me.team_position != ''
+               WHERE pm.has_timeline = 0 {block_filter}"""
+        ).fetchall()
+        count = 0
+        for row in rows:
+            if limit is not None and count >= limit:
+                break
+            timeline = self._safe_timeline(row["match_id"])
+            deltas = parse_timeline_deltas(timeline, row["puuid"], row["opp_puuid"])
+            db.update_participant_timeline(self.conn, row["match_id"], row["puuid"], deltas)
+            count += 1
+            self.status_cb(f"lane-delta backfill: {count}/{len(rows)} matches")
         return count
 
     def _stale_before(self):

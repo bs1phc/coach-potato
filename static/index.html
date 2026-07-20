@@ -58,7 +58,8 @@
       <select id="progress-queue"><option value="">All</option></select>
     </div>
     <span class="muted">Selected accounts · top lane only</span>
-    <span id="progress-cols" style="margin-left:auto"></span>
+    <span id="progress-metric-cols" style="margin-left:auto"></span>
+    <span id="progress-cols"></span>
   </section>
 
   <section>
@@ -149,6 +150,13 @@
         Ask before auto-closing a block</label>
       <p class="muted">Untick to auto-close silently when the time gap is exceeded.</p>
     </div>
+    <div class="settings-field">
+      <label><input type="checkbox" id="setting-block-series" checked>
+        Group blocks into series</label>
+      <p class="muted">A series (e.g. a 2-week challenge) gives your blocks a shared
+        title with a per-series number after it, and a "+ New series" button on the
+        Blocks page. Untick to just number blocks continuously as "#1, #2, …".</p>
+    </div>
 
     <h3 class="settings-group-head">Interface</h3>
     <div class="settings-field">
@@ -206,6 +214,15 @@
     </div>
 
     <h3 class="settings-group-head">Appearance</h3>
+    <div class="settings-field">
+      <label class="filter-label" for="setting-date-format">Date format</label>
+      <select id="setting-date-format" style="max-width:16em">
+        <option value="iso">ISO — 2026-07-20 (24h)</option>
+        <option value="us">US — 7/20/2026 (12h)</option>
+        <option value="eu">EU — 20/7/2026 (24h)</option>
+      </select>
+      <p class="muted">How dates and times are shown throughout the app.</p>
+    </div>
     <div class="settings-field">
       <label class="filter-label" for="setting-accent-color">Accent color</label>
       <div class="accent-color-row">
@@ -287,8 +304,12 @@
   <section>
     <div class="section-head">
       <h2>Blocks</h2>
+      <span id="blocks-timeline-status" class="muted"></span>
       <div class="head-actions">
         <span id="blocks-export-status" class="muted"></span>
+        <span id="active-series-name" class="muted" title="Current block series"></span>
+        <button id="new-series-btn" class="preset hidden" type="button"
+          title="Start a new block series (e.g. a 2-week challenge)">+ New series</button>
         <span id="blocks-cols"></span>
         <details class="col-picker">
           <summary class="preset icon-btn" title="Export all blocks" aria-label="Export all blocks">📤</summary>
@@ -348,6 +369,7 @@
       <button id="mu-view-flat" class="active" role="tab">By matchup</button>
       <button id="mu-view-rank" role="tab">Grouped by opponent rank</button>
     </div>
+    <span id="mu-metric-cols" style="margin-left:auto"></span>
   </div>
   <p class="muted">Expand a matchup for the win/loss timeline and block notes. Pick a
     "My champion" filter to jump to its Matchup guide (📖) for runes, patch, and
@@ -467,6 +489,7 @@
       <select id="trend-queue"><option value="">All</option></select>
     </div>
     <span class="muted">Selected accounts · top lane only</span>
+    <span id="trend-metric-cols" style="margin-left:auto"></span>
   </section>
 
   <div id="trend-charts"></div>

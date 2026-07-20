@@ -11,6 +11,7 @@ const blockState = {
   expandedGameStats: new Set(),
   gameMetricsCache: new Map(),
   gameClipsCache: new Map(),
+  gameSort: { key: "date", dir: 1 }, // shared across block tables; oldest-first default
   focusId: null, // block to scroll to + highlight after the next render
 };
 
@@ -33,6 +34,13 @@ const BLOCK_COLS = [
   { key: "opponent", label: "Opponent" },
   { key: "lane7", label: "Lane (7m)", off: true },
   { key: "lane14", label: "Lane (14m)" },
+  // lane deltas vs the opponent from the match timeline — off by default
+  { key: "cs_diff_7", label: "ΔCS (7m)", off: true },
+  { key: "level_diff_7", label: "ΔLvl (7m)", off: true },
+  { key: "gold_diff_7", label: "ΔGold (7m)", off: true },
+  { key: "cs_diff_14", label: "ΔCS (14m)", off: true },
+  { key: "level_diff_14", label: "ΔLvl (14m)", off: true },
+  { key: "gold_diff_14", label: "ΔGold (14m)", off: true },
   { key: "result", label: "Result" },
   { key: "kda", label: "K/D/A" },
   { key: "cs", label: "CS/min" },
@@ -40,9 +48,38 @@ const BLOCK_COLS = [
   { key: "rank", label: "Rank (start → end)" },
 ];
 const GAME_COL_KEYS = ["date", "account", "me", "opponent", "lane7", "lane14",
+                       "cs_diff_7", "level_diff_7", "gold_diff_7",
+                       "cs_diff_14", "level_diff_14", "gold_diff_14",
                        "result", "kda", "cs", "notes"];
-// v2 storage key: new columns get their intended defaults for existing installs
-const blockCols = colPrefs("cp-cols-blocks-v2", BLOCK_COLS.map((c) => c.key),
+// sort type + accessor per block-game column (kdaRatio/displayName from app.js)
+const BLOCK_GAME_SORT = {
+  date: { type: "num", get: (g) => g.game_creation_ms },
+  account: { type: "text", get: (g) => g.account },
+  me: { type: "text", get: (g) => displayName(g.my_champion) },
+  opponent: { type: "text", get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
+  lane7: { type: "num", get: (g) => g.lane_adv_early },
+  lane14: { type: "num", get: (g) => g.lane_adv_late },
+  cs_diff_7: { type: "num", get: (g) => g.cs_diff_7 },
+  level_diff_7: { type: "num", get: (g) => g.level_diff_7 },
+  gold_diff_7: { type: "num", get: (g) => g.gold_diff_7 },
+  cs_diff_14: { type: "num", get: (g) => g.cs_diff_14 },
+  level_diff_14: { type: "num", get: (g) => g.level_diff_14 },
+  gold_diff_14: { type: "num", get: (g) => g.gold_diff_14 },
+  result: { type: "num", get: (g) => (g.win ? 1 : 0) },
+  kda: { type: "num", get: kdaRatio },
+  cs: { type: "num", get: (g) => (g.cs * 60 / g.game_duration_s) },
+  notes: { sortable: false },
+};
+const BLOCK_GAME_COLS_ALL = GAME_COL_KEYS.map((k) => ({ key: k, ...BLOCK_GAME_SORT[k] }));
+
+function visibleBlockGameCols() {
+  return GAME_COL_KEYS.filter((k) => blockCols.has(k)).map((k) => ({
+    key: k, label: BLOCK_COLS.find((c) => c.key === k).label,
+    cls: k === "notes" ? "notes-col" : "", ...BLOCK_GAME_SORT[k],
+  }));
+}
+// v3 storage key: new delta columns get their intended defaults for existing installs
+const blockCols = colPrefs("cp-cols-blocks-v3", BLOCK_COLS.map((c) => c.key),
   BLOCK_COLS.filter((c) => !c.off).map((c) => c.key));
 
 const POOL_ROLES = {
@@ -56,6 +93,7 @@ async function initBlocks() {
     blockState.wired = true;
     // the pool editor itself lives in Settings (wired by initSettings) —
     // Blocks only shows the read-only summary with an edit shortcut
+    $("#new-series-btn").addEventListener("click", startNewSeries);
     $("#pool-edit-btn").addEventListener("click", () => {
       setMainView("settings");
       requestAnimationFrame(() =>
@@ -69,7 +107,7 @@ async function initBlocks() {
       // download links inside export menus should also collapse the menu
       if (e.target.matches(".col-menu a")) closeMenus();
     });
-    renderColPicker($("#blocks-cols"), "cp-cols-blocks", BLOCK_COLS, blockCols,
+    renderColPicker($("#blocks-cols"), "cp-cols-blocks-v3", BLOCK_COLS, blockCols,
       () => renderBlocks());
     await loadChampionRoster();
   }
@@ -83,7 +121,9 @@ function discordMarkdown(blocks) {
   for (const block of blocks) {
     const wins = block.games.filter((g) => g.win).length;
     const title = block.title ? ` — ${block.title}` : "";
-    lines.push(`**Block #${block.id}${title}** (${wins}–${block.games.length - wins})`);
+    const heading = blockState.seriesEnabled
+      ? `${block.series_title} #${block.series_index}` : `Block #${block.global_index}`;
+    lines.push(`**${heading}${title}** (${wins}–${block.games.length - wins})`);
     if (block.pool) {
       lines.push(`Pool: ★ ${champDisplay(block.pool.main_blind) || "–"}` +
         ` · Core: ${block.pool.core.map(champDisplay).join(", ") || "–"}` +
@@ -289,7 +329,9 @@ async function loadBlocks() {
   const data = await getJSON("/api/blocks");
   blockState.blocks = data.blocks;
   blockState.blockSize = data.block_size;
+  blockState.seriesEnabled = data.series_enabled;
   renderBlocks();
+  maybeBackfillBlockTimelines();
   if (blockState.focusId != null) {
     const card = $(`#block-card-${blockState.focusId}`);
     blockState.focusId = null;
@@ -304,17 +346,10 @@ async function loadBlocks() {
 
 function gameMetricsPanel(entryId, game) {
   const data = blockState.gameMetricsCache.get(entryId);
-  const metrics = data === null
-    ? `<div class="muted">No detailed metrics recorded for this game.</div>`
-    : !data ? `<div class="muted">Loading…</div>`
-    : `<div class="metric-groups">` + [...new Set(data.meta.map((m) => m.group))].map((g) => {
-        const rows = data.meta.filter((m) => m.group === g).map((m) => `
-          <div class="metric-row">
-            <span class="metric-label">${m.label}</span>
-            <span class="metric-value">${fmtMetric(data.metrics[m.key], m)}</span>
-          </div>`).join("");
-        return `<div class="metric-group"><h4>${g}</h4>${rows}</div>`;
-      }).join("") + `</div>`;
+  // expanded panel shows ALL stats (no column picker here — the picker is on
+  // the block table's row columns instead); metricGroupsPanel handles the
+  // loading/empty states (undefined cache entry → "Loading…")
+  const metrics = metricGroupsPanel(data === undefined ? undefined : data);
   const runes = (game.runes || game.opp_runes) ? `<div class="runes-compare">${
     runesCompareCol(game.my_champion, game.runes, "you")}${
     game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""
@@ -347,6 +382,45 @@ function laneCell(value) {
     : `<td><span class="lane-no" title="Behind in lane">✗</span></td>`;
 }
 
+// signed lane-delta cell. Until the game's timeline has been fetched
+// (has_timeline !== 1) the value is unknown, not zero — show a "crawling"
+// marker rather than a misleading number.
+function deltaCell(game, value, decimals) {
+  if (game.has_timeline !== 1) return `<td class="muted" title="Fetching deeper stats…">⏳</td>`;
+  if (value == null) return `<td class="muted" title="No lane opponent / data">–</td>`;
+  const sign = value > 0 ? "+" : "";
+  const cls = value > 0 ? "delta-up" : value < 0 ? "delta-down" : "";
+  return `<td class="${cls}">${sign}${value.toFixed(decimals)}</td>`;
+}
+
+// Kick off (once per session) a background fetch of match timelines for block
+// games still missing lane deltas, and poll until it's done — refreshing the
+// block list so the ⏳ markers resolve into real numbers.
+async function maybeBackfillBlockTimelines() {
+  const el = $("#blocks-timeline-status");
+  const games = blockState.blocks.flatMap((b) => b.games);
+  const pending = games.filter((g) => g.has_timeline === 0).length;
+  if (!pending) { if (!blockState.timelinePolling) el.textContent = ""; return; }
+  if (blockState.timelinePolling || blockState.timelineTriggered) return;
+  blockState.timelineTriggered = true; // one auto-attempt per page load
+  const resp = await fetch("/api/blocks/backfill-timelines", { method: "POST" })
+    .then((r) => r.json()).catch(() => ({}));
+  if (!resp.started) return; // a full crawl is running (it'll fill them) or none pending
+  blockState.timelinePolling = true;
+  const poll = async () => {
+    const s = await getJSON("/api/blocks/timeline-status").catch(() => null);
+    if (s && s.running) {
+      el.innerHTML = `<span class="spinner"></span> Fetching deeper stats… ${s.done}/${s.total}`;
+      setTimeout(poll, 2000);
+    } else {
+      blockState.timelinePolling = false;
+      el.textContent = s && s.error ? "Couldn't fetch some timelines — try Update data." : "";
+      if (!(s && s.error)) loadBlocks(); // refresh has_timeline + delta values
+    }
+  };
+  poll();
+}
+
 function blockGameRow(g) {
   const statsOpen = blockState.expandedGameStats.has(g.entry_id);
   const cells = {
@@ -359,6 +433,12 @@ function blockGameRow(g) {
     cs: `<td>${(g.cs * 60 / g.game_duration_s).toFixed(1)}</td>`,
     lane7: laneCell(g.lane_adv_early),
     lane14: laneCell(g.lane_adv_late),
+    cs_diff_7: deltaCell(g, g.cs_diff_7, 1),
+    level_diff_7: deltaCell(g, g.level_diff_7, 0),
+    gold_diff_7: deltaCell(g, g.gold_diff_7, 0),
+    cs_diff_14: deltaCell(g, g.cs_diff_14, 1),
+    level_diff_14: deltaCell(g, g.level_diff_14, 0),
+    gold_diff_14: deltaCell(g, g.gold_diff_14, 0),
     notes: `<td class="notes-cell">${blockState.editingNotes === g.entry_id
       ? `<textarea class="game-notes" data-entry="${g.entry_id}" rows="1"
            placeholder="notes… (Markdown, Enter saves, Shift+Enter new line)">${escapeHtml(g.notes)}</textarea>`
@@ -366,10 +446,14 @@ function blockGameRow(g) {
           g.notes ? renderNotes(g.notes) : `<span class="muted">notes…</span>`}</div>`}</td>`,
   };
   const visible = GAME_COL_KEYS.filter((k) => blockCols.has(k));
+  // always-visible cue (independent of the Δ columns) that deeper timeline
+  // stats for this game are still being fetched
+  const pendingMark = g.has_timeline === 0 || g.has_timeline == null
+    ? `<span class="timeline-pending" title="Fetching deeper stats…">⏳</span>` : "";
   let html = `<tr>
     <td><button class="preset seg-toggle game-stats-toggle" data-entry="${g.entry_id}"
       data-match="${g.match_id}" data-puuid="${g.puuid}" aria-expanded="${statsOpen}"
-      title="Per-game stats">${statsOpen ? "▾" : "▸"}</button></td>` +
+      title="Per-game stats">${statsOpen ? "▾" : "▸"}</button>${pendingMark}</td>` +
     visible.map((k) => cells[k]).join("") +
     `<td><button class="preset game-remove" data-entry="${g.entry_id}" title="Remove from block">×</button></td>
   </tr>`;
@@ -399,6 +483,32 @@ function blockPoolChips(pool) {
   return `<div class="block-pool"><span class="muted">Pool at completion:</span> ${chips}</div>`;
 }
 
+// a block's default date (earliest game, else when it was created) — used as
+// the placeholder/name when the block hasn't been given a title
+function blockDate(block) {
+  const times = block.games.map((g) => g.game_creation_ms).filter(Boolean);
+  const ms = times.length ? Math.min(...times) : block.created_at_ms;
+  return ms ? fmtDate(ms) : "";  // fmtDate from app.js
+}
+
+// the muted "#index" shown after the name (per-series when series are on,
+// else the continuous global number)
+function blockIndex(block) {
+  return blockState.seriesEnabled ? block.series_index : block.global_index;
+}
+
+async function startNewSeries() {
+  const suggested = `Since ${fmtDate(Date.now())}`;  // app.js — honours the date-format setting
+  const title = prompt("Name this block series (blocks in it number from #1):", suggested);
+  if (title === null) return; // cancelled
+  await fetch("/api/blocks/series", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title.trim() }),
+  });
+  loadBlocks();
+}
+
 function blockCard(block, isCurrent) {
   const wins = block.games.filter((g) => g.win).length;
   const collapsed = blockState.collapsed.has(block.id);
@@ -424,19 +534,24 @@ function blockCard(block, isCurrent) {
         : `<p class="muted">No learnings recorded yet.</p>`}</div>
     </div>`;
   }
+  const seriesBubble = blockState.seriesEnabled
+    ? `<span class="block-series-bubble" title="Block series">${
+        escapeHtml(block.series_title || "Series")}</span>` : "";
   const head = `<div class="session-head">
       <button class="preset session-toggle block-collapse" data-id="${block.id}"
         aria-expanded="${!collapsed}" title="${collapsed ? "Expand" : "Collapse"} block">
         ${collapsed ? "▸" : "▾"}</button>
-      <span class="session-date">Block #${block.id}</span>
-      ${isCurrent ? `<span class="block-badge">current</span>` : ""}
+      <input type="text" class="block-title" data-id="${block.id}"
+        value="${escapeHtml(block.title)}" placeholder="${escapeHtml(blockDate(block))}"
+        title="Block name (defaults to its date)">
+      <span class="block-index" title="Block number">#${blockIndex(block)}</span>
+      ${isCurrent ? `<span class="block-badge">active</span>` : ""}
       ${block.closed ? `<span class="block-badge block-closed"
         title="Closed before reaching ${blockState.blockSize} games">closed early</span>` : ""}
       <span class="muted">${block.games.length}/${blockState.blockSize} games
         ${block.games.length ? `· ${wins}–${block.games.length - wins}` : ""}</span>
-      <input type="text" class="block-title" data-id="${block.id}"
-        value="${escapeHtml(block.title)}" placeholder="block title…">
-      <span class="session-actions">
+      <span class="session-actions block-head-right">
+        ${seriesBubble}
         ${isCurrent && !block.complete && block.games.length ? `<button class="preset block-close"
           data-id="${block.id}" title="Close this block before it reaches ${blockState.blockSize} games">
           Close early</button>` : ""}
@@ -454,33 +569,40 @@ function blockCard(block, isCurrent) {
       </span>
     </div>`;
   if (collapsed) {
-    return `<div class="session-card block-card" id="block-card-${block.id}">${head}</div>`;
+    return `<div class="session-card block-card${isCurrent ? " block-current" : ""}" id="block-card-${block.id}">${head}</div>`;
   }
-  const headerCells = GAME_COL_KEYS.filter((k) => blockCols.has(k)).map((k) => {
-    const label = BLOCK_COLS.find((c) => c.key === k).label;
-    return `<th${k === "notes" ? ' class="notes-col"' : ""}>${label}</th>`;
-  }).join("");
-  return `<div class="session-card block-card" id="block-card-${block.id}">
+  const thead = sortableThead(visibleBlockGameCols(), blockState.gameSort, "<th></th>", "<th></th>");
+  const sortedGames = sortRows(block.games, blockState.gameSort, BLOCK_GAME_COLS_ALL);
+  return `<div class="session-card block-card${isCurrent ? " block-current" : ""}" id="block-card-${block.id}">
     ${head}
     ${blockPoolChips(block.pool)}
     ${blockRankLine(block)}
     ${block.games.length ? `<div class="table-wrap block-games"><table>
-      <thead><tr><th></th>${headerCells}<th></th></tr></thead>
-      <tbody>${block.games.map(blockGameRow).join("")}</tbody></table></div>` : ""}
+      ${thead}
+      <tbody>${sortedGames.map(blockGameRow).join("")}</tbody></table></div>` : ""}
     ${learnings}
   </div>`;
 }
 
 function renderBlocks() {
+  $("#new-series-btn").classList.toggle("hidden", !blockState.seriesEnabled);
+  // show the active (current) series name next to the button — the series of
+  // the newest block, which is where new blocks land
+  const current = blockState.blocks.length
+    ? blockState.blocks.reduce((a, b) => (b.id > a.id ? b : a)) : null;
+  $("#active-series-name").textContent =
+    blockState.seriesEnabled && current ? `Series: ${current.series_title}` : "";
   const target = $("#blocks-list");
   if (!blockState.blocks.length) {
-    target.innerHTML = `<div class="muted">No blocks yet — add a game below to start Block #1.</div>`;
+    target.innerHTML = `<div class="muted">No blocks yet — add a game below to start your first block.</div>`;
     return;
   }
   const currentId = Math.max(...blockState.blocks.map((b) => b.id));
   target.innerHTML = blockState.blocks
     .map((b) => blockCard(b, b.id === currentId && !b.closed)).join("");
 
+  // one shared game-sort across every block table (app.js helper)
+  wireSortable(target, blockState.gameSort, BLOCK_GAME_COLS_ALL, () => renderBlocks());
   target.querySelectorAll(".block-close").forEach((btn) =>
     btn.addEventListener("click", async () => {
       if (!confirm("Close this block early? A closed block can't be reopened — "

@@ -1177,6 +1177,73 @@ def _make_block_game_entry(client):
     return entry["entry_id"], block_id
 
 
+def test_block_timeline_backfill_endpoint_no_pending(client):
+    # nothing in any block → nothing to fetch; must not start a background job
+    assert client.post("/api/blocks/backfill-timelines").json() == {"started": False, "pending": 0}
+    status = client.get("/api/blocks/timeline-status").json()
+    assert status["running"] is False and "done" in status and "total" in status
+
+
+def test_block_timeline_backfill_counts_pending_without_starting_when_busy(client, monkeypatch):
+    # a block game with a metrics row lacking timeline data is "pending"
+    entry_id, _ = _make_block_game_entry(client)
+    game = client.get("/api/blocks").json()["blocks"][0]["games"][0]
+    conn = db.connect(app_module.get_db_path())
+    from tests.test_stats import add_metrics
+    add_metrics(conn, game["match_id"], puuid=game["puuid"], has_timeline=0)
+    conn.close()
+    # pretend a crawl is already running → endpoint reports pending but doesn't start
+    monkeypatch.setitem(app_module.CRAWL_STATE, "running", True)
+    body = client.post("/api/blocks/backfill-timelines").json()
+    assert body == {"started": False, "pending": 1}
+    monkeypatch.setitem(app_module.CRAWL_STATE, "running", False)
+
+
+def test_date_format_setting(client):
+    assert client.get("/api/settings").json()["date_format"] == "iso"  # default
+    for fmt in ("us", "eu", "iso"):
+        assert _put_settings(client, date_format=fmt).status_code == 200
+        assert client.get("/api/settings").json()["date_format"] == fmt
+    assert _put_settings(client, date_format="klingon").status_code == 400
+
+
+def test_block_indices_gapless_after_delete(client):
+    games = client.get("/api/stats/games").json()
+    client.post("/api/blocks/games",
+                json={"match_id": games[0]["match_id"], "puuid": games[0]["my_puuid"]})
+    blocks = client.get("/api/blocks").json()["blocks"]
+    assert blocks[0]["global_index"] == 1 and blocks[0]["series_index"] == 1
+    client.delete(f"/api/blocks/{blocks[0]['id']}")
+    # a new block after deleting the first must reuse #1, not skip to #2
+    client.post("/api/blocks/games",
+                json={"match_id": games[1]["match_id"], "puuid": games[1]["my_puuid"]})
+    blocks = client.get("/api/blocks").json()["blocks"]
+    assert blocks[0]["global_index"] == 1
+    assert blocks[0]["id"] != 1  # a fresh row id, but the displayed index is still #1
+
+
+def test_block_series_endpoint_and_setting(client):
+    assert client.get("/api/settings").json()["block_series_enabled"] is True
+    assert client.get("/api/blocks").json()["series_enabled"] is True
+    games = client.get("/api/stats/games").json()
+    # a game before starting a series lands in the default series at #1
+    client.post("/api/blocks/games",
+                json={"match_id": games[0]["match_id"], "puuid": games[0]["my_puuid"]})
+    # start a named series; the just-added (non-empty) block closes, the next
+    # game opens a new block that is #1 of the new series
+    assert client.post("/api/blocks/series", json={"title": "2 Week Challenge"}).status_code == 200
+    client.post("/api/blocks/games",
+                json={"match_id": games[1]["match_id"], "puuid": games[1]["my_puuid"]})
+    blocks = client.get("/api/blocks").json()["blocks"]  # newest first
+    assert blocks[0]["series_title"] == "2 Week Challenge"
+    assert blocks[0]["series_index"] == 1        # per-series numbering restarts
+    assert blocks[0]["global_index"] == 2        # but the global count continues
+    # toggling the setting off is reflected
+    assert _put_settings(client, block_series_enabled=False).status_code == 200
+    assert client.get("/api/blocks").json()["series_enabled"] is False
+    assert _put_settings(client, block_series_enabled="nope").status_code == 400
+
+
 def test_clip_link_roundtrip_for_session(client):
     session_id = _make_session(client)
     assert client.get(f"/api/clips?owner_type=session&owner_id={session_id}").json() == []
