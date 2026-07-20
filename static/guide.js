@@ -588,11 +588,16 @@ function recentGamesColumn(champ) {
   const games = guideState.games.get(champ);
   if (!games) return `<h5>Recent games</h5><div class="muted">Loading…</div>`;
   if (!games.length) return `<h5>Recent games</h5><div class="muted">No games recorded yet.</div>`;
-  const rows = games.slice(0, 10).map((g) => {
+  const rows = games.slice(0, 20).map((g, i) => {
     const csMin = (g.cs * 60 / g.game_duration_s).toFixed(1);
     const runesStrip = g.runes
-      ? `<div class="guide-game-runes">${
-          runePageIcons(g.runes, { keystoneSize: 18, minorSize: 14, treeSize: 16, shardSize: 12 })}</div>`
+      ? `<div class="guide-game-runes">
+          <div class="guide-game-runes-icons">${
+            runePageIcons(g.runes, { keystoneSize: 18, minorSize: 14, treeSize: 16, shardSize: 12 })}</div>
+          <button type="button" class="preset icon-btn-sm guide-runes-save"
+            data-opp="${escapeHtml(champ)}" data-game="${i}"
+            title="Save these runes as a page in this matchup's guide">+ guide</button>
+        </div>`
       : "";
     return `<div class="guide-game-entry">
       <div class="guide-game-row">
@@ -606,6 +611,50 @@ function recentGamesColumn(champ) {
     </div>`;
   }).join("");
   return `<h5>Recent games</h5>${rows}`;
+}
+
+// two rune pages are "the same page" if every pick matches — the label is
+// ignored (a played page carries none; a saved one may be named)
+function runePagesEqual(a, b) {
+  const norm = (p) => JSON.stringify([
+    p.primary_tree || "", p.keystone || "", p.primary_runes || [],
+    p.secondary_tree || "", p.secondary_runes || [], p.shards || []]);
+  return norm(a) === norm(b);
+}
+
+// Save the runes actually played in a recent game as a rune page in this
+// matchup's guide — a partial PUT touching only `runes`, so notes/patch/
+// skill order are untouched. When the matchup is mid-edit the page also goes
+// into the working draft, so a later manual Save keeps it instead of
+// overwriting it with the pre-save draft.
+async function saveGameRunesToGuide(opp, gameIdx, btn) {
+  const game = (guideState.games.get(opp) || [])[gameIdx];
+  if (!game || !game.runes) return;
+  const editingThis = guideState.editing === opp;
+  const current = editingThis ? guideState.draft.runes : guideFor(opp).runes;
+  if (current.some((p) => runePagesEqual(p, game.runes))) {
+    flashGuideBtn(btn, "already saved");
+    return;
+  }
+  const page = { ...game.runes, label: game.runes.label || `Played ${fmtDate(game.game_creation_ms)}` };
+  const newRunes = [...current, page];
+  btn.disabled = true;
+  const response = await fetch(
+    `/api/matchups/notes/${encodeURIComponent(guideState.myChampion)}/${encodeURIComponent(opp)}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runes: newRunes }),
+    });
+  if (!response.ok) { btn.disabled = false; flashGuideBtn(btn, "failed"); return; }
+  guideState.guide[opp] = { ...guideFor(opp), runes: newRunes };
+  if (editingThis) guideState.draft.runes = newRunes.map((p) => ({ ...p }));
+  renderGuide(); // the new page now shows in the guide's rune-pages list
+}
+
+// briefly swap a button's label to give inline feedback, then restore it
+function flashGuideBtn(btn, text) {
+  const original = btn.textContent;
+  btn.textContent = text;
+  setTimeout(() => { btn.textContent = original; }, 1500);
 }
 
 function renderGuide() {
@@ -657,6 +706,9 @@ function wireGuideHandlers(target) {
       await ensureGuideMatchupGames(btn.dataset.opp);
       renderGuide();
     }));
+  target.querySelectorAll(".guide-runes-save").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      saveGameRunesToGuide(btn.dataset.opp, +btn.dataset.game, btn)));
   target.querySelectorAll(".guide-cancel").forEach((btn) =>
     btn.addEventListener("click", () => {
       guideState.editing = null;

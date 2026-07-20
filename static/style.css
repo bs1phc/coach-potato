@@ -905,8 +905,11 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
 .guide-game-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .guide-game-row .result-pill { transform: scale(0.85); }
 .guide-game-runes {
-  display: flex; align-items: center; gap: 2px; flex-wrap: wrap; margin-top: 3px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 3px;
 }
+.guide-game-runes-icons { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+.guide-runes-save { margin-left: auto; color: var(--text-secondary); white-space: nowrap; }
+.guide-runes-save:hover:not(:disabled) { color: var(--series-1); }
 .guide-game-runes img { border-radius: 50%; background: var(--surface-1); }
 .guide-game-runes .rune-page-minors { gap: 1px; }
 .guide-game-runes .rune-page-shards { gap: 1px; margin-left: 3px; }

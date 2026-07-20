@@ -371,9 +371,15 @@ either `None` if not recorded — on every row from both `GET
 "Recent games" table uses a ▸/▾ toggle per game (`.runes-toggle`,
 `renderRecent`/`runesCompareCol` in app.js) that expands both players'
 rune pages side by side, via the shared `runePageIcons()` (guide.js). The
-Matchup guide's own "Recent games" column (`recentGamesColumn` in guide.js)
-still only shows your own runes inline, un-toggled — `opp_runes` is
-available there too if that ever needs mirroring. Also joined (same
+Matchup guide's own "Recent games" column (`recentGamesColumn` in guide.js,
+the 20 most recent games) still only shows your own runes inline,
+un-toggled — `opp_runes` is available there too if that ever needs
+mirroring. Each recent game with recorded runes has a "+ guide" button
+(`saveGameRunesToGuide` in guide.js) that appends that played page to the
+matchup's saved `runes` via a partial `runes`-only PUT (deduped against
+existing pages with `runePagesEqual`, ignoring label; labeled "Played
+&lt;date&gt;"); mid-edit it also folds into `guideState.draft.runes` so a
+later manual Save doesn't clobber it. Also joined (same
 myr/oppr pattern) into `stats.block_games_detailed`, so a block game's
 expanded per-game panel (`gameMetricsPanel` in blocks.js) shows the same
 side-by-side `.runes-compare` layout via the shared `runesCompareCol()`
