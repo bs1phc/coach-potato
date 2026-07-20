@@ -190,6 +190,10 @@ th, td {
   white-space: nowrap;
 }
 thead th { border-top: none; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { color: var(--text-primary); }
+th.sortable.sorted { color: var(--text-primary); }
+.sort-arrow { display: inline-block; width: 0.9em; font-size: 10px; margin-left: 1px; }
 th:first-child, td:first-child { text-align: left; }
 .runes-compare { display: flex; gap: 28px; flex-wrap: wrap; padding: 6px 0; text-align: left; }
 .runes-compare-col { min-width: 220px; }

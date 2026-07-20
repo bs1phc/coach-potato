@@ -103,6 +103,21 @@ an earlier one's function of the same name. Prefix view-specific helpers
 with their view (`ensureGuideMatchupGames`, not `ensureMatchupGames`).
 `tests/test_static_js.py` fails the suite on any duplicate top-level name.
 
+## Sortable tables
+
+Data tables use the shared helpers in app.js: `sortableThead(columns,
+sortState, leading, trailing)` for the header, `sortRows(rows, sortState,
+columns)` to order rows, and `wireSortable(container, sortState, columns,
+rerender)` for click-to-sort. A column spec is `{key, label, type:
+"num"|"text", get?(row), sortable?, cls?}`; `sortState` is `{key, dir}` held
+in the view's state. Numeric columns default to descending, text to
+ascending; nulls always sort last. `wireSortable` uses a container-wide
+`th[data-sort]` selector, so don't put a second sortable table inside a
+sortable table's container (nested per-game lists are intentionally not
+sortable for this reason). Do NOT add sorting to inherently chronological
+tables whose rows compare against the previous row (coaching-progress
+periods, trends buckets) — sorting breaks their delta semantics.
+
 ## Drag-to-reorder
 
 Ordered chip lists (champion pool, skill priority) use native HTML5 DnD:

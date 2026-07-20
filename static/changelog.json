@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.41.0",
+      "date": "2026-07-20",
+      "items": [
+        "Click a column header to sort — on the Matchups table, the Overview champion breakdown and recent games, and the block games table. Click again to reverse; the block tables share one sort across every block"
+      ]
+    },
+    {
       "version": "1.40.0",
       "date": "2026-07-20",
       "items": [

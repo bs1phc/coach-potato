@@ -11,6 +11,7 @@ const blockState = {
   expandedGameStats: new Set(),
   gameMetricsCache: new Map(),
   gameClipsCache: new Map(),
+  gameSort: { key: "date", dir: 1 }, // shared across block tables; oldest-first default
   focusId: null, // block to scroll to + highlight after the next render
 };
 
@@ -50,6 +51,33 @@ const GAME_COL_KEYS = ["date", "account", "me", "opponent", "lane7", "lane14",
                        "cs_diff_7", "level_diff_7", "gold_diff_7",
                        "cs_diff_14", "level_diff_14", "gold_diff_14",
                        "result", "kda", "cs", "notes"];
+// sort type + accessor per block-game column (kdaRatio/displayName from app.js)
+const BLOCK_GAME_SORT = {
+  date: { type: "num", get: (g) => g.game_creation_ms },
+  account: { type: "text", get: (g) => g.account },
+  me: { type: "text", get: (g) => displayName(g.my_champion) },
+  opponent: { type: "text", get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
+  lane7: { type: "num", get: (g) => g.lane_adv_early },
+  lane14: { type: "num", get: (g) => g.lane_adv_late },
+  cs_diff_7: { type: "num", get: (g) => g.cs_diff_7 },
+  level_diff_7: { type: "num", get: (g) => g.level_diff_7 },
+  gold_diff_7: { type: "num", get: (g) => g.gold_diff_7 },
+  cs_diff_14: { type: "num", get: (g) => g.cs_diff_14 },
+  level_diff_14: { type: "num", get: (g) => g.level_diff_14 },
+  gold_diff_14: { type: "num", get: (g) => g.gold_diff_14 },
+  result: { type: "num", get: (g) => (g.win ? 1 : 0) },
+  kda: { type: "num", get: kdaRatio },
+  cs: { type: "num", get: (g) => (g.cs * 60 / g.game_duration_s) },
+  notes: { sortable: false },
+};
+const BLOCK_GAME_COLS_ALL = GAME_COL_KEYS.map((k) => ({ key: k, ...BLOCK_GAME_SORT[k] }));
+
+function visibleBlockGameCols() {
+  return GAME_COL_KEYS.filter((k) => blockCols.has(k)).map((k) => ({
+    key: k, label: BLOCK_COLS.find((c) => c.key === k).label,
+    cls: k === "notes" ? "notes-col" : "", ...BLOCK_GAME_SORT[k],
+  }));
+}
 // v3 storage key: new delta columns get their intended defaults for existing installs
 const blockCols = colPrefs("cp-cols-blocks-v3", BLOCK_COLS.map((c) => c.key),
   BLOCK_COLS.filter((c) => !c.off).map((c) => c.key));
@@ -535,17 +563,15 @@ function blockCard(block, isCurrent) {
   if (collapsed) {
     return `<div class="session-card block-card" id="block-card-${block.id}">${head}</div>`;
   }
-  const headerCells = GAME_COL_KEYS.filter((k) => blockCols.has(k)).map((k) => {
-    const label = BLOCK_COLS.find((c) => c.key === k).label;
-    return `<th${k === "notes" ? ' class="notes-col"' : ""}>${label}</th>`;
-  }).join("");
+  const thead = sortableThead(visibleBlockGameCols(), blockState.gameSort, "<th></th>", "<th></th>");
+  const sortedGames = sortRows(block.games, blockState.gameSort, BLOCK_GAME_COLS_ALL);
   return `<div class="session-card block-card" id="block-card-${block.id}">
     ${head}
     ${blockPoolChips(block.pool)}
     ${blockRankLine(block)}
     ${block.games.length ? `<div class="table-wrap block-games"><table>
-      <thead><tr><th></th>${headerCells}<th></th></tr></thead>
-      <tbody>${block.games.map(blockGameRow).join("")}</tbody></table></div>` : ""}
+      ${thead}
+      <tbody>${sortedGames.map(blockGameRow).join("")}</tbody></table></div>` : ""}
     ${learnings}
   </div>`;
 }
@@ -561,6 +587,8 @@ function renderBlocks() {
   target.innerHTML = blockState.blocks
     .map((b) => blockCard(b, b.id === currentId && !b.closed)).join("");
 
+  // one shared game-sort across every block table (app.js helper)
+  wireSortable(target, blockState.gameSort, BLOCK_GAME_COLS_ALL, () => renderBlocks());
   target.querySelectorAll(".block-close").forEach((btn) =>
     btn.addEventListener("click", async () => {
       if (!confirm("Close this block early? A closed block can't be reopened — "

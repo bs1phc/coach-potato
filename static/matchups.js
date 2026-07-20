@@ -17,6 +17,7 @@ const muState = {
   minGames: 1,
   view: "flat", // flat | rank
   rows: [],
+  sort: { key: "games", dir: -1 }, // default: most-played first
   guideFlags: new Set(), // opp_champion set with a matchup guide for muState.champion
   expanded: new Set(),
   tab: new Map(),       // matchup key -> "overview" | "games"
@@ -315,10 +316,19 @@ function matchupPanel(row) {
 
 // ---------- table ----------
 
-const MU_HEADER = `<thead><tr>
-  <th></th><th>Opponent</th><th>Notes</th><th>Games</th><th>W–L</th><th class="wr-col">Winrate</th><th>KDA</th>
-  <th>CS/min</th><th>Gold/min</th><th>DMG/min</th><th>Avg length</th>
-</tr></thead>`;
+// sortable columns after the leading toggle <th>; "Notes" holds icons only
+const MU_SORT_COLS = [
+  { key: "opponent", label: "Opponent", type: "text", get: (r) => displayName(r.opp_champion) },
+  { key: "notes", label: "Notes", sortable: false },
+  { key: "games", label: "Games", type: "num" },
+  { key: "wins", label: "W–L", type: "num", get: (r) => r.wins },
+  { key: "winrate", label: "Winrate", type: "num", cls: "wr-col" },
+  { key: "kda", label: "KDA", type: "num" },
+  { key: "cs_min", label: "CS/min", type: "num" },
+  { key: "gold_min", label: "Gold/min", type: "num" },
+  { key: "dmg_min", label: "DMG/min", type: "num" },
+  { key: "avg_duration_s", label: "Avg length", type: "num" },
+];
 const MU_COLS = 11;
 
 function matchupRow(row) {
@@ -363,6 +373,7 @@ function renderMU(rows) {
     target.innerHTML = `<div class="table-wrap"><div class="empty">No top-lane games match the current filters.</div></div>`;
     return;
   }
+  const head = sortableThead(MU_SORT_COLS, muState.sort, "<th></th>");
   let body;
   if (muState.view === "rank") {
     const groups = new Map();
@@ -374,12 +385,13 @@ function renderMU(rows) {
       const games = tierRows.reduce((a, r) => a + r.games, 0);
       const wins = tierRows.reduce((a, r) => a + r.wins, 0);
       return `<tr class="rank-header"><td colspan="${MU_COLS}">${titleCase(tier)} — ${games} games, ${pct(wins / games)} WR</td></tr>`
-        + tierRows.map(matchupRow).join("");
+        + sortRows(tierRows, muState.sort, MU_SORT_COLS).map(matchupRow).join("");
     }).join("");
   } else {
-    body = rows.map(matchupRow).join("");
+    body = sortRows(rows, muState.sort, MU_SORT_COLS).map(matchupRow).join("");
   }
-  target.innerHTML = `<div class="table-wrap"><table>${MU_HEADER}<tbody>${body}</tbody></table></div>`;
+  target.innerHTML = `<div class="table-wrap"><table>${head}<tbody>${body}</tbody></table></div>`;
+  wireSortable(target, muState.sort, MU_SORT_COLS, () => renderMU(muState.rows));
   wireMUHandlers(target);
 }
 

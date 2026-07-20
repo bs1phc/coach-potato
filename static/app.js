@@ -111,6 +111,64 @@ function renderColPicker(target, storageKey, columns, visible, onChange) {
     }));
 }
 
+// ---------- shared table sorting ----------
+// Column spec entry: {key, label, type: "num"|"text", get?(row), sortable?,
+// cls?}. sortState is {key, dir} (dir 1 asc / -1 desc) held in a view's state.
+// Rank tiers order low→high; UNKNOWN sorts last.
+const RANK_ORDINAL = { IRON: 0, BRONZE: 1, SILVER: 2, GOLD: 3, PLATINUM: 4,
+  EMERALD: 5, DIAMOND: 6, MASTER: 7, GRANDMASTER: 8, CHALLENGER: 9, UNKNOWN: -1 };
+
+function defaultSortDir(col) {
+  return col.type === "text" ? 1 : -1; // names A→Z, stats high→low
+}
+
+// a <thead> where sortable columns carry click-to-sort affordances.
+// `leading`/`trailing` are raw <th> strings for non-data columns (toggles).
+function sortableThead(columns, sortState, leading = "", trailing = "") {
+  const cells = columns.map((c) => {
+    if (c.sortable === false) return `<th class="${c.cls || ""}">${c.label}</th>`;
+    const active = sortState.key === c.key;
+    const arrow = active ? (sortState.dir === 1 ? "▲" : "▼") : "";
+    const ariaSort = active ? (sortState.dir === 1 ? "ascending" : "descending") : "none";
+    return `<th class="sortable ${c.cls || ""}${active ? " sorted" : ""}"
+      data-sort="${c.key}" aria-sort="${ariaSort}" title="Sort by ${escapeHtml(c.label)}"
+      >${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+  }).join("");
+  return `<thead><tr>${leading}${cells}${trailing}</tr></thead>`;
+}
+
+function sortRows(rows, sortState, columns) {
+  const col = columns.find((c) => c.key === sortState.key);
+  if (!col) return rows.slice();
+  const get = col.get || ((r) => r[col.key]);
+  const dir = sortState.dir;
+  return rows.slice().sort((a, b) => {
+    const va = get(a), vb = get(b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;   // nulls always last, regardless of direction
+    if (vb == null) return -1;
+    const cmp = (typeof va === "string" || typeof vb === "string")
+      ? String(va).localeCompare(String(vb)) : va - vb;
+    return dir * cmp;
+  });
+}
+
+// wire click-to-sort on a rendered table; toggles direction on the active
+// column, else switches to the clicked column at its natural default
+function wireSortable(container, sortState, columns, rerender) {
+  container.querySelectorAll("th[data-sort]").forEach((th) =>
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      if (sortState.key === key) {
+        sortState.dir *= -1;
+      } else {
+        sortState.key = key;
+        sortState.dir = defaultSortDir(columns.find((c) => c.key === key) || {});
+      }
+      rerender();
+    }));
+}
+
 function queryString() {
   const params = accountParams();
   if (state.range === "custom") {
@@ -358,13 +416,24 @@ function renderRankChart() {
   });
 }
 
+const CHAMP_SORT_COLS = [
+  { key: "champion", label: "Champion", type: "text", get: (r) => displayName(r.champion) },
+  { key: "games", label: "Games", type: "num" },
+  { key: "wins", label: "W–L", type: "num", get: (r) => r.wins },
+  { key: "winrate", label: "Winrate", type: "num", cls: "wr-col" },
+  { key: "kda", label: "KDA", type: "num" },
+  { key: "cs_min", label: "CS/min", type: "num" },
+];
+const champSort = { key: "games", dir: -1 };
+
 function renderChampionTable(byChampion) {
   const target = $("#champion-table");
   if (!byChampion.length) {
     target.innerHTML = `<div class="table-wrap"><div class="empty">No games.</div></div>`;
     return;
   }
-  const body = byChampion.map((row) => `<tr>
+  state.byChampion = byChampion;
+  const body = sortRows(byChampion, champSort, CHAMP_SORT_COLS).map((row) => `<tr>
       <td><span class="champ-cell">${champIcon(row.champion)}${displayName(row.champion)}</span></td>
       <td>${row.games}</td>
       <td>${row.wins}–${row.games - row.wins}</td>
@@ -373,11 +442,14 @@ function renderChampionTable(byChampion) {
       <td>${fmt(row.cs_min)}</td>
     </tr>`).join("");
   target.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Champion</th><th>Games</th><th>W–L</th><th class="wr-col">Winrate</th><th>KDA</th><th>CS/min</th></tr></thead>
+    ${sortableThead(CHAMP_SORT_COLS, champSort)}
     <tbody>${body}</tbody></table></div>`;
+  wireSortable(target, champSort, CHAMP_SORT_COLS, () => renderChampionTable(state.byChampion));
 }
 
-const recentUi = { runesOpen: new Set() };
+const recentUi = { runesOpen: new Set(), sort: { key: "date", dir: -1 } };
+
+function kdaRatio(g) { return (g.kills + g.assists) / Math.max(1, g.deaths); }
 
 function runesCompareCol(champ, runes, whose) {
   const body = runes
@@ -400,7 +472,23 @@ function renderRecent(recent) {
   const multi = selectedPuuids().length > 1;
   const colCount = 10 + (multi ? 1 : 0);
   const names = new Map(state.players.map((p) => [p.puuid, p.game_name]));
-  const body = recent.map((g) => {
+  const cols = [
+    { key: "date", label: "Date", type: "num", get: (g) => g.game_creation_ms },
+    ...(multi ? [{ key: "account", label: "Account", type: "text",
+                   get: (g) => names.get(g.my_puuid) ?? "?" }] : []),
+    { key: "queue", label: "Queue", type: "text", get: (g) => QUEUE_NAMES[g.queue_id] ?? String(g.queue_id) },
+    { key: "me", label: "Me", type: "text", get: (g) => displayName(g.my_champion) },
+    { key: "opponent", label: "Opponent", type: "text",
+      get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
+    { key: "opp_rank", label: "Opp. rank", type: "num",
+      get: (g) => (g.opp_champion ? RANK_ORDINAL[g.rank_tier] : null) },
+    { key: "result", label: "Result", type: "num", get: (g) => (g.win ? 1 : 0) },
+    { key: "kda", label: "K/D/A", type: "num", get: kdaRatio },
+    { key: "length", label: "Length", type: "num", get: (g) => g.game_duration_s },
+    { key: "runes", label: "Runes", sortable: false },
+    { key: "block", label: "", sortable: false },
+  ];
+  const body = sortRows(recent, recentUi.sort, cols).map((g) => {
     const gkey = `${g.match_id}:${g.my_puuid}`;
     const open = recentUi.runesOpen.has(gkey);
     const hasRunes = g.runes || g.opp_runes;
@@ -430,9 +518,9 @@ function renderRecent(recent) {
     return html;
   }).join("");
   target.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Date</th>${multi ? "<th>Account</th>" : ""}<th>Queue</th><th>Me</th><th>Opponent</th><th>Opp. rank</th>
-    <th>Result</th><th>K/D/A</th><th>Length</th><th>Runes</th><th></th></tr></thead>
+    ${sortableThead(cols, recentUi.sort)}
     <tbody>${body}</tbody></table></div>`;
+  wireSortable(target, recentUi.sort, cols, () => renderRecent(recent));
   wirePromoteButtons(target);
   target.querySelectorAll(".runes-toggle").forEach((btn) =>
     btn.addEventListener("click", () => {
