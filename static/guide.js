@@ -1001,7 +1001,6 @@ async function hydrateRuneAnalysis(target) {
 // Styling lives in style.css (.cmp-*), shared by both paths. ----------
 
 function comparisonBodyHtml(my, opp, data) {
-  const bigRunes = { keystoneSize: 26, minorSize: 16, treeSize: 18, shardSize: 12 };
   const smallRunes = { keystoneSize: 20, minorSize: 12, treeSize: 14, shardSize: 10 };
   const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
   const kda = (s) => (s.games ? `${(s.kills || 0).toFixed(1)}/${(s.deaths || 0).toFixed(1)}`
@@ -1016,27 +1015,16 @@ function comparisonBodyHtml(my, opp, data) {
           : "<span class='muted'>no runes recorded</span>"}</span></div>`).join("")
     : `<p class="muted">No recent games recorded — add or "Fetch more" in Settings.</p>`);
 
-  const yourRunes = state.runesMode === "general" ? (guideState.generalRunes || [])
-    : ((guideState.guide[opp] && guideState.guide[opp].runes) || []);
-  const yourRow = guideState.matchups.find((m) => m.opp_champion === opp) || {};
-  const yourCard = `<div class="cmp-card cmp-you"><h2>You</h2>
-    <div class="cmp-stat"><span class="cmp-stat-l">This matchup</span>
-      <span>${yourRow.games || 0} games · ${pct(yourRow.winrate)}</span></div>
-    <h3>Your saved runes</h3>
-    ${yourRunes.length ? yourRunes.map((p) => `<div class="cmp-rune">${runePageIcons(p, bigRunes)}
-      <span>${escapeHtml(p.label || "")}</span></div>`).join("")
-      : "<p class='muted'>None saved yet.</p>"}</div>`;
-
   const cards = (data.players || []).map((p) => `<div class="cmp-card"><h2>${escapeHtml(p.game_name)}
     <span class="muted">#${escapeHtml(p.tag_line)}</span></h2>
-    ${statLine("This matchup", p.matchup)}
+    ${statLine(`This matchup vs ${displayName(opp)}`, p.matchup)}
     ${statLine(`Overall on ${displayName(my)}`, p.overall)}
     <h3>Recent runes played</h3>${recentRunes(p.recent)}</div>`).join("")
     || `<div class="cmp-card"><p class="muted">No enabled comparison players — add them in
         Settings → Research &amp; comparison.</p></div>`;
 
-  return `<h1 class="cmp-title">${displayName(my)} vs ${displayName(opp)} — you vs others</h1>
-    <div class="cmp-cards">${yourCard}${cards}</div>`;
+  return `<h1 class="cmp-title">${displayName(opp)} matchup — other players</h1>
+    <div class="cmp-cards">${cards}</div>`;
 }
 
 function showComparisonOverlay(inner) {
@@ -1060,35 +1048,33 @@ function showComparisonOverlay(inner) {
 
 async function openComparisonWindow(opp) {
   const my = guideState.myChampion;
+  const url = `compare.html?my=${encodeURIComponent(my)}&opp=${encodeURIComponent(opp)}`;
+  const pw = (typeof window.pywebview !== "undefined") ? window.pywebview : null;
+  // Desktop app: ask Python (pywebview) to open a real, independent second
+  // native window — the main window stays fully interactive so you can keep
+  // typing notes while it's open. (window.open here would trip the WebView2
+  // "open in the Store?" prompt, so we never call it in the desktop app.)
+  if (pw && pw.api && typeof pw.api.open_compare === "function") {
+    try { await pw.api.open_compare(my, opp); return; }
+    catch (e) { /* fall through to the overlay */ }
+  }
+  // Browser: a normal, independent pop-out window pointed at the standalone page.
+  if (!pw) {
+    let win = null;
+    try {
+      win = window.open(url, `cp-compare-${my}-${opp}`,
+        "width=820,height=960,scrollbars=yes,resizable=yes");
+    } catch (e) { win = null; }
+    if (win) return;
+  }
+  // Last resort (older desktop build without the api, or a blocked browser
+  // pop-up): an in-app overlay — not free-floating, but keeps it usable.
   let data;
   try {
     data = await getJSON(`/api/matchups/comparison?my_champion=${encodeURIComponent(my)}`
       + `&opp_champion=${encodeURIComponent(opp)}`);
   } catch (e) { alert("Failed to load the comparison."); return; }
-  const inner = comparisonBodyHtml(my, opp, data);
-  // In the desktop app (pywebview/WebView2), calling window.open makes Windows
-  // try to hand the URL to an external app — which pops the Microsoft Store
-  // "how do you want to open this" dialog. So only attempt a real pop-out in a
-  // plain browser; the desktop app goes straight to the in-app overlay.
-  const inDesktopApp = typeof window.pywebview !== "undefined";
-  let win = null;
-  if (!inDesktopApp) {
-    try {
-      win = window.open("", `cp-compare-${my}-${opp}`, "width=780,height=940,scrollbars=yes");
-    } catch (e) { win = null; }
-  }
-  if (win) {
-    win.document.open();
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8">
-      <title>Compare · ${displayName(my)} vs ${displayName(opp)}</title>
-      <link rel="stylesheet" href="${location.origin}/style.css">
-      <style>body{max-width:none;padding:18px}</style></head>
-      <body class="cmp-doc">${inner}</body></html>`);
-    win.document.close();
-    return;
-  }
-  // pop-ups blocked (the desktop app's webview) — fall back to an in-app overlay
-  showComparisonOverlay(inner);
+  showComparisonOverlay(comparisonBodyHtml(my, opp, data));
 }
 
 // deep link from the Matchups table's 📖 button — sets pending state and
