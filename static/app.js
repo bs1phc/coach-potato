@@ -1325,6 +1325,8 @@ async function initSettings() {
   $("#setting-block-gap-confirm").checked = Boolean(data.block_gap_confirm);
   $("#setting-block-series").checked = Boolean(data.block_series_enabled);
   $("#setting-date-format").value = data.date_format || "iso";
+  $("#setting-runes-mode").value = data.runes_mode || "matchup";
+  state.runesMode = data.runes_mode || "matchup";
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   await loadChampionRoster(); // pool chips + legacy select need display names
   loadPool(); // blocks.js — hydrates the pool editor now hosted in Settings
@@ -1493,6 +1495,7 @@ async function initSettings() {
         block_gap_confirm: $("#setting-block-gap-confirm").checked,
         block_series_enabled: $("#setting-block-series").checked,
         date_format: $("#setting-date-format").value,
+        runes_mode: $("#setting-runes-mode").value,
         hide_my_rank: $("#setting-hide-rank").checked,
         ui_opacity: Math.min(100, Math.max(20, parseInt($("#setting-ui-opacity").value, 10) || 100)),
         accent_color: $("#setting-accent-reset").classList.contains("hidden")
@@ -1511,6 +1514,10 @@ async function initSettings() {
         state.dateFormat = body.date_format;
         refresh(); // re-render visible dates in the new format
       }
+      const runesModeChanged = state.runesMode !== body.runes_mode;
+      state.runesMode = body.runes_mode;
+      if (runesModeChanged && typeof loadGuide === "function"
+          && state.mainView === "guide") loadGuide();
       $("#settings-banner").classList.add("hidden");
       if (settingsUi.wasUnconfigured && body.configured) {
         settingsUi.wasUnconfigured = false;
@@ -1798,6 +1805,7 @@ async function init(firstLoad = true) {
     const settings = await getJSON("/api/settings");
     state.hideMyRank = settings.hide_my_rank;
     state.dateFormat = settings.date_format || "iso";
+    state.runesMode = settings.runes_mode || "matchup";
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);

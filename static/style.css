@@ -1187,3 +1187,6 @@ footer { margin-top: 36px; border-top: 1px solid var(--grid); padding-top: 10px;
 .clip-add-row input[type="file"] { font-size: 12px; max-width: 200px; }
 .clip-add-row input[type="url"] { flex: 1; min-width: 160px; }
 .clip-add-status { font-size: 12px; }
+
+/* ---- general runes block (runes_mode=general) ---- */
+.general-runes-block { border-left: 2px solid var(--series-1); }

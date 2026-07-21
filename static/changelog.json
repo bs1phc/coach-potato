@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.45.0",
+      "date": "2026-07-21",
+      "items": [
+        "Runes placement setting (Settings → Matchup guide) — keep rune pages per matchup (as now) or switch to one \"General\" rune set per champion, shown up next to the item build. Your per-matchup pages aren't deleted; they reappear if you switch back"
+      ]
+    },
+    {
       "version": "1.44.1",
       "date": "2026-07-21",
       "items": [
