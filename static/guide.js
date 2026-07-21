@@ -994,30 +994,13 @@ async function hydrateRuneAnalysis(target) {
   }
 }
 
-// ---------- comparison ("research") players: a pop-out window so you can put
-// it beside the guide and theorycraft your runes/notes against them ----------
+// ---------- comparison ("research") players: opens beside the guide so you can
+// theorycraft against them. Real pop-out window in a browser; falls back to an
+// in-app overlay when window.open is blocked — the desktop app runs in a
+// pywebview window that blocks pop-ups, so the overlay is what shows there.
+// Styling lives in style.css (.cmp-*), shared by both paths. ----------
 
-async function openComparisonWindow(opp) {
-  const my = guideState.myChampion;
-  const win = window.open("", `cp-compare-${my}-${opp}`,
-    "width=720,height=920,scrollbars=yes");
-  if (!win) {
-    alert("Pop-up blocked — allow pop-ups for this site to open the comparison window.");
-    return;
-  }
-  win.document.open();
-  win.document.write(`<!doctype html><title>Loading…</title>
-    <body style="font-family:system-ui;background:#14161c;color:#ccc;padding:20px">Loading comparison…</body>`);
-  win.document.close();
-  let data;
-  try {
-    data = await getJSON(`/api/matchups/comparison?my_champion=${encodeURIComponent(my)}`
-      + `&opp_champion=${encodeURIComponent(opp)}`);
-  } catch (e) {
-    win.document.body.innerHTML = `<p style="color:#e0708a;font-family:system-ui;padding:20px">`
-      + `Failed to load comparison.</p>`;
-    return;
-  }
+function comparisonBodyHtml(my, opp, data) {
   const bigRunes = { keystoneSize: 26, minorSize: 16, treeSize: 18, shardSize: 12 };
   const smallRunes = { keystoneSize: 20, minorSize: 12, treeSize: 14, shardSize: 10 };
   const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
@@ -1030,8 +1013,8 @@ async function openComparisonWindow(opp) {
     ? recent.slice(0, 8).map((g) => `<div class="cmp-game">
         <span class="cmp-res ${g.win ? "w" : "l"}">${g.win ? "W" : "L"}</span>
         <span class="cmp-runes">${g.runes ? runePageIcons(g.runes, smallRunes)
-          : "<span style='color:#888'>no runes recorded</span>"}</span></div>`).join("")
-    : `<p style="color:#888">No recent games recorded — add or "Fetch more" in Settings.</p>`);
+          : "<span class='muted'>no runes recorded</span>"}</span></div>`).join("")
+    : `<p class="muted">No recent games recorded — add or "Fetch more" in Settings.</p>`);
 
   const yourRunes = state.runesMode === "general" ? (guideState.generalRunes || [])
     : ((guideState.guide[opp] && guideState.guide[opp].runes) || []);
@@ -1042,36 +1025,63 @@ async function openComparisonWindow(opp) {
     <h3>Your saved runes</h3>
     ${yourRunes.length ? yourRunes.map((p) => `<div class="cmp-rune">${runePageIcons(p, bigRunes)}
       <span>${escapeHtml(p.label || "")}</span></div>`).join("")
-      : "<p style='color:#888'>None saved yet.</p>"}</div>`;
+      : "<p class='muted'>None saved yet.</p>"}</div>`;
 
   const cards = (data.players || []).map((p) => `<div class="cmp-card"><h2>${escapeHtml(p.game_name)}
-    <span style="color:#888">#${escapeHtml(p.tag_line)}</span></h2>
+    <span class="muted">#${escapeHtml(p.tag_line)}</span></h2>
     ${statLine("This matchup", p.matchup)}
     ${statLine(`Overall on ${displayName(my)}`, p.overall)}
     <h3>Recent runes played</h3>${recentRunes(p.recent)}</div>`).join("")
-    || `<div class="cmp-card"><p>No enabled comparison players — add them in
+    || `<div class="cmp-card"><p class="muted">No enabled comparison players — add them in
         Settings → Research &amp; comparison.</p></div>`;
 
-  win.document.open();
-  win.document.write(`<!doctype html><html><head><meta charset="utf-8">
-    <title>Compare · ${displayName(my)} vs ${displayName(opp)}</title><style>
-    body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;background:#14161c;color:#e8eaf0;padding:16px}
-    h1{font-size:18px;margin:0 0 12px}h2{font-size:15px;margin:0 0 8px}
-    h3{font-size:11px;text-transform:uppercase;color:#9aa;margin:12px 0 6px;letter-spacing:.05em}
-    .cmp-cards{display:flex;flex-wrap:wrap;gap:14px}
-    .cmp-card{flex:1 1 300px;background:#1d2029;border:1px solid #2b2f3a;border-radius:10px;padding:12px}
-    .cmp-you{border-color:#3a6ea5}
-    .cmp-stat{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:3px 0;border-bottom:1px solid #262a34}
-    .cmp-stat-l{color:#9aa}
-    .cmp-game{display:flex;align-items:center;gap:8px;padding:4px 0}
-    .cmp-res{font-weight:700;width:16px}.cmp-res.w{color:#5cc98a}.cmp-res.l{color:#e0708a}
-    .cmp-rune,.cmp-runes{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
-    .cmp-rune{margin:6px 0}.cmp-rune span{font-size:12px;color:#9aa}
-    img{vertical-align:middle;border-radius:50%}
-    </style></head><body>
-    <h1>${displayName(my)} vs ${displayName(opp)} — you vs others</h1>
-    <div class="cmp-cards">${yourCard}${cards}</div></body></html>`);
-  win.document.close();
+  return `<h1 class="cmp-title">${displayName(my)} vs ${displayName(opp)} — you vs others</h1>
+    <div class="cmp-cards">${yourCard}${cards}</div>`;
+}
+
+function showComparisonOverlay(inner) {
+  let overlay = document.getElementById("compare-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "compare-overlay";
+    overlay.className = "cmp-overlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `<div class="cmp-overlay-inner">
+    <button class="preset icon-btn cmp-close" title="Close (Esc)" aria-label="Close">✕</button>
+    ${inner}</div>`;
+  overlay.classList.remove("hidden");
+  function close() { overlay.classList.add("hidden"); document.removeEventListener("keydown", onKey); }
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  overlay.querySelector(".cmp-close").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", onKey);
+}
+
+async function openComparisonWindow(opp) {
+  const my = guideState.myChampion;
+  let data;
+  try {
+    data = await getJSON(`/api/matchups/comparison?my_champion=${encodeURIComponent(my)}`
+      + `&opp_champion=${encodeURIComponent(opp)}`);
+  } catch (e) { alert("Failed to load the comparison."); return; }
+  const inner = comparisonBodyHtml(my, opp, data);
+  let win = null;
+  try {
+    win = window.open("", `cp-compare-${my}-${opp}`, "width=780,height=940,scrollbars=yes");
+  } catch (e) { win = null; }
+  if (win) {
+    win.document.open();
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8">
+      <title>Compare · ${displayName(my)} vs ${displayName(opp)}</title>
+      <link rel="stylesheet" href="${location.origin}/style.css">
+      <style>body{max-width:none;padding:18px}</style></head>
+      <body class="cmp-doc">${inner}</body></html>`);
+    win.document.close();
+    return;
+  }
+  // pop-ups blocked (the desktop app's webview) — fall back to an in-app overlay
+  showComparisonOverlay(inner);
 }
 
 // deep link from the Matchups table's 📖 button — sets pending state and
