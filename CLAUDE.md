@@ -340,9 +340,47 @@ popup, legacy-migrate select) come from the champion pool's first entry —
 reset on pool save); use it for any future your-champion-scoped feature.
 A `default_champion` settings key existed briefly (v1.25–v1.30) and may
 linger in old dbs — it's ignored.
-`champion_notes(champion PK, notes, updated_at_ms)` — general (non-matchup)
-Markdown notes for a champion, shown above the matchup list on the Champ
-guide page. `GET`/`PUT /api/champions/notes/{champion}`.
+`champion_notes(champion PK, notes, runes, updated_at_ms)` — general
+(non-matchup) Markdown notes for a champion, shown above the matchup list on
+the Matchup guide page. `runes` (added with the `runes_mode` setting) is a
+JSON array of champion-level rune pages, same shape as `matchup_notes.runes`,
+used when `runes_mode='general'` (one rune set per champion, shown by the item
+build) instead of the default per-matchup rune pages. `GET`/`PUT
+/api/champions/notes/{champion}` — GET returns `{notes, runes}`; PUT is a
+partial update (writes `notes` and/or `runes`, blank of both deletes the row).
+The guide reuses the exact matchup rune builder for general runes: while
+editing, `guideState.draft` holds the champion-level pages (no matchup edit is
+active at once), rendered by `generalRunesSection()` at the top of
+`#guide-list`. `runes_mode` is a settings key (`matchup` default | `general`),
+surfaced on `state.runesMode`.
+`comparison_players(puuid PK, game_name, tag_line, enabled, lookback_days,
+sort, added_at_ms)` — up to 2 (`db.MAX_COMPARISON_PLAYERS`) "research" players
+to compare yourself against in the Matchup guide, in their OWN table (separate
+from tracked `players`) so each can be enabled/disabled independently. Gated by
+the `enable_player_comparison` setting. Their match data lands in
+`matches`/`participants` like anyone else; the crawler stores their
+per-match metrics + runes because `Crawler._stored_puuids()` = tracked ∪
+comparison (broadened from `is_tracked=1`; the three backfill queries too), but
+their `players` row stays `is_tracked=0` so they never leak into tracked-only
+stats. Fetched ON DEMAND in a small window (last `lookback_days` days, default
+`db.COMPARISON_LOOKBACK_DAYS`=7) via `crawl_player(..., is_tracked=False,
+since_s=...)` — NOT in the bulk `crawl.py` crawl. API: `GET/POST/DELETE
+/api/comparison-players`, `PATCH` (enabled toggle), `POST
+.../{puuid}/fetch-more` (bumps `lookback_days` +7 and re-crawls, capped at
+`COMPARISON_FETCH_CAP`); add resolves the Riot ID via `get_account`, inserts
+the comparison row BEFORE crawling (else `_stored_puuids` skips it).
+`GET /api/matchups/comparison?my_champion=&opp_champion=` returns, per enabled
+player, `stats.comparison_for_matchup()` (their matchup aggregate + overall on
+my_champion + recent games with runes). UI: managed in Settings → "Research &
+comparison" (`app.js`); the guide's ⧉ button per row opens a self-contained
+pop-out window (`openComparisonWindow` in guide.js, `window.open` +
+`document.write`) so you can place it beside the guide. `GET
+/api/stats/rune-analysis?champion=&opp_champion=` (`stats.rune_analysis`) —
+win rate by keystone / secondary tree from the runes actually played
+(`participant_runes` json_extract'd, joined to wins), across tracked accounts;
+shown per expanded matchup via `hydrateRuneAnalysis` in guide.js. The
+Research/Macros tabs are shown/hidden via the existing `hidden_views`
+mechanism (no separate toggle).
 `champion_item_builds(champion PK, sections, updated_at_ms)` — a
 mobafire-style item build, separate from the freeform general notes:
 `sections` is a JSON array of `{label, items}` in user-chosen order (up to

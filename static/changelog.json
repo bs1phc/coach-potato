@@ -1,6 +1,17 @@
 {
   "entries": [
     {
+      "version": "1.46.0",
+      "date": "2026-07-21",
+      "items": [
+        "Compare yourself against up to two other players — add them by Riot ID in Settings → Research & comparison, then hit the ⧉ button on a Matchup guide row to open a side-by-side pop-out window with their stats, runes and recent games (great for a second screen while you theorycraft). Each player can be toggled on/off, and their games are fetched on demand: the last 7 days by default, with a \"Fetch more\" button to widen the window",
+        "Runes placement setting — keep rune pages per matchup (as now) or switch to one \"General\" rune set per champion, shown up next to the item build",
+        "Rune analysis in the Matchup guide — expand a matchup to see which keystone and secondary tree have your best win rate there, straight from the runes you actually played",
+        "The Research and Macros tabs can be shown/hidden from Settings, grouped with the new comparison options",
+        "Widened the app layout a little so the Overview no longer needs a horizontal scrollbar"
+      ]
+    },
+    {
       "version": "1.45.0",
       "date": "2026-07-21",
       "items": [

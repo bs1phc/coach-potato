@@ -573,6 +573,42 @@ def test_matchup_notes_skill_order_column_migration(tmp_path):
     c.close()
 
 
+def test_champion_notes_gains_runes_column_on_upgrade(tmp_path):
+    """Upgrading from a champion_notes table without the general-runes column
+    (pre-runes_mode) must add it and preserve existing notes."""
+    path = tmp_path / "pre_runes.sqlite"
+    raw = sqlite3.connect(path)
+    raw.execute("""CREATE TABLE champion_notes (
+        champion TEXT PRIMARY KEY,
+        notes TEXT NOT NULL DEFAULT '',
+        updated_at_ms INTEGER
+    )""")
+    raw.execute("INSERT INTO champion_notes (champion, notes) VALUES ('Gwen', 'keep me')")
+    raw.commit()
+    raw.close()
+    c = db.connect(path)  # _migrate adds the runes column
+    assert db.get_champion_note(c, "Gwen") == "keep me"
+    assert db.get_champion_runes(c, "Gwen") == ""
+    db.set_champion_runes(c, "Gwen", '[{"keystone": "Conqueror"}]')
+    assert "Conqueror" in db.get_champion_runes(c, "Gwen")
+    assert db.get_champion_note(c, "Gwen") == "keep me"  # notes untouched
+    c.close()
+
+
+def test_comparison_players_crud_and_limit(tmp_path):
+    c = db.connect(tmp_path / "cp.sqlite")
+    assert db.add_comparison_player(c, "p1", "Alice", "EUW") is True
+    assert db.add_comparison_player(c, "p2", "Bob", "EUW") is True
+    assert db.add_comparison_player(c, "p3", "Carol", "EUW") is False  # max 2
+    assert [p["game_name"] for p in db.list_comparison_players(c)] == ["Alice", "Bob"]
+    db.set_comparison_enabled(c, "p1", False)
+    assert db.comparison_puuids(c, enabled_only=True) == ["p2"]
+    assert db.bump_comparison_lookback(c, "p2") == 2 * db.COMPARISON_LOOKBACK_DAYS
+    db.remove_comparison_player(c, "p1")
+    assert [p["game_name"] for p in db.list_comparison_players(c)] == ["Bob"]
+    c.close()
+
+
 def test_participant_metrics_gains_new_columns_on_upgrade(tmp_path):
     """Adding a metric to the registry must additively grow an existing
     participant_metrics table (CREATE TABLE IF NOT EXISTS won't) and add the

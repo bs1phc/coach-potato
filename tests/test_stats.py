@@ -200,6 +200,42 @@ def test_summary_recent_includes_runes_actually_played(conn):
     assert s["recent"][0]["opp_runes"]["keystone"] == "Grasp of the Undying"
 
 
+def _rune_page(keystone, primary="Precision", secondary="Resolve"):
+    return {"label": "", "primary_tree": primary, "keystone": keystone,
+            "primary_runes": ["Triumph", "", ""], "secondary_tree": secondary,
+            "secondary_runes": ["", ""], "shards": ["", "", ""]}
+
+
+def test_rune_analysis_winrate_by_keystone_and_secondary(conn):
+    # 2 Conqueror games (1W/1L) + 1 Grasp win, all Gwen vs Darius
+    specs = [(True, "Conqueror", "Resolve"), (False, "Conqueror", "Resolve"),
+             (True, "Grasp of the Undying", "Inspiration")]
+    for win, keystone, secondary in specs:
+        mid, _ = add_match(conn, my_champ="Gwen", opp_champ="Darius", win=win)
+        db.insert_participant_runes(conn, mid, ME, _rune_page(keystone, secondary=secondary))
+    data = stats.rune_analysis(conn, ME, "Gwen", opp_champion="Darius")
+    ks = {r["name"]: r for r in data["keystones"]}
+    assert ks["Conqueror"]["games"] == 2 and ks["Conqueror"]["winrate"] == 0.5
+    assert ks["Grasp of the Undying"]["games"] == 1 and ks["Grasp of the Undying"]["winrate"] == 1.0
+    secs = {r["name"]: r for r in data["secondaries"]}
+    assert secs["Resolve"]["games"] == 2 and secs["Inspiration"]["games"] == 1
+    # narrowing to a different opponent yields nothing
+    assert stats.rune_analysis(conn, ME, "Gwen", opp_champion="Sett")["keystones"] == []
+
+
+def test_comparison_for_matchup_scopes_to_player(conn):
+    # a comparison player's own games on Gwen vs Darius, isolated from ME
+    other = "cmp-puuid-1"
+    add_match(conn, my_champ="Gwen", opp_champ="Darius", win=True, puuid=other)
+    add_match(conn, my_champ="Gwen", opp_champ="Sett", win=False, puuid=other)
+    data = stats.comparison_for_matchup(conn, other, "Gwen", "Darius")
+    assert data["matchup"]["games"] == 1          # only vs Darius
+    assert data["overall"]["games"] == 2          # all Gwen games
+    assert len(data["recent"]) == 1
+    # ME has no such games, so ME's comparison view is empty
+    assert stats.comparison_for_matchup(conn, ME, "Gwen", "Darius")["matchup"]["games"] == 0
+
+
 DAY_MS = 86_400_000
 # 2026-06-28 00:00 UTC
 S1_MS = 1_782_604_800_000

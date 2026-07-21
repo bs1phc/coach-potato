@@ -212,6 +212,35 @@
         completed blocks. Saves immediately with "Save pool".</p>
     </div>
 
+    <h3 class="settings-group-head">Research &amp; comparison</h3>
+    <div class="settings-field">
+      <label class="filter-label" for="setting-runes-mode">Runes in the Matchup guide</label>
+      <select id="setting-runes-mode" style="max-width:22em">
+        <option value="matchup">Per matchup — a rune set for each opponent (as now)</option>
+        <option value="general">General — one rune set per champion, by the item build</option>
+      </select>
+      <p class="muted">"Per matchup" keeps rune pages inside each opponent's row.
+        "General" shows a single champion-level rune set up next to the item build
+        instead. Your per-matchup rune pages aren't deleted — they reappear if you
+        switch back.</p>
+    </div>
+    <div class="settings-field">
+      <label><input type="checkbox" id="setting-enable-comparison"> Compare against other players</label>
+      <p class="muted">Add up to two other players (looked up via the Riot API) to
+        compare yourself against in a matchup — their stats, runes and recent games
+        show side by side with yours in the Matchup guide, for theorycrafting runes
+        and notes. Games are fetched on demand (last 7 days; "Fetch more" widens it).</p>
+      <div id="comparison-card" class="hidden">
+        <div id="comparison-players-list"></div>
+        <div class="key-row" style="margin-top:6px">
+          <input class="chip-input" id="comparison-add-input" placeholder="Name#TAG…"
+            spellcheck="false" autocomplete="off" style="max-width:220px">
+          <button id="comparison-add" class="preset" type="button">Add player</button>
+        </div>
+        <p id="comparison-status" class="muted"></p>
+      </div>
+    </div>
+
     <h3 class="settings-group-head">Appearance</h3>
     <div class="settings-field">
       <label class="filter-label" for="setting-date-format">Date format</label>

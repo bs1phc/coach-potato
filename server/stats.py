@@ -267,6 +267,62 @@ def summary(conn, puuid, from_ms=None, to_ms=None, champion=None, queues=None,
     return result
 
 
+def comparison_for_matchup(conn, puuid, my_champion, opp_champion, queues=None):
+    """Stats for ONE comparison ('research') player in a specific matchup,
+    for the Matchup guide's you-vs-them panel. Reuses the same TOP-scoped
+    base as your own stats, just pointed at their puuid:
+      - matchup: their aggregate on my_champion vs opp_champion (+ metrics)
+      - overall: their aggregate on my_champion vs everyone (+ metrics)
+      - recent:  their recent games in this matchup, with the runes they ran
+    Aggregate rows come back even with zero games (games=0), so the caller can
+    render "no games recorded" without a special case."""
+    mbase, mparams = _filtered_base(puuid, champion=my_champion,
+                                    opp_champion=opp_champion, queues=queues)
+    matchup = _pack_metrics(conn.execute(
+        f"SELECT {_AGG}, {_metric_agg_select()} FROM ({mbase})", mparams).fetchone())
+    obase, oparams = _filtered_base(puuid, champion=my_champion, queues=queues,
+                                    require_opponent=False)
+    overall = _pack_metrics(conn.execute(
+        f"SELECT {_AGG}, {_metric_agg_select()} FROM ({obase})", oparams).fetchone())
+    recent = [_decode_game_runes(r) for r in conn.execute(
+        f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id,
+                   my_puuid, my_champion, opp_champion, rank_tier, win,
+                   kills, deaths, assists, cs, my_runes_json, opp_runes_json
+            FROM ({mbase}) ORDER BY game_creation_ms DESC LIMIT 20""",
+        mparams)]
+    return {"matchup": matchup, "overall": overall, "recent": recent}
+
+
+def _rune_breakdown(conn, base, params, field):
+    """Games + win rate grouped by a rune-page field (keystone/secondary_tree)
+    extracted from the runes actually played. Skips games with no recorded
+    runes or a blank field."""
+    sql = f"""
+        SELECT json_extract(my_runes_json, '$.{field}') AS name,
+               COUNT(*) AS games, SUM(win) AS wins, AVG(CAST(win AS REAL)) AS winrate
+        FROM ({base})
+        WHERE my_runes_json IS NOT NULL AND my_runes_json != ''
+          AND json_extract(my_runes_json, '$.{field}') IS NOT NULL
+          AND json_extract(my_runes_json, '$.{field}') != ''
+        GROUP BY name
+        ORDER BY games DESC, winrate DESC
+    """
+    return [dict(r) for r in conn.execute(sql, params)]
+
+
+def rune_analysis(conn, puuid, champion, opp_champion=None, queues=None):
+    """Win rate by keystone and by secondary tree, from the runes actually
+    played (participant_runes) in your games on `champion` — narrowed to vs
+    `opp_champion` when given. Feeds the Matchup guide's rune analysis: "which
+    keystone/secondary has the best win rate for me here"."""
+    base, params = _filtered_base(puuid, champion=champion, opp_champion=opp_champion,
+                                  queues=queues, require_opponent=bool(opp_champion))
+    return {
+        "keystones": _rune_breakdown(conn, base, params, "keystone"),
+        "secondaries": _rune_breakdown(conn, base, params, "secondary_tree"),
+    }
+
+
 def progress_segments(conn, puuids, sessions, champion=None, queues=None,
                       now_ms=None, baseline_days=30):
     """Aggregate stats per period between coaching sessions.

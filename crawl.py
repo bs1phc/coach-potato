@@ -70,6 +70,10 @@ def main():
             result = crawler.crawl_player(game_name, tag_line,
                                           queues=tuple(args.queues), limit=args.limit)
             print(f"  -> {result['new_matches']} new matches")
+        # Comparison ("research") players are intentionally NOT bulk-crawled
+        # here — they're fetched on demand in small batches from the web app
+        # (5 recent games on add, "Fetch more" for the next 5), so a full
+        # crawl never pulls a stranger's entire history unprompted.
         if not args.skip_ranks:
             print("Fetching current solo ranks of lane opponents (cached 7 days) ...")
             n = crawler.enrich_ranks()
