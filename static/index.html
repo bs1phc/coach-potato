@@ -58,8 +58,7 @@
       <select id="progress-queue"><option value="">All</option></select>
     </div>
     <span class="muted">Selected accounts · top lane only</span>
-    <span id="progress-metric-cols" style="margin-left:auto"></span>
-    <span id="progress-cols"></span>
+    <span id="progress-cols" style="margin-left:auto"></span>
   </section>
 
   <section>
@@ -387,6 +386,9 @@
   </div>
   <span class="muted">Runes, patch, and Markdown notes for each matchup this champion faces.</span>
   <div class="head-actions">
+    <button id="guide-live-btn" class="preset" type="button"
+      title="Find your live game and open its matchup one-pager">📡 Live Lookup</button>
+    <span id="guide-live-status" class="muted"></span>
     <details class="col-picker">
       <summary class="preset" title="Export this champion's guide">Export</summary>
       <div class="col-menu">

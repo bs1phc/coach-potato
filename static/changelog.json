@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.45.0",
+      "date": "2026-07-21",
+      "items": [
+        "Live Lookup (📡 on the Matchup guide) — finds your live game, switches to the champion you're playing, and pops open the one-pager for the matchup so your notes are one click away. Riot's live API doesn't expose lane, so the opponent is guessed from your history with a quick enemy-champion switcher to correct it",
+        "Matchups & Coaching progress: the metric column picker now adds/removes columns on the main aggregate tables (including lane-Δ averages like ΔCS/ΔGold), and an expanded row always shows every stat",
+        "Fixed the Matchup guide not refreshing its game counts when you change the selected account"
+      ]
+    },
+    {
       "version": "1.43.0",
       "date": "2026-07-20",
       "items": [

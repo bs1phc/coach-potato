@@ -17,6 +17,7 @@ const state = {
   ddragonVersions: [], // recent DDragon versions, newest first (patch picker)
   poolOrder: null, // champion pool flattened in priority order; null = not fetched
   dateFormat: "iso", // iso | us | eu — drives fmtDate/fmtTime
+  championByKey: null, // numeric championId -> champion id (live-game lookup)
 };
 
 const QUEUE_NAMES = { 400: "Normal Draft", 420: "Ranked Solo", 430: "Normal Blind",
@@ -39,6 +40,20 @@ function displayName(champ) { return DISPLAY_NAME_FIXES[champ] || champ; }
 
 // match-v5 spellings that differ from the DDragon id used in icon URLs
 const ICON_NAME_FIXES = { FiddleSticks: "Fiddlesticks" };
+
+// numeric championId (from spectator/live-game) -> DDragon champion id, built
+// from DDragon champion.json once and cached
+async function loadChampionKeyMap() {
+  if (state.championByKey) return state.championByKey;
+  const map = {};
+  try {
+    const data = await getJSON(
+      `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/data/en_US/champion.json`);
+    for (const c of Object.values(data.data || {})) map[+c.key] = c.id;
+  } catch { /* offline — live lookup can't map ids, handled by caller */ }
+  state.championByKey = map;
+  return map;
+}
 
 function champIcon(champ) {
   if (!state.ddragonVersion || !champ) return "";
@@ -606,6 +621,7 @@ function accountSelectionChanged() {
   if (state.mainView === "matchups") initMatchups();
   else if (state.mainView === "progress") loadProgressFilterOptions().then(loadProgress);
   else if (state.mainView === "trends") initTrends(); // rebuilds filter options too
+  else if (state.mainView === "guide") loadGuide(); // refresh matchup game counts for the new scope
 }
 
 // ---------- data loading ----------
@@ -739,7 +755,7 @@ function segmentMetricsPanel(segment) {
   if (!data) return `<div class="muted">Loading…</div>`;
   const prev = prevNonEmpty(segment);
   const prevData = prev ? segmentUi.cache.get("metrics:" + segKey(prev)) : null;
-  const meta = visibleMeta("cp-metriccols-progress");
+  const meta = state.metricsMeta || [];  // expanded panel shows every metric
   const groups = [...new Set(meta.map((m) => m.group))];
   const coverage = data.metrics_games < data.games
     ? `<div class="muted" style="margin-bottom:8px">Detailed metrics available for
@@ -819,7 +835,23 @@ const PROGRESS_COLS = [
   { key: "gold", label: "Gold/min" },
   { key: "dmg", label: "DMG/min" },
 ];
-const progressCols = colPrefs("cp-cols-progress", PROGRESS_COLS.map((c) => c.key));
+// metric-average columns (incl. lane deltas) available in the progress table,
+// keyed "m:<metric>"; off by default. Cells read segment.metrics.
+function progressMetricCols() {
+  return (state.metricsMeta || []).map((m) => ({
+    key: `m:${m.key}`, label: m.label,
+    cell: (seg) => `<td>${fmtMetric(seg.metrics ? seg.metrics[m.key] : null, m)}</td>`,
+  }));
+}
+function progressAllCols() { return [...PROGRESS_COLS, ...progressMetricCols()]; }
+function progressVisibleKeys() {
+  return colPrefs("cp-cols-progress", progressAllCols().map((c) => c.key),
+                  PROGRESS_COLS.map((c) => c.key)); // base on, metric averages off
+}
+function progressVisibleCols() {
+  const vis = progressVisibleKeys();
+  return progressAllCols().filter((c) => vis.has(c.key));
+}
 
 function renderProgress(segments) {
   segmentUi.segments = segments;
@@ -829,7 +861,7 @@ function renderProgress(segments) {
       No coaching sessions yet — add your first one below.</div></div>`;
     return;
   }
-  const visible = PROGRESS_COLS.filter((c) => progressCols.has(c.key));
+  const visible = progressVisibleCols();
   const rows = segments.map((segment, i) => {
     const previous = segments.slice(0, i).reverse().find((s) => s.games > 0);
     const wrDelta = delta(segment, previous, "winrate_pp", 1, "pp");
@@ -852,7 +884,7 @@ function renderProgress(segments) {
       <td class="period-cell"><div class="period-wrap">
         <button class="preset seg-toggle" data-i="${i}" aria-expanded="${expanded}">${expanded ? "▾" : "▸"}</button>
         <div class="period-text"><strong>${segment.label}</strong><br><span class="muted period-sub">${fmtSegmentDates(segment)}${segment.note ? " · " + escapeHtml(segment.note) : ""}</span></div>
-      </div></td>` + visible.map((c) => cells[c.key]).join("") + `</tr>`;
+      </div></td>` + visible.map((c) => (c.cell ? c.cell(segment) : cells[c.key])).join("") + `</tr>`;
     if (expanded) {
       html += `<tr class="games-row"><td colspan="${visible.length + 1}">${segmentMetricsPanel(segment)}</td></tr>`;
     }
@@ -1719,10 +1751,11 @@ function wireFilters() {
   $("#queue-select").addEventListener("change", (e) => { state.queue = e.target.value; refresh(); });
   $("#rank-select").addEventListener("change", (e) => { state.rankTier = e.target.value; refresh(); });
   $("#min-games").addEventListener("change", (e) => { state.minGames = Math.max(1, +e.target.value || 1); refresh(); });
-  renderColPicker($("#progress-cols"), "cp-cols-progress", PROGRESS_COLS, progressCols,
-    () => renderProgress(segmentUi.segments));
-  renderMetricColPicker($("#progress-metric-cols"), "cp-metriccols-progress",
-    () => renderProgress(segmentUi.segments));
+  // one picker for the whole progress table: base columns (default on) + metric
+  // averages incl. lane deltas (default off). Expanded panels show all metrics.
+  renderColPicker($("#progress-cols"), "cp-cols-progress",
+    progressAllCols().map((c) => ({ key: c.key, label: c.label })),
+    progressVisibleKeys(), () => renderProgress(segmentUi.segments));
   $("#crawl-btn").addEventListener("click", startCrawl);
   $("#champion-table-toggle").addEventListener("click", () => {
     const btn = $("#champion-table-toggle");

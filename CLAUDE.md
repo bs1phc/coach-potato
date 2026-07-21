@@ -165,12 +165,16 @@ change, not a crawler change.
   `./crawl.sh --backfill-lane-deltas` fills existing rows (has_timeline=0)
   using only the timeline + stored participants for the lane opponent, via
   `db.update_participant_timeline` (which never clobbers challenge metrics).
-  These six are `default_hidden` — matchups per-game, trends and coaching
-  progress each have a metric column picker (`renderMetricColPicker`,
-  localStorage `cp-metriccols-<view>`) that starts them off. Blocks is the
-  exception: its expanded per-game panel shows ALL metrics (no picker), and
-  the deltas are instead selectable as columns on the block-games TABLE
-  (`BLOCK_COLS`, off by default). The web app deepens block-game stats
+  These six are `default_hidden`. Across the app the pattern is: EXPANDED
+  per-game/segment stat panels always show ALL metrics (no picker), and each
+  aggregate TABLE has a column picker whose metric-average columns start off.
+  Matchups (`muAllCols`/`cp-mucols`, base cols default on) and coaching
+  progress (`progressAllCols`/`cp-cols-progress`) get per-opponent /
+  per-segment metric averages from `stats.matchups`/`progress_segments`
+  (both now return a `metrics` dict via `_metric_agg_select`); blocks expose
+  the deltas as `BLOCK_COLS`; trends' breakdown/charts use
+  `renderMetricColPicker` (`cp-metriccols-trends`). The lane deltas render
+  as averages in these tables. The web app deepens block-game stats
   proactively: `_run_crawl` calls `backfill_lane_deltas(block_games_only=True)`,
   and opening Blocks fires `POST /api/blocks/backfill-timelines` (background
   thread `_run_timeline_backfill` → `TIMELINE_STATE`, guarded by
@@ -222,7 +226,14 @@ change, not a crawler change.
   notes] / Games tabs; a 📖 link per row — shown only when a specific "My
   champion" filter is active, since guides are scoped per champion pair —
   deep-links to that matchup's Matchup guide) in `matchups.js`;
-  a 📄 button per Matchup-guide row opens the One Pager
+  Live Lookup (📡 on the Matchup guide) calls `GET /api/live-game`
+  (`riot_client.get_active_game` → spectator-v5 by-puuid on the platform
+  host, per tracked account; 404 = not in a game) which returns the numeric
+  championIds in the game; the client maps them via DDragon champion.json
+  (`loadChampionKeyMap`), switches the guide to your champion, guesses the
+  lane opponent from matchup history (spectator has NO role/lane, so the
+  most-faced enemy is the pick) and opens the One Pager with a 5-enemy
+  switcher to correct it. a 📄 button per Matchup-guide row opens the One Pager
   (`openOnePager` in guide.js, `#onepager-overlay` full-screen opaque
   overlay): a second-screen quick reference for one matchup — runes, skill
   order, item build, matchup + general notes; deliberately NO history/
