@@ -1529,7 +1529,12 @@ def api_add_comparison_player(body: dict):
         existing = db.list_comparison_players(conn)
     finally:
         conn.close()
-    client = RiotClient(settings["riot_api_key"], platform=settings["platform"],
+    # a comparison player can be on a different server than your own accounts;
+    # default to yours when the body doesn't specify one
+    platform = (body.get("platform") or settings["platform"]).strip().lower()
+    if platform not in PLATFORM_ROUTING:
+        raise HTTPException(400, f"unknown server/platform {platform!r}")
+    client = RiotClient(settings["riot_api_key"], platform=platform,
                         limiter=RateLimiter())
     try:
         account = client.get_account(name.strip(), tag.strip())
@@ -1547,7 +1552,7 @@ def api_add_comparison_player(body: dict):
     # be committed before the crawl or the initial fetch would skip them.
     conn = get_conn()
     try:
-        db.add_comparison_player(conn, puuid, game_name, tag_line)
+        db.add_comparison_player(conn, puuid, game_name, tag_line, platform=platform)
     finally:
         conn.close()
     since_s = int(time.time()) - db.COMPARISON_LOOKBACK_DAYS * 86400
@@ -1576,7 +1581,10 @@ def api_comparison_fetch_more(puuid: str):
         new_days = db.bump_comparison_lookback(conn, puuid)
     finally:
         conn.close()
-    client = RiotClient(settings["riot_api_key"], platform=settings["platform"],
+    platform = (row["platform"] or settings["platform"]).strip().lower()
+    if platform not in PLATFORM_ROUTING:
+        platform = settings["platform"]
+    client = RiotClient(settings["riot_api_key"], platform=platform,
                         limiter=RateLimiter())
     since_s = int(time.time()) - new_days * 86400
     result = _crawl_comparison_window(client, row["game_name"], row["tag_line"], since_s)

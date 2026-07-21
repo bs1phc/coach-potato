@@ -185,6 +185,7 @@ CREATE TABLE IF NOT EXISTS comparison_players (
     puuid TEXT PRIMARY KEY,
     game_name TEXT NOT NULL DEFAULT '',
     tag_line TEXT NOT NULL DEFAULT '',
+    platform TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     lookback_days INTEGER NOT NULL DEFAULT 60,
     sort INTEGER NOT NULL DEFAULT 0,
@@ -249,6 +250,9 @@ def _migrate(conn):
             conn.execute("ALTER TABLE blocks ADD COLUMN closed_at_ms INTEGER")
         if "series_id" not in block_columns:  # block series added in v1.40.0
             conn.execute("ALTER TABLE blocks ADD COLUMN series_id INTEGER")
+    cp_columns = {r["name"] for r in conn.execute("PRAGMA table_info(comparison_players)")}
+    if cp_columns and "platform" not in cp_columns:  # per-player server added later
+        conn.execute("ALTER TABLE comparison_players ADD COLUMN platform TEXT NOT NULL DEFAULT ''")
     matchup_notes_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matchup_notes)")}
     if matchup_notes_columns and "my_champion" not in matchup_notes_columns:
         # Pre-v1.14.0 shapes had opp_champion as the sole PK (no per-champion
@@ -386,7 +390,7 @@ COMPARISON_LOOKBACK_DAYS = 60  # default fetch window; "Fetch more" extends by t
 
 def list_comparison_players(conn):
     return [dict(r) for r in conn.execute(
-        "SELECT puuid, game_name, tag_line, enabled, lookback_days, sort, added_at_ms "
+        "SELECT puuid, game_name, tag_line, platform, enabled, lookback_days, sort, added_at_ms "
         "FROM comparison_players ORDER BY sort, added_at_ms")]
 
 
@@ -397,10 +401,11 @@ def comparison_puuids(conn, enabled_only=False):
     return [r["puuid"] for r in conn.execute(sql)]
 
 
-def add_comparison_player(conn, puuid, game_name, tag_line):
+def add_comparison_player(conn, puuid, game_name, tag_line, platform=""):
     """Insert a comparison player (enabled by default). Returns False without
     inserting if the max is already reached (unless this puuid is already one,
-    in which case it's a no-op refresh of the display name)."""
+    in which case it's a no-op refresh of the display name/server). `platform`
+    is the player's server (they may be on a different region than you)."""
     existing = {r["puuid"] for r in conn.execute("SELECT puuid FROM comparison_players")}
     if puuid not in existing and len(existing) >= MAX_COMPARISON_PLAYERS:
         return False
@@ -409,11 +414,12 @@ def add_comparison_player(conn, puuid, game_name, tag_line):
     with conn:
         conn.execute(
             f"""INSERT INTO comparison_players
-                  (puuid, game_name, tag_line, lookback_days, sort, added_at_ms)
-                VALUES (?, ?, ?, ?, ?, {_now_expr()})
+                  (puuid, game_name, tag_line, platform, lookback_days, sort, added_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, {_now_expr()})
                 ON CONFLICT(puuid) DO UPDATE SET
-                  game_name=excluded.game_name, tag_line=excluded.tag_line""",
-            (puuid, game_name, tag_line, COMPARISON_LOOKBACK_DAYS, nxt))
+                  game_name=excluded.game_name, tag_line=excluded.tag_line,
+                  platform=excluded.platform""",
+            (puuid, game_name, tag_line, platform, COMPARISON_LOOKBACK_DAYS, nxt))
     return True
 
 

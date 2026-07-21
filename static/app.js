@@ -1353,7 +1353,7 @@ function renderComparisonPlayers(players) {
         <label class="comparison-enable" title="Show this player in the guide comparison">
           <input type="checkbox" class="cmp-enable" ${p.enabled ? "checked" : ""}></label>
         <span class="comparison-name">${escapeHtml(p.game_name)}<span class="muted">#${escapeHtml(p.tag_line)}</span></span>
-        <span class="muted comparison-games">${p.games} game${p.games === 1 ? "" : "s"} · ${p.lookback_days}d</span>
+        <span class="muted comparison-games">${p.platform ? (PLATFORM_LABELS[p.platform] || p.platform.toUpperCase()) + " · " : ""}${p.games} game${p.games === 1 ? "" : "s"} · ${p.lookback_days}d</span>
         <button class="preset cmp-more" type="button" title="Fetch &amp; store ~7 more days of this player's games">Fetch more</button>
         <button class="preset icon-btn cmp-remove" type="button" title="Remove">✕</button>
       </div>`).join("")
@@ -1379,7 +1379,7 @@ async function addComparisonPlayer() {
   status.textContent = `looking up ${riotId} and fetching recent games…`;
   const res = await fetch("/api/comparison-players", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ riot_id: riotId }),
+    body: JSON.stringify({ riot_id: riotId, platform: $("#comparison-add-platform").value }),
   });
   const body = await res.json().catch(() => ({}));
   if (res.ok) {
@@ -1422,8 +1422,10 @@ async function initSettings() {
   $("#setting-key").value = data.riot_api_key;
   const platforms = [...data.platforms].sort((a, b) =>
     PLATFORM_ORDER.indexOf(a) - PLATFORM_ORDER.indexOf(b));
-  $("#setting-platform").innerHTML = platforms.map((p) =>
-    `<option value="${p}" ${p === data.platform ? "selected" : ""}>${PLATFORM_LABELS[p] || p.toUpperCase()}</option>`).join("");
+  const platformOptions = (selected) => platforms.map((p) =>
+    `<option value="${p}" ${p === selected ? "selected" : ""}>${PLATFORM_LABELS[p] || p.toUpperCase()}</option>`).join("");
+  $("#setting-platform").innerHTML = platformOptions(data.platform);
+  $("#comparison-add-platform").innerHTML = platformOptions(data.platform); // default to yours
   settingsUi.accounts = data.accounts;
   settingsUi.wasUnconfigured = !data.configured;
   renderAccountChips();
