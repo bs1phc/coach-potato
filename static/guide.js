@@ -1066,10 +1066,17 @@ async function openComparisonWindow(opp) {
       + `&opp_champion=${encodeURIComponent(opp)}`);
   } catch (e) { alert("Failed to load the comparison."); return; }
   const inner = comparisonBodyHtml(my, opp, data);
+  // In the desktop app (pywebview/WebView2), calling window.open makes Windows
+  // try to hand the URL to an external app — which pops the Microsoft Store
+  // "how do you want to open this" dialog. So only attempt a real pop-out in a
+  // plain browser; the desktop app goes straight to the in-app overlay.
+  const inDesktopApp = typeof window.pywebview !== "undefined";
   let win = null;
-  try {
-    win = window.open("", `cp-compare-${my}-${opp}`, "width=780,height=940,scrollbars=yes");
-  } catch (e) { win = null; }
+  if (!inDesktopApp) {
+    try {
+      win = window.open("", `cp-compare-${my}-${opp}`, "width=780,height=940,scrollbars=yes");
+    } catch (e) { win = null; }
+  }
   if (win) {
     win.document.open();
     win.document.write(`<!doctype html><html><head><meta charset="utf-8">
