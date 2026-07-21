@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS comparison_players (
     game_name TEXT NOT NULL DEFAULT '',
     tag_line TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
-    lookback_days INTEGER NOT NULL DEFAULT 7,
+    lookback_days INTEGER NOT NULL DEFAULT 60,
     sort INTEGER NOT NULL DEFAULT 0,
     added_at_ms INTEGER
 );
@@ -380,8 +380,8 @@ def upsert_player(conn, puuid, game_name, tag_line, is_tracked=False):
 # data still lands in matches/participants like anyone else; this table just
 # records who they are and whether each is currently active. ----------
 
-MAX_COMPARISON_PLAYERS = 2
-COMPARISON_LOOKBACK_DAYS = 7  # default fetch window; "Fetch more" extends by this
+MAX_COMPARISON_PLAYERS = 5
+COMPARISON_LOOKBACK_DAYS = 60  # default fetch window; "Fetch more" extends by this
 
 
 def list_comparison_players(conn):
@@ -408,11 +408,12 @@ def add_comparison_player(conn, puuid, game_name, tag_line):
         "SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM comparison_players").fetchone()["n"]
     with conn:
         conn.execute(
-            f"""INSERT INTO comparison_players (puuid, game_name, tag_line, sort, added_at_ms)
-                VALUES (?, ?, ?, ?, {_now_expr()})
+            f"""INSERT INTO comparison_players
+                  (puuid, game_name, tag_line, lookback_days, sort, added_at_ms)
+                VALUES (?, ?, ?, ?, ?, {_now_expr()})
                 ON CONFLICT(puuid) DO UPDATE SET
                   game_name=excluded.game_name, tag_line=excluded.tag_line""",
-            (puuid, game_name, tag_line, nxt))
+            (puuid, game_name, tag_line, COMPARISON_LOOKBACK_DAYS, nxt))
     return True
 
 

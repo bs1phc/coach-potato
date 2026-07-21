@@ -597,15 +597,18 @@ def test_champion_notes_gains_runes_column_on_upgrade(tmp_path):
 
 def test_comparison_players_crud_and_limit(tmp_path):
     c = db.connect(tmp_path / "cp.sqlite")
-    assert db.add_comparison_player(c, "p1", "Alice", "EUW") is True
-    assert db.add_comparison_player(c, "p2", "Bob", "EUW") is True
-    assert db.add_comparison_player(c, "p3", "Carol", "EUW") is False  # max 2
-    assert [p["game_name"] for p in db.list_comparison_players(c)] == ["Alice", "Bob"]
-    db.set_comparison_enabled(c, "p1", False)
-    assert db.comparison_puuids(c, enabled_only=True) == ["p2"]
-    assert db.bump_comparison_lookback(c, "p2") == 2 * db.COMPARISON_LOOKBACK_DAYS
-    db.remove_comparison_player(c, "p1")
-    assert [p["game_name"] for p in db.list_comparison_players(c)] == ["Bob"]
+    for i in range(db.MAX_COMPARISON_PLAYERS):
+        assert db.add_comparison_player(c, f"p{i}", f"Name{i}", "EUW") is True
+    # one past the max is rejected
+    assert db.add_comparison_player(c, "over", "TooMany", "EUW") is False
+    assert len(db.list_comparison_players(c)) == db.MAX_COMPARISON_PLAYERS
+    db.set_comparison_enabled(c, "p0", False)
+    assert "p0" not in db.comparison_puuids(c, enabled_only=True)
+    assert db.bump_comparison_lookback(c, "p1") == 2 * db.COMPARISON_LOOKBACK_DAYS
+    db.remove_comparison_player(c, "p0")
+    assert len(db.list_comparison_players(c)) == db.MAX_COMPARISON_PLAYERS - 1
+    # a slot freed up — can add again
+    assert db.add_comparison_player(c, "again", "Again", "EUW") is True
     c.close()
 
 

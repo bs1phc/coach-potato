@@ -755,7 +755,8 @@ def test_comparison_players_and_settings(client):
     assert s["runes_mode"] == "general" and s["enable_player_comparison"] is True
     assert client.put("/api/settings", json={**base, "runes_mode": "nope"}).status_code == 400
     # comparison endpoints without any players
-    assert client.get("/api/comparison-players").json() == {"players": [], "max": 2}
+    assert client.get("/api/comparison-players").json() == {
+        "players": [], "max": db.MAX_COMPARISON_PLAYERS}
     # comparison off -> empty player list even if some exist
     client.put("/api/settings", json={**base, "enable_player_comparison": False})
     assert client.get("/api/matchups/comparison",
