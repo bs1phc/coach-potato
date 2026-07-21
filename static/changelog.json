@@ -8,6 +8,7 @@
         "Runes placement setting — keep rune pages per matchup (as now) or switch to one \"General\" rune set per champion, shown up next to the item build",
         "Rune analysis in the Matchup guide — expand a matchup to see which keystone and secondary tree have your best win rate there, straight from the runes you actually played",
         "The Research and Macros tabs can be shown/hidden from Settings, grouped with the new comparison options",
+        "Delete an account from the database — each account in Settings now has a 🗑 button that removes it and purges its crawled data (matches, metrics, runes, rank history); your blocks, sessions and notes are kept",
         "Widened the app layout a little so the Overview no longer needs a horizontal scrollbar"
       ]
     },
