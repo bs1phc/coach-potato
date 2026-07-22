@@ -1505,7 +1505,8 @@ def _run_comparison_crawl(puuid, game_name, tag_line, platform, api_key):
             crawler = Crawler(client, conn,
                               status_cb=lambda m: COMPARISON_CRAWL.__setitem__("message", m))
             res = crawler.crawl_player(game_name, tag_line, limit=COMPARISON_FETCH_TARGET,
-                                       is_tracked=False)  # since_s omitted -> by count
+                                       is_tracked=False,  # since_s omitted -> by count
+                                       fetch_timeline=False)  # skip timelines -> ~2x faster
             COMPARISON_CRAWL["new_matches"] = res["new_matches"]
             COMPARISON_CRAWL["message"] = f"done — {_comparison_games(conn, puuid)} games stored"
         finally:

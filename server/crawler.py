@@ -24,7 +24,7 @@ class Crawler:
         self.now_ms = now_ms
 
     def crawl_player(self, game_name, tag_line, queues=(420, 440), limit=None,
-                     is_tracked=True, since_s=None):
+                     is_tracked=True, since_s=None, fetch_timeline=True):
         """Fetch and store all new matches for one account.
 
         limit caps the number of *new* match-detail fetches (across queues),
@@ -74,8 +74,10 @@ class Crawler:
                     # insert_match OR-IGNOREs, so it backfills this player's
                     # participant row into an already-stored match too
                     db.insert_match(self.conn, match_row, participant_rows)
-                    timeline = self._safe_timeline(match_id)
-                    self._store_metrics(match_json, timeline)
+                    if fetch_timeline:
+                        self._store_metrics(match_json, self._safe_timeline(match_id))
+                    else:  # skip the timeline fetch (halves API calls) — no lane Δ
+                        self._store_metrics(match_json)
                     self._store_runes(match_json)
                     new_matches += 1
                     self.status_cb(
