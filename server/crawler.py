@@ -60,22 +60,28 @@ class Crawler:
                     puuid, queue=queue, start=start, count=PAGE_SIZE, start_time=start_time
                 )
                 for match_id in ids:
-                    if db.has_match(self.conn, match_id):
+                    # skip only if THIS player is already stored for the match —
+                    # not merely if the match row exists. A match first crawled
+                    # via another player (or whose participant rows were purged
+                    # and the account re-added) still needs this player's row.
+                    if db.has_participant(self.conn, match_id, puuid):
                         continue
                     if limit is not None and new_matches >= limit:
                         reached_limit = True
                         break
                     match_json = self.client.get_match(match_id)
                     match_row, participant_rows = parse_match(match_json)
-                    if db.insert_match(self.conn, match_row, participant_rows):
-                        timeline = self._safe_timeline(match_id)
-                        self._store_metrics(match_json, timeline)
-                        self._store_runes(match_json)
-                        new_matches += 1
-                        self.status_cb(
-                            f"{game_name}#{tag_line} queue {queue}: stored {match_id} "
-                            f"({new_matches} new)"
-                        )
+                    # insert_match OR-IGNOREs, so it backfills this player's
+                    # participant row into an already-stored match too
+                    db.insert_match(self.conn, match_row, participant_rows)
+                    timeline = self._safe_timeline(match_id)
+                    self._store_metrics(match_json, timeline)
+                    self._store_runes(match_json)
+                    new_matches += 1
+                    self.status_cb(
+                        f"{game_name}#{tag_line} queue {queue}: stored {match_id} "
+                        f"({new_matches} new)"
+                    )
                 if reached_limit or len(ids) < PAGE_SIZE:
                     break
                 start += PAGE_SIZE

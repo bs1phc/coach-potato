@@ -338,30 +338,37 @@ def has_match(conn, match_id: str) -> bool:
     return conn.execute("SELECT 1 FROM matches WHERE match_id=?", (match_id,)).fetchone() is not None
 
 
-def insert_match(conn, match_row: dict, participant_rows: list) -> bool:
-    """Insert a match with its participants in one transaction.
+def has_participant(conn, match_id: str, puuid: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM participants WHERE match_id=? AND puuid=?",
+        (match_id, puuid)).fetchone() is not None
 
-    Returns False (no-op) if the match is already stored.
-    """
-    if has_match(conn, match_row["match_id"]):
-        return False
+
+def insert_match(conn, match_row: dict, participant_rows: list) -> bool:
+    """Insert a match with its participants in one transaction. Uses INSERT OR
+    IGNORE so a match already present (e.g. first crawled via another player,
+    or whose participant rows were purged by a since-re-added account) still
+    gets any MISSING participant rows backfilled. Returns True if the match row
+    itself was newly inserted, False if it already existed (participants may
+    still have been added in that case)."""
+    is_new = not has_match(conn, match_row["match_id"])
     with conn:
         conn.execute(
-            """INSERT INTO matches
+            """INSERT OR IGNORE INTO matches
                (match_id, queue_id, game_creation_ms, game_duration_s, game_version, crawled_at_ms)
                VALUES (:match_id, :queue_id, :game_creation_ms, :game_duration_s, :game_version,
                        CAST(strftime('%s','now') AS INTEGER) * 1000)""",
             match_row,
         )
         conn.executemany(
-            """INSERT INTO participants
+            """INSERT OR IGNORE INTO participants
                (match_id, puuid, riot_id_name, champion_name, team_id, team_position,
                 win, kills, deaths, assists, cs, gold_earned, damage_to_champions)
                VALUES (:match_id, :puuid, :riot_id_name, :champion_name, :team_id, :team_position,
                        :win, :kills, :deaths, :assists, :cs, :gold_earned, :damage_to_champions)""",
             [{**p, "match_id": match_row["match_id"]} for p in participant_rows],
         )
-    return True
+    return is_new
 
 
 def upsert_player(conn, puuid, game_name, tag_line, is_tracked=False):
