@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.47.0",
+      "date": "2026-07-23",
+      "items": [
+        "Player comparison improvements: pick each added player's server/region (they can be on a different region than you), and their games now fetch DEEP in the background with no date limit — the settings page shows progress, and rarer/older matchups become reachable (\"Fetch more\" pulls further back)",
+        "Delete an account from the database — each account in Settings now has a 🗑 button that removes it and purges its crawled data; your blocks, sessions and notes are kept, and you can re-add and re-crawl it later",
+        "Fixed cross-region match fetching (e.g. a KR comparison player's games were requested from the wrong regional host and failed), and fixed re-adding an account whose data had been deleted (its games are now re-stored instead of skipped)"
+      ]
+    },
+    {
       "version": "1.46.0",
       "date": "2026-07-21",
       "items": [
