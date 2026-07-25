@@ -112,7 +112,7 @@ _METRIC_SELECT = ",\n       ".join(f"pm.{k} AS {k}" for k in metric_keys())
 # One row per (my TOP game, enemy TOP opponent). LEFT JOIN keeps games
 # where the enemy team has no TOP (position data missing) for summary().
 _BASE = """
-SELECT m.match_id, m.game_creation_ms, m.game_duration_s, m.queue_id,
+SELECT m.match_id, m.game_creation_ms, m.game_duration_s, m.queue_id, m.game_version,
        me.puuid AS my_puuid,
        me.champion_name AS my_champion, me.win, me.kills, me.deaths, me.assists,
        me.cs, me.gold_earned, me.damage_to_champions,
@@ -295,7 +295,7 @@ def comparison_for_matchup(conn, puuid, my_champion, opp_champion, queues=None):
     overall = _pack_metrics(conn.execute(
         f"SELECT {_AGG}, {_metric_agg_select()} FROM ({obase})", oparams).fetchone())
     recent = [_decode_game_runes(r) for r in conn.execute(
-        f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id,
+        f"""SELECT match_id, game_creation_ms, game_duration_s, queue_id, game_version,
                    my_puuid, my_champion, opp_champion, rank_tier, win,
                    kills, deaths, assists, cs, my_runes_json, opp_runes_json,
                    spell1, spell2, my_items_json, my_starting_items_json, my_build_order_json,

@@ -11,7 +11,9 @@
   .cmp-title { font-size: 18px; margin: 0 0 4px; }
   .cmp-sub { margin: 0 0 12px; }
   .cmp-note { color: var(--muted); font-size: 12px; margin-top: 16px; }
-  .cmp-controls { margin: 0 0 14px; }
+  .cmp-controls { margin: 0 0 14px; display: flex; align-items: center; gap: 14px; }
+  .cmp-patch-label { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  #patch-filter { padding: 4px 8px; }
   .cmp-toggle {
     font: inherit; font-size: 12px; cursor: pointer; padding: 5px 12px;
     border-radius: 6px; border: 1px solid var(--border);
@@ -58,6 +60,9 @@
 <p class="cmp-sub muted" id="subtitle"></p>
 <div class="cmp-controls">
   <button type="button" id="loadout-toggle" class="cmp-toggle" aria-pressed="false">Show spells &amp; items</button>
+  <label class="cmp-patch-label">Patch
+    <select id="patch-filter" class="cmp-toggle"><option value="">All</option></select>
+  </label>
 </div>
 <div class="cmp-cards" id="cards"><p class="muted">Loading…</p></div>
 <p class="cmp-note">Runes (with shards) are what each player actually ran in recent games.
@@ -200,6 +205,11 @@ function deltaRow(s) {
 }
 let showLoadout = localStorage.getItem("cmp-loadout") === "1";
 let CMP_PLAYERS = [];
+let patchFilter = ""; // "" = all; else a major.minor patch like "14.13"
+
+// major.minor patch from a game_version like "14.13.596.7996"
+const patchOf = (g) => (g.game_version || "").split(".").slice(0, 2).join(".");
+const gamesFor = (p) => (p.recent || []).filter((g) => !patchFilter || patchOf(g) === patchFilter);
 
 function headRow() {
   const cols = showLoadout
@@ -222,10 +232,13 @@ function gameRow(g) {
   return `<div class="cmp-game">${cells.join("")}</div>`;
 }
 function card(p) {
-  const recent = (p.recent || []).length
+  const games = gamesFor(p);
+  const recent = games.length
     ? `<div class="cmp-recent ${showLoadout ? "loadout" : ""}">${headRow()}`
-      + `${p.recent.slice(0, 10).map(gameRow).join("")}</div>`
-    : "<p class='muted'>No recent games — use \"Fetch more\" in Settings.</p>";
+      + `${games.slice(0, 10).map(gameRow).join("")}</div>`
+    : (p.recent || []).length
+      ? `<p class='muted'>No games on patch ${esc(patchFilter)}.</p>`
+      : "<p class='muted'>No recent games — use \"Fetch more\" in Settings.</p>";
   return `<div class="cmp-card">
     <h2>${esc(p.game_name)}<span class="muted">#${esc(p.tag_line)}</span></h2>
     ${statRow(`This matchup vs ${esc(opp)}`, aggLine(p.matchup))}
@@ -253,6 +266,10 @@ function syncToggle() {
     syncToggle();
     renderCards();
   });
+  document.getElementById("patch-filter").addEventListener("change", (e) => {
+    patchFilter = e.target.value;
+    renderCards();
+  });
   syncToggle();
   await Promise.all([loadRunes(), loadDdragon()]);
   let data;
@@ -264,6 +281,11 @@ function syncToggle() {
     return;
   }
   CMP_PLAYERS = data.players || [];
+  // populate the patch dropdown from the patches present across all players' games
+  const patches = [...new Set(CMP_PLAYERS.flatMap((p) => (p.recent || []).map(patchOf))
+    .filter(Boolean))].sort().reverse();
+  document.getElementById("patch-filter").innerHTML = `<option value="">All</option>`
+    + patches.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
   renderCards();
 })();
 </script>
