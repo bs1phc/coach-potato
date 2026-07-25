@@ -30,7 +30,9 @@
   }
   .cmp-recent.loadout .cmp-ghead,
   .cmp-recent.loadout .cmp-game {
-    grid-template-columns: 16px 42px 46px 40px minmax(128px, 1fr) auto;
+    /* runes sized to content; Build fills the rest and left-aligns (justify-items:
+       start) so builds start right after runes with the blank on the right */
+    grid-template-columns: 16px 42px 46px 40px minmax(120px, max-content) minmax(0, 1fr);
   }
   .cmp-ghead {
     font-size: 8.5px; text-transform: uppercase; letter-spacing: .03em;
