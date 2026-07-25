@@ -194,16 +194,30 @@ function aggLine(s) {
     ? `${s.games} games · ${pct(s.winrate)} · ${kda(s)} · ${num(s.cs_min)} CS/min`
     : "no games recorded";
 }
-// Always render the lane Δ @14m line for every player, even when no timeline
-// data was recorded (shows "—") so the comparison is consistent across cards.
-function deltaRow(s) {
+// Laning-phase block: does this player win lane in the matchup? Shows how often
+// they're ahead at 7/14 min (lane_adv_*), the ΔCS/ΔGold vs the lane opponent,
+// and CS@10 · solo kills · plates. All from the aggregated matchup metrics.
+const sgn = (v, d = 0) => (v == null ? "—" : (v > 0 ? "+" : "") + (+v).toFixed(d));
+function laneDelta(m, min) {
+  const cs = m[`cs_diff_${min}`], gold = m[`gold_diff_${min}`];
+  if (cs == null && gold == null) return "<span class='muted'>—</span>";
+  return `ΔCS ${sgn(cs, 1)} · ΔGold ${sgn(gold)}`;
+}
+function laningBlock(s) {
   const m = s.metrics || {};
-  const cs = m.cs_diff_14 != null ? `ΔCS ${(+m.cs_diff_14).toFixed(1)}` : null;
-  const gold = m.gold_diff_14 != null ? `ΔGold ${Math.round(+m.gold_diff_14)}` : null;
-  const val = (cs || gold)
-    ? [cs, gold].filter(Boolean).join(" · ")
-    : (s.games ? "<span class='muted'>no timeline data</span>" : "—");
-  return statRow("Lane Δ @14m", val);
+  if (!s.games) return statRow("Laning", "—");
+  const ahead = (m.lane_adv_early != null || m.lane_adv_late != null)
+    ? `@7 ${m.lane_adv_early == null ? "—" : Math.round(m.lane_adv_early) + "%"}`
+      + ` · @14 ${m.lane_adv_late == null ? "—" : Math.round(m.lane_adv_late) + "%"}`
+    : "<span class='muted'>no timeline data</span>";
+  const extras = [];
+  if (m.cs_at_10 != null) extras.push(`CS@10 ${(+m.cs_at_10).toFixed(0)}`);
+  if (m.solo_kills != null) extras.push(`Solo ${(+m.solo_kills).toFixed(1)}`);
+  if (m.plates != null) extras.push(`Plates ${(+m.plates).toFixed(1)}`);
+  return statRow("Wins lane (ahead)", ahead)
+    + statRow("Lane Δ @7m", laneDelta(m, 7))
+    + statRow("Lane Δ @14m", laneDelta(m, 14))
+    + (extras.length ? statRow("Laning", extras.join(" · ")) : "");
 }
 let showLoadout = localStorage.getItem("cmp-loadout") === "1";
 let CMP_PLAYERS = [];
@@ -244,7 +258,7 @@ function card(p) {
   return `<div class="cmp-card">
     <h2>${esc(p.game_name)}<span class="muted">#${esc(p.tag_line)}</span></h2>
     ${statRow(`This matchup vs ${esc(opp)}`, aggLine(p.matchup))}
-    ${deltaRow(p.matchup)}
+    ${laningBlock(p.matchup)}
     ${statRow(`Overall on ${esc(my)}`, aggLine(p.overall))}
     <h3>Recent games</h3>${recent}
   </div>`;
