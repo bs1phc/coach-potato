@@ -282,8 +282,12 @@ function syncToggle() {
   }
   CMP_PLAYERS = data.players || [];
   // populate the patch dropdown from the patches present across all players' games
+  // sort numerically (major then minor) so 16.14 > 16.9, newest first
   const patches = [...new Set(CMP_PLAYERS.flatMap((p) => (p.recent || []).map(patchOf))
-    .filter(Boolean))].sort().reverse();
+    .filter(Boolean))].sort((a, b) => {
+      const [am, an] = a.split(".").map(Number), [bm, bn] = b.split(".").map(Number);
+      return bm - am || bn - an;
+    });
   document.getElementById("patch-filter").innerHTML = `<option value="">All</option>`
     + patches.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
   renderCards();
