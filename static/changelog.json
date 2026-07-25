@@ -1,6 +1,17 @@
 {
   "entries": [
     {
+      "version": "1.48.0",
+      "date": "2026-07-24",
+      "items": [
+        "The Matchup guide's Recent games and the player-comparison pop-out now show what was actually run per game: summoner spells, the full rune page (with stat shards) and the first 3 items",
+        "The comparison pop-out was redesigned into clean aligned columns, with a 'Show spells & items' toggle so recent games stay uncluttered by default",
+        "The comparison pop-out now shows the lane Δ @14m (ΔCS / ΔGold vs the direct lane opponent) for every compared player, so you can see who wins lane, not just the game — comparison fetches now pull match timelines again to make this possible (slightly slower deep-fetch), and older stored games are back-filled automatically on the next fetch",
+        "Summoner spells and items are captured on new crawls; run ./crawl.sh --backfill-items to fill them in for already-stored games",
+        "Lowering the UI opacity now keeps cards and text readable over a background image — surfaces stay translucent (still some glass) but no longer fade to the point where content became hard to read, and every view's content (Overview, Matchups, Matchup guide, Coaching progress, Blocks, Trends, Research, Macros) now sits on proper surface panels instead of bare text over the picture"
+      ]
+    },
+    {
       "version": "1.47.0",
       "date": "2026-07-23",
       "items": [
