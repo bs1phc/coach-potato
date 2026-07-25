@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Coach Potato user guide — a local League of Legends top-lane coaching and improvement app.">
+<title>Coach Potato — User Guide</title>
+<style>
+  :root {
+    --ground: #f5f4f1;
+    --surface: #ffffff;
+    --surface-2: #fbfaf7;
+    --ink: #14181f;
+    --ink-soft: #3c434e;
+    --muted: #6a7280;
+    --line: #e5e3dc;
+    --line-soft: #efeee8;
+    --accent: #2f6fb0;
+    --accent-soft: #e8f0f8;
+    --gold: #a8761f;
+    --gold-soft: #f6efe0;
+    --good: #1a8f47;
+    --crit: #c9432f;
+    --shadow: 0 1px 2px rgba(20,24,31,.04), 0 8px 28px -12px rgba(20,24,31,.14);
+    --radius: 12px;
+    --maxw: 1180px;
+    --sans: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0d1015;
+      --surface: #151a21;
+      --surface-2: #10151b;
+      --ink: #eef1f5;
+      --ink-soft: #c3cad3;
+      --muted: #8b95a1;
+      --line: #242c36;
+      --line-soft: #1c242d;
+      --accent: #5197da;
+      --accent-soft: #16232f;
+      --gold: #d3a24c;
+      --gold-soft: #221a0f;
+      --good: #35b566;
+      --crit: #e2604d;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 14px 34px -16px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #f5f4f1; --surface: #ffffff; --surface-2: #fbfaf7; --ink: #14181f;
+    --ink-soft: #3c434e; --muted: #6a7280; --line: #e5e3dc; --line-soft: #efeee8;
+    --accent: #2f6fb0; --accent-soft: #e8f0f8; --gold: #a8761f; --gold-soft: #f6efe0;
+    --good: #1a8f47; --crit: #c9432f; --shadow: 0 1px 2px rgba(20,24,31,.04), 0 8px 28px -12px rgba(20,24,31,.14);
+  }
+  :root[data-theme="dark"] {
+    --ground: #0d1015; --surface: #151a21; --surface-2: #10151b; --ink: #eef1f5;
+    --ink-soft: #c3cad3; --muted: #8b95a1; --line: #242c36; --line-soft: #1c242d;
+    --accent: #5197da; --accent-soft: #16232f; --gold: #d3a24c; --gold-soft: #221a0f;
+    --good: #35b566; --crit: #e2604d; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 14px 34px -16px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 16px; line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+
+  /* ---------- hero ---------- */
+  .hero {
+    border-bottom: 1px solid var(--line);
+    background:
+      radial-gradient(120% 140% at 12% -20%, var(--accent-soft), transparent 55%),
+      var(--surface);
+  }
+  .hero-inner {
+    max-width: var(--maxw); margin: 0 auto; padding: 46px 28px 40px;
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 26px 40px;
+  }
+  .brand { display: flex; align-items: center; gap: 16px; }
+  .spud {
+    width: 58px; height: 58px; flex: none; border-radius: 16px;
+    background: linear-gradient(150deg, var(--gold), #7d5714);
+    display: grid; place-items: center; font-size: 30px;
+    box-shadow: var(--shadow);
+  }
+  .brand h1 {
+    font-size: clamp(30px, 4.4vw, 44px); line-height: 1.02; margin: 0;
+    font-weight: 800; letter-spacing: -.022em; text-wrap: balance;
+  }
+  .brand .sub { margin: 4px 0 0; color: var(--muted); font-size: 15px; font-weight: 500; }
+  .lede { flex: 1 1 340px; min-width: 280px; color: var(--ink-soft); font-size: 17px; max-width: 62ch; }
+  .lede strong { color: var(--ink); font-weight: 650; }
+  .pillrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .pill {
+    font-size: 12.5px; font-weight: 600; letter-spacing: .01em;
+    padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--surface-2); color: var(--ink-soft);
+  }
+
+  /* ---------- layout ---------- */
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 28px; }
+  .cols { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 48px; align-items: start; }
+  @media (max-width: 880px) { .cols { grid-template-columns: 1fr; gap: 8px; } }
+
+  nav.toc {
+    position: sticky; top: 20px; align-self: start; padding: 26px 0;
+    font-size: 14px; max-height: calc(100vh - 40px); overflow-y: auto;
+  }
+  @media (max-width: 880px) {
+    nav.toc {
+      position: static; max-height: none; overflow: visible; padding: 14px 0 4px;
+      border-bottom: 1px solid var(--line); margin-bottom: 8px;
+    }
+    .toc ul { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  }
+  .toc-head {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 12px 12px;
+  }
+  @media (max-width: 880px) { .toc-head { display: none; } }
+  .toc ul { list-style: none; margin: 0; padding: 0; }
+  .toc li { margin: 1px 0; }
+  .toc a {
+    display: block; padding: 5px 12px; border-radius: 7px; color: var(--ink-soft);
+    border-left: 2px solid transparent; font-weight: 500;
+  }
+  .toc a:hover { background: var(--surface); color: var(--ink); text-decoration: none; }
+  .toc .grp {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 16px 0 4px 12px;
+  }
+  @media (max-width: 880px) { .toc .grp { display: none; } }
+
+  main { padding: 26px 0 90px; min-width: 0; }
+  section { scroll-margin-top: 20px; padding: 30px 0; border-top: 1px solid var(--line-soft); }
+  section:first-of-type { border-top: 0; padding-top: 8px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin: 0 0 6px;
+  }
+  h2 { font-size: clamp(23px, 3vw, 29px); font-weight: 800; letter-spacing: -.02em; margin: 0 0 6px; text-wrap: balance; }
+  h3 { font-size: 18px; font-weight: 700; letter-spacing: -.01em; margin: 26px 0 8px; }
+  p { margin: 0 0 12px; max-width: 68ch; color: var(--ink-soft); }
+  .intro { color: var(--ink-soft); font-size: 17px; max-width: 66ch; }
+  strong { color: var(--ink); font-weight: 650; }
+  code, kbd {
+    font-family: var(--mono); font-size: .86em; background: var(--surface-2);
+    border: 1px solid var(--line); padding: 1px 6px; border-radius: 5px; color: var(--ink);
+  }
+
+  /* feature list */
+  .feat { display: grid; gap: 0; margin: 14px 0 4px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+  .feat > div { display: grid; grid-template-columns: 42px 1fr; gap: 14px; padding: 14px 16px; border-top: 1px solid var(--line-soft); }
+  .feat > div:first-child { border-top: 0; }
+  .feat .ico { font-size: 19px; line-height: 1.4; text-align: center; }
+  .feat .t { font-weight: 680; color: var(--ink); }
+  .feat .d { color: var(--ink-soft); font-size: 15px; margin-top: 2px; }
+  .feat .d code { font-size: 13px; }
+
+  /* callouts */
+  .note { border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--surface); border-radius: 10px; padding: 13px 16px; margin: 16px 0; font-size: 15px; color: var(--ink-soft); }
+  .note.tip { border-left-color: var(--good); }
+  .note.warn { border-left-color: var(--gold); }
+  .note b { color: var(--ink); }
+  .note .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; margin-right: 8px; }
+  .note.tip .lbl { color: var(--good); }
+  .note.warn .lbl { color: var(--gold); }
+  .note .lbl.info { color: var(--accent); }
+
+  /* steps */
+  ol.steps { counter-reset: s; list-style: none; margin: 14px 0; padding: 0; display: grid; gap: 10px; }
+  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 14px; align-items: start; }
+  ol.steps li::before {
+    content: counter(s); grid-row: span 2; width: 28px; height: 28px; border-radius: 8px;
+    background: var(--accent); color: #fff; font-weight: 700; font-size: 14px; display: grid; place-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+  ol.steps li p { margin: 0; }
+  ol.steps .st { font-weight: 650; color: var(--ink); }
+
+  ul.plain { margin: 8px 0 12px; padding-left: 18px; color: var(--ink-soft); }
+  ul.plain li { margin: 5px 0; }
+  ul.plain li::marker { color: var(--accent); }
+
+  .tabsrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+  .tab {
+    font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
+  }
+  .tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .kbd { font-family: var(--mono); font-size: 13px; }
+
+  footer { border-top: 1px solid var(--line); background: var(--surface); }
+  .foot-inner { max-width: var(--maxw); margin: 0 auto; padding: 26px 28px 40px; color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="hero-inner">
+    <div class="brand">
+      <div class="spud" aria-hidden="true">🥔</div>
+      <div>
+        <h1>Coach Potato</h1>
+        <p class="sub">Top-lane improvement, one block at a time · User guide</p>
+      </div>
+    </div>
+    <p class="lede">
+      A desktop app that pulls your <strong>League of Legends</strong> match history into a local
+      database and turns it into matchup stats, coaching notes, rune &amp; build guides, and
+      progress tracking — all focused on the <strong>top lane</strong>. Everything runs on your
+      machine; your data never leaves it.
+      <span class="pillrow">
+        <span class="pill">Runs locally</span>
+        <span class="pill">Riot API</span>
+        <span class="pill">Top lane</span>
+        <span class="pill">Notes &amp; guides</span>
+        <span class="pill">No account needed</span>
+      </span>
+    </p>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="cols">
+    <nav class="toc" aria-label="Contents">
+      <p class="toc-head">On this page</p>
+      <ul>
+        <li><a href="#start">Getting started</a></li>
+        <p class="grp">The tabs</p>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#matchups">Matchups</a></li>
+        <li><a href="#guide">Matchup guide</a></li>
+        <li><a href="#compare">Player comparison</a></li>
+        <li><a href="#progress">Coaching progress</a></li>
+        <li><a href="#blocks">Blocks</a></li>
+        <li><a href="#trends">Trends</a></li>
+        <li><a href="#research">Research</a></li>
+        <li><a href="#macros">Macros</a></li>
+        <p class="grp">Reference</p>
+        <li><a href="#settings">Settings</a></li>
+        <li><a href="#data">Data &amp; updating</a></li>
+        <li><a href="#tips">Tips &amp; shortcuts</a></li>
+      </ul>
+    </nav>
+
+    <main>
+      <section id="start">
+        <p class="eyebrow">Setup · about 3 minutes</p>
+        <h2>Getting started</h2>
+        <p class="intro">Coach Potato needs two things before it can show you anything: a Riot API
+          key and the accounts you want to track. You set both in <strong>Settings</strong> (⚙,
+          top-right), then run your first update.</p>
+        <ol class="steps">
+          <li><p class="st">Get a Riot API key</p><p>Open <a href="https://developer.riotgames.com" target="_blank" rel="noopener">developer.riotgames.com</a> and copy a key. A registered <strong>personal product</strong> key is persistent; the instant <em>development key</em> also works but expires every 24&nbsp;hours.</p></li>
+          <li><p class="st">Paste it into Settings → Riot API &amp; accounts</p><p>Add the key, then add each account as <code>Name#TAG</code> (e.g. <code>Faker#KR1</code>). Pick your <strong>Server / platform</strong>. Stats combine all tracked accounts.</p></li>
+          <li><p class="st">Press Update data (⟳)</p><p>The first crawl walks your full match history — roughly <strong>2&nbsp;minutes per 100 games</strong>. After that, updates are incremental and fast, and can run automatically on a schedule you choose.</p></li>
+          <li><p class="st">Explore</p><p>Head to <strong>Overview</strong> for the big picture, or jump straight into a <strong>Matchup guide</strong> for a champion.</p></li>
+        </ol>
+        <div class="note warn"><span class="lbl">Heads up</span> A <b>development</b> key stops working after 24&nbsp;h — when crawls start failing with an auth error, paste a fresh key in Settings. All stats are scoped to <b>top lane</b>; every role's data is stored, so it's a display setting, not a re-crawl.</div>
+      </section>
+
+      <section id="overview">
+        <p class="eyebrow">Tab</p>
+        <h2>Overview</h2>
+        <p class="intro">Your dashboard. A filter row across the top drives everything below it.</p>
+        <div class="feat">
+          <div><div class="ico">⚙</div><div><div class="t">Filters</div><div class="d">Period (7d / 30d / custom…), champion, queue, map <strong>side</strong> (blue/red), opponent rank, and minimum games. They apply across Overview, Matchups, Trends and Progress.</div></div></div>
+          <div><div class="ico">▦</div><div><div class="t">Summary tiles</div><div class="d">Win rate, KDA, CS/min, gold and damage at a glance for the current filter.</div></div></div>
+          <div><div class="ico">📈</div><div><div class="t">Rank over time</div><div class="d">Your solo-queue rank charted as ladder points. Real snapshots are solid; between them, faint estimated points are interpolated from ranked wins/losses. Coaching-session dates appear as vertical markers.</div></div></div>
+          <div><div class="ico">🏆</div><div><div class="t">My champions</div><div class="d">A per-champion table (expand it from the heading) — games, win rate and averages.</div></div></div>
+          <div><div class="ico">🎮</div><div><div class="t">Recent games</div><div class="d">Your latest games with a ▸ toggle per row that expands <strong>both players' rune pages side by side</strong> — yours and your lane opponent's.</div></div></div>
+        </div>
+      </section>
+
+      <section id="matchups">
+        <p class="eyebrow">Tab</p>
+        <h2>Matchups</h2>
+        <p class="intro">How you perform against each top-lane opponent. Two views:</p>
+        <div class="tabsrow"><span class="tab on">By matchup</span><span class="tab">Grouped by opponent rank</span></div>
+        <p>Every row is one enemy champion — games, win rate, KDA and CS. <strong>Expand a row</strong> for a win/loss timeline and any block notes you've written for that matchup. The <span class="kbd">📖</span> link (shown when a specific "My champion" is selected) jumps straight to that matchup's guide.</p>
+        <div class="feat">
+          <div><div class="ico">🎛️</div><div><div class="t">Metric columns</div><div class="d">Add average columns for coaching metrics (lane Δ, CS@10, kill participation, vision…) via the column picker. They start hidden to keep the table clean.</div></div></div>
+          <div><div class="ico">🔵</div><div><div class="t">Side filter</div><div class="d">Restrict to games where you were on blue or red side.</div></div></div>
+          <div><div class="ico">⧉</div><div><div class="t">Compare · ⏱ Cooldowns</div><div class="d">Per-row buttons open the player comparison and the ability-cooldown tool for that matchup (see below).</div></div></div>
+        </div>
+      </section>
+
+      <section id="guide">
+        <p class="eyebrow">Tab · the core of the app</p>
+        <h2>Matchup guide</h2>
+        <p class="intro">A living playbook for one of <em>your</em> champions. Pick <strong>My champion</strong>
+          from the full roster (not just champions you've played), then build up notes, runes and item
+          builds for every matchup it faces.</p>
+        <div class="feat">
+          <div><div class="ico">📝</div><div><div class="t">General notes &amp; item build</div><div class="d">Champion-level Markdown notes and a mobafire-style item build (labelled sections you can drag to reorder) shown above the matchup list.</div></div></div>
+          <div><div class="ico">🔮</div><div><div class="t">Per-matchup runes, patch &amp; notes</div><div class="d">Each matchup carries full rune pages (built with a click-through picker — keystone, minor rows, secondary, shards), a patch string, and Markdown notes on how to play it. A matchup can hold several rune pages (e.g. alternatives you're testing).</div></div></div>
+          <div><div class="ico">🎮</div><div><div class="t">Recent games</div><div class="d">The 20 most recent games in that matchup with the <strong>actual runes, spells and items you ran</strong>. A “+ guide” button saves a played rune page into the guide.</div></div></div>
+          <div><div class="ico">🔎</div><div><div class="t">Search &amp; sort</div><div class="d">Filter the matchup list by opponent name; matchups you've written up sort to the top, then the rest — each group A→Z.</div></div></div>
+          <div><div class="ico">📄</div><div><div class="t">One Pager</div><div class="d">A full-screen, second-screen quick reference for a matchup: runes, skill order, items, notes — no stats. Press Esc to close.</div></div></div>
+          <div><div class="ico">⏱</div><div><div class="t">Cooldown compare</div><div class="d">Compare ability cooldowns between the two champions at any level, with haste sources and a skill-order grid. Save a build back to the matchup guide.</div></div></div>
+          <div><div class="ico">📡</div><div><div class="t">Live Lookup</div><div class="d">Finds your live game and opens the One Pager for the matchup automatically (guessing the lane opponent, which you can correct).</div></div></div>
+          <div><div class="ico">↕</div><div><div class="t">Export / Import</div><div class="d">Export a champion's whole guide as JSON (optionally password-encrypted) or a printable <strong>PDF</strong>; import someone else's.</div></div></div>
+        </div>
+        <div class="note tip"><span class="lbl">Tip</span> "My champion" comes from the full roster, so you can prep a guide for a champion <b>before</b> you've ever played it.</div>
+      </section>
+
+      <section id="compare">
+        <p class="eyebrow">Inside the Matchup guide · <span aria-hidden="true">⧉</span></p>
+        <h2>Player comparison</h2>
+        <p class="intro">Add up to <strong>six other players</strong> (by Riot ID, in Settings → Research
+          &amp; comparison) and compare how <em>they</em> play a matchup against how you do. The <span class="kbd">⧉</span>
+          button on a guide row opens a side-by-side pop-out — great for a second screen.</p>
+        <div class="feat">
+          <div><div class="ico">🛡️</div><div><div class="t">Does this player win lane?</div><div class="d">A laning-phase block per player: how often they're <strong>ahead at 7 and 14 min</strong>, ΔCS / ΔGold vs the direct lane opponent, and CS@10 · solo kills · plates.</div></div></div>
+          <div><div class="ico">🎯</div><div><div class="t">What they actually ran</div><div class="d">Per recent game: summoner spells, the full rune page (with stat shards), the ability <strong>max order</strong> (Q›W›E), and the full <strong>build in purchase order</strong>. Toggle "Show spells &amp; items" to reveal them.</div></div></div>
+          <div><div class="ico">🧩</div><div><div class="t">Patch filter &amp; layout</div><div class="d">Filter each player's games to a specific patch. Cards are one wide by default and grow to a max of three per row.</div></div></div>
+        </div>
+        <div class="note"><span class="lbl info">How it fetches</span> Comparison players are pulled <b>on demand</b> in the background (they can be on a different region than you). Their match data is stored like anyone's, but they stay out of your own tracked stats.</div>
+      </section>
+
+      <section id="progress">
+        <p class="eyebrow">Tab</p>
+        <h2>Coaching progress</h2>
+        <p class="intro">Track improvement across <strong>coaching sessions</strong> — dated checkpoints
+          you create as you learn something new.</p>
+        <ul class="plain">
+          <li>Each session has a title and Markdown notes, and can hold <strong>video clips</strong> (uploads or pasted YouTube/Twitch links) for specific moments.</li>
+          <li>The <strong>progress table</strong> splits your stats into segments — a baseline, the periods between sessions, and since your last one — so you can see whether a metric moved after you worked on it.</li>
+          <li>Expand any segment to see the individual games behind it.</li>
+        </ul>
+        <p>Export all sessions as one Markdown file from the section header.</p>
+      </section>
+
+      <section id="blocks">
+        <p class="eyebrow">Tab</p>
+        <h2>Blocks</h2>
+        <p class="intro">Structured practice. A <strong>block</strong> is a small set of games (default 3)
+          played in one sitting, tied to a <strong>champion pool</strong> and your learnings.</p>
+        <div class="feat">
+          <div><div class="ico">♟️</div><div><div class="t">Champion pool</div><div class="d">Organise champions into main-blind / core / counter, in a priority order you set by dragging. Edited in Settings; shown read-only on the Blocks tab.</div></div></div>
+          <div><div class="ico">📦</div><div><div class="t">Blocks &amp; series</div><div class="d">Games auto-advance into blocks; a big time gap between games auto-closes one. Group blocks into a <strong>series</strong> (e.g. a two-week challenge). Add games with the “+ Block” buttons on any game row.</div></div></div>
+          <div><div class="ico">🎬</div><div><div class="t">Per-game notes &amp; clips</div><div class="d">Each game in a block gets its own notes and clips, plus deep stats (lane deltas, both players' runes) shown on expand.</div></div></div>
+          <div><div class="ico">📤</div><div><div class="t">Export</div><div class="d">Export blocks as Markdown or CSV, or copy a summary formatted for Discord.</div></div></div>
+        </div>
+      </section>
+
+      <section id="trends">
+        <p class="eyebrow">Tab</p>
+        <h2>Trends</h2>
+        <p class="intro">Your metrics over time as small-multiple charts, bucketed by <strong>day, week or
+          month</strong>, with a breakdown table below.</p>
+        <p>Pick which metrics to chart with the column picker, and filter by champion, queue or side.
+          Good for spotting whether something you've been practising is actually trending up.</p>
+      </section>
+
+      <section id="research">
+        <p class="eyebrow">Tab · optional</p>
+        <h2>Research</h2>
+        <p class="intro">A study journal for <em>other</em> players' games — separate from your tracked
+          accounts. Each entry has a player name, optional champion/opponent, one Markdown notes field
+          (general + VOD notes together), and multiple screenshots.</p>
+        <p>Use it to take notes while watching high-elo VODs — write timestamps inline
+          (e.g. <code>14:32 — bad rotation</code>) as part of the notes.</p>
+      </section>
+
+      <section id="macros">
+        <p class="eyebrow">Tab · optional</p>
+        <h2>Macros</h2>
+        <p class="intro">A flat list of freeform, collapsible sections for game-macro notes — wave
+          management, rotations, tempo — not tied to any champion or matchup. New sections append at the
+          bottom; each has a title and one Markdown field.</p>
+        <div class="note"><span class="lbl info">Note</span> Research and Macros can be hidden from the nav in Settings if you don't use them.</div>
+      </section>
+
+      <section id="settings">
+        <p class="eyebrow">Reference · <span aria-hidden="true">⚙</span></p>
+        <h2>Settings</h2>
+        <div class="feat">
+          <div><div class="ico">🔑</div><div><div class="t">Riot API &amp; accounts</div><div class="d">Key, tracked accounts, server, and how often to auto-update while the app is open.</div></div></div>
+          <div><div class="ico">📦</div><div><div class="t">Blocks</div><div class="d">Block size, the time-gap that auto-closes a block, and whether to group blocks into series.</div></div></div>
+          <div><div class="ico">🎨</div><div><div class="t">Appearance</div><div class="d">A <strong>background picture</strong>, <strong>UI opacity</strong> (surfaces stay translucent but keep a readable floor so text never disappears over a busy background), an <strong>accent colour</strong>, and a date format.</div></div></div>
+          <div><div class="ico">👤</div><div><div class="t">Privacy &amp; views</div><div class="d">Hide your own rank/LP from all views, choose per-matchup vs one general rune set, show/hide the Research &amp; Macros tabs, and set a default champion for the guide.</div></div></div>
+          <div><div class="ico">💾</div><div><div class="t">Backup &amp; restore</div><div class="d">Download a full backup (notes, guides, blocks, sessions, clips, screenshots) as a single <code>.zip</code>, and restore it onto a fresh install. Match/rank data isn't included — Riot can always re-supply it.</div></div></div>
+          <div><div class="ico">🗑️</div><div><div class="t">Remove an account</div><div class="d">Delete a tracked account and purge its crawled data, while keeping your blocks, sessions and notes. You can re-add and re-crawl later.</div></div></div>
+        </div>
+      </section>
+
+      <section id="data">
+        <p class="eyebrow">Reference · under the hood</p>
+        <h2>Data &amp; updating</h2>
+        <p class="intro">Coach Potato reads the Riot API and stores everything in a local SQLite
+          database. It's polite about rate limits and only fetches what's new.</p>
+        <ul class="plain">
+          <li><strong>Incremental crawl.</strong> Pressing <span class="kbd">⟳</span> pages your recent match ids and fetches details only for games it hasn't seen. Interrupted crawls resume cleanly.</li>
+          <li><strong>Coaching metrics &amp; lane deltas.</strong> Per-game metrics (CS@10, kill participation, vision…) and lane ΔCS/Gold/Level at ~7 and ~14 min come from the match timeline.</li>
+          <li><strong>Backfills.</strong> Older games can be topped up with data added in newer versions — spells &amp; items, runes, or timeline stats — without a full re-crawl. Comparison players fill in region-correctly on their next fetch.</li>
+          <li><strong>Opponent rank</strong> is each opponent's <em>current</em> solo rank (the API has no historical rank), refreshed on a 7-day cache.</li>
+        </ul>
+        <div class="note warn"><span class="lbl">Rate limits</span> The app enforces Riot's request limits for you. A first full crawl of a large history takes a while — let it run; it's a one-time cost.</div>
+      </section>
+
+      <section id="tips">
+        <p class="eyebrow">Reference</p>
+        <h2>Tips &amp; shortcuts</h2>
+        <ul class="plain">
+          <li>Everything that shows notes renders <strong>Markdown</strong> — headings, bold, bullets, inline code.</li>
+          <li>The <span class="kbd">📋</span> "What's new" button lists recent features; entries newer than the latest release show a badge.</li>
+          <li>In the cooldown tool and comparison pop-out, <kbd>Esc</kbd> or ✕ closes overlays.</li>
+          <li>The comparison and cooldown windows are separate pop-outs — if you don't see a change, close and reopen them (they cache their own page).</li>
+          <li>Set a <strong>default champion</strong> in Settings so the Matchup guide, cooldown tool and comparison all open on your main.</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+</div>
+
+<footer>
+  <div class="foot-inner">
+    <span>Coach Potato — a local League of Legends top-lane coaching &amp; improvement app.</span>
+    <span>Your data stays on your machine.</span>
+  </div>
+</footer>
+</body>
+</html>
