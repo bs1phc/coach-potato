@@ -54,7 +54,7 @@ CHAMPION_IDS = _champion_ids()
 RUNE_TREE_NAMES, RUNE_NAMES, RUNE_SHARD_NAMES = (
     rune_data.TREE_NAMES, rune_data.RUNE_NAMES, rune_data.SHARD_NAMES)
 
-RANGE_PRESETS = {"7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
+RANGE_PRESETS = {"3d": 3, "7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
 
 
 def get_db_path() -> Path:
