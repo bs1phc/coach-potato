@@ -21,6 +21,8 @@
     <button id="nav-research" role="tab">Research</button>
     <button id="nav-macros" role="tab">Macros</button>
   </div>
+  <select id="profile-select" class="preset" title="Active profile — role/champion focus + research players"
+    aria-label="Active profile" style="max-width:13em"></select>
   <details id="account-select" class="col-picker hidden" aria-label="Accounts">
     <summary id="account-select-btn" class="preset">All accounts ▾</summary>
     <div class="col-menu" id="account-select-menu"></div>
@@ -258,6 +260,17 @@
         (Riot's API is slow, so it can take a few minutes); "Fetch more" pulls further
         back. The guide comparison shows every stored game, regardless of date.</p>
       <div id="comparison-card" class="hidden">
+        <div class="profiles-box">
+          <label class="filter-label">Profiles</label>
+          <div id="profiles-list"></div>
+          <div class="key-row" style="margin-top:6px">
+            <input class="chip-input" id="profile-new-name" placeholder="New profile name…"
+              spellcheck="false" autocomplete="off" style="max-width:200px">
+            <button id="profile-new" class="preset" type="button">Create profile</button>
+          </div>
+          <p class="muted">Each profile bundles a role + champion focus and its own research
+            players. Switch profiles from the header. The players below belong to the active profile.</p>
+        </div>
         <div id="comparison-players-list"></div>
         <div class="key-row" style="margin-top:6px">
           <input class="chip-input" id="comparison-add-input" placeholder="Name#TAG…"

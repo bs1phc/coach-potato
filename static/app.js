@@ -12,6 +12,8 @@ const state = {
   roleFilter: "mine", // "mine" (main+secondary) | "" (all) | a team_position
   mainRole: "",       // from settings
   secondaryRole: "",
+  profiles: [],
+  activeProfileId: null,
   rankTier: "",
   minGames: 1,
   mainView: "overview", // overview | matchups | progress | trends | blocks | settings
@@ -227,6 +229,77 @@ function addRoleParams(params) { roleParamList().forEach((r) => params.append("r
 function syncRoleSelects() {
   ["#role-select", "#mu-role"].forEach((id) => { const el = $(id); if (el) el.value = state.roleFilter; });
 }
+// ---------- profiles: switch role/champion focus + research players ----------
+async function loadProfiles(applyActive = false) {
+  let data;
+  try { data = await getJSON("/api/profiles"); } catch { return; }
+  state.profiles = data.profiles || [];
+  state.activeProfileId = data.active_id;
+  renderProfileSelect();
+  renderProfilesManager();
+  if (applyActive) {
+    const active = state.profiles.find((p) => p.id === state.activeProfileId);
+    if (active) applyProfile(active, false); // set focus without a redundant refresh
+  }
+}
+function renderProfileSelect() {
+  const sel = $("#profile-select");
+  if (!sel) return;
+  sel.innerHTML = state.profiles.map((p) =>
+    `<option value="${p.id}" ${p.id === state.activeProfileId ? "selected" : ""}>${escapeHtml(p.name)}</option>`)
+    .join("");
+}
+// apply a profile's role + champion to the filters (roleFilter "" = all roles)
+function applyProfile(prof, doRefresh = true) {
+  state.roleFilter = prof.role || "";
+  syncRoleSelects();
+  if (prof.champion) {
+    state.champion = prof.champion;
+    const cs = $("#champion-select"); if (cs) cs.value = prof.champion;
+    if (typeof muState !== "undefined") { muState.champion = prof.champion; }
+    const mc = $("#mu-champion"); if (mc) mc.value = prof.champion;
+    if (typeof guideState !== "undefined") guideState.myChampion = prof.champion;
+  }
+  loadComparisonPlayers();               // now scoped to this profile
+  if (doRefresh) refresh();
+}
+async function switchProfile(id) {
+  let prof;
+  try {
+    prof = await (await fetch(`/api/profiles/${id}/activate`, { method: "POST" })).json();
+  } catch { return; }
+  state.activeProfileId = Number(id);
+  applyProfile(prof);
+}
+// Settings manager: one row per profile with role + champion + activate/delete
+function renderProfilesManager() {
+  const box = $("#profiles-list");
+  if (!box) return;
+  const roleOpts = (sel) => `<option value="">All roles</option>`
+    + `<option value="mine" ${sel === "mine" ? "selected" : ""}>My roles</option>`
+    + ROLE_OPTS.map(([v, l]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${l}</option>`).join("");
+  box.innerHTML = state.profiles.map((p) => `<div class="profile-row" data-id="${p.id}">
+      <span class="profile-name ${p.id === state.activeProfileId ? "active" : ""}">${escapeHtml(p.name)}</span>
+      ${p.id === state.activeProfileId ? `<span class="profile-badge">active</span>`
+        : `<button class="preset profile-activate" data-id="${p.id}">Switch to</button>`}
+      <select class="profile-role" data-id="${p.id}" title="Role focus">${roleOpts(p.role)}</select>
+      <input class="profile-champ" data-id="${p.id}" list="champ-list" value="${escapeHtml(p.champion || "")}"
+        placeholder="Champion" style="width:9em">
+      <button class="preset icon-btn profile-del" data-id="${p.id}" title="Delete profile"
+        ${state.profiles.length <= 1 ? "disabled" : ""}>🗑</button>
+    </div>`).join("");
+}
+async function saveProfileField(id, patch) {
+  try {
+    const prof = await (await fetch(`/api/profiles/${id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+    })).json();
+    const i = state.profiles.findIndex((p) => p.id === id);
+    if (i >= 0) state.profiles[i] = prof;
+    if (id === state.activeProfileId) applyProfile(prof);
+  } catch { /* ignore */ }
+}
+
 // apply main/secondary role from settings, default the filter, fill the dropdowns
 function applyRoleSettings(settings) {
   state.mainRole = settings.main_role || "";
@@ -1499,6 +1572,7 @@ async function initSettings() {
   state.runesMode = data.runes_mode || "matchup";
   state.enableComparison = Boolean(data.enable_player_comparison);
   loadComparisonPlayers();
+  loadProfiles();
   $("#setting-hide-rank").checked = Boolean(data.hide_my_rank);
   await loadChampionRoster(); // pool chips + legacy select need display names
   loadPool(); // blocks.js — hydrates the pool editor now hosted in Settings
@@ -1520,6 +1594,34 @@ async function initSettings() {
   $("#comparison-add").addEventListener("click", addComparisonPlayer);
   $("#comparison-add-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); addComparisonPlayer(); }
+  });
+  // ---- profiles manager (delegated) ----
+  $("#profile-new").addEventListener("click", async () => {
+    const name = $("#profile-new-name").value.trim();
+    if (!name) return;
+    const prof = await (await fetch("/api/profiles", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    })).json();
+    $("#profile-new-name").value = "";
+    await loadProfiles();
+    switchProfile(prof.id); // jump to the new (empty) profile so you can fill it
+  });
+  $("#profiles-list").addEventListener("click", async (e) => {
+    const id = Number(e.target.dataset.id);
+    if (e.target.classList.contains("profile-activate")) switchProfile(id);
+    else if (e.target.classList.contains("profile-del")) {
+      const p = state.profiles.find((x) => x.id === id);
+      if (!confirm(`Delete profile "${p ? p.name : ""}" and its research players?`)) return;
+      await fetch(`/api/profiles/${id}`, { method: "DELETE" });
+      await loadProfiles();
+      if (id === state.activeProfileId) location.reload();
+    }
+  });
+  $("#profiles-list").addEventListener("change", (e) => {
+    const id = Number(e.target.dataset.id);
+    if (e.target.classList.contains("profile-role")) saveProfileField(id, { role: e.target.value });
+    else if (e.target.classList.contains("profile-champ")) saveProfileField(id, { champion: e.target.value.trim() });
   });
   $("#import-all-btn").addEventListener("click", async () => {
     const status = $("#import-all-status");
@@ -1946,6 +2048,7 @@ function wireFilters() {
   $("#role-select").addEventListener("change", (e) => {
     state.roleFilter = e.target.value; syncRoleSelects(); refresh();
   });
+  $("#profile-select").addEventListener("change", (e) => switchProfile(e.target.value));
   $("#rank-select").addEventListener("change", (e) => { state.rankTier = e.target.value; refresh(); });
   $("#min-games").addEventListener("change", (e) => { state.minGames = Math.max(1, +e.target.value || 1); refresh(); });
   // one picker for the whole progress table: base columns (default on) + metric
@@ -2001,6 +2104,7 @@ async function init(firstLoad = true) {
     state.runesMode = settings.runes_mode || "matchup";
     state.enableComparison = Boolean(settings.enable_player_comparison);
     applyRoleSettings(settings);
+    await loadProfiles(true); // profile focus can override the role default
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
     maybeStartupCrawl(settings);

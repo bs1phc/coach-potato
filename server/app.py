@@ -1559,11 +1559,97 @@ def _start_comparison_crawl(puuid, game_name, tag_line, platform, api_key):
                      daemon=True).start()
 
 
+_PROFILE_ROLES = ("", "mine", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
+
+
+def _validate_role(role):
+    role = role or ""
+    if role not in _PROFILE_ROLES:
+        raise HTTPException(400, "role must be '', 'mine', or a team_position")
+    return role
+
+
+@app.get("/api/profiles")
+def api_get_profiles():
+    """All profiles + the active one. A profile = a role/champion focus and its
+    own set of research (comparison) players you switch between."""
+    conn = get_conn()
+    try:
+        return {"profiles": db.list_profiles(conn), "active_id": db.get_active_profile_id(conn)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/profiles")
+def api_create_profile(body: dict):
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "profile name required")
+    role = _validate_role(body.get("role", ""))
+    champion = (body.get("champion") or "").strip()
+    if champion:
+        _validate_champion(champion)
+    conn = get_conn()
+    try:
+        return db.get_profile(conn, db.create_profile(conn, name, role, champion))
+    finally:
+        conn.close()
+
+
+@app.put("/api/profiles/{pid}")
+def api_update_profile(pid: int, body: dict):
+    conn = get_conn()
+    try:
+        if not db.get_profile(conn, pid):
+            raise HTTPException(404, "no such profile")
+        name = body.get("name")
+        if name is not None and not str(name).strip():
+            raise HTTPException(400, "profile name can't be empty")
+        role = _validate_role(body.get("role", "")) if "role" in body else None
+        champion = body.get("champion")
+        if champion:
+            _validate_champion(champion)
+        db.update_profile(conn, pid, role=role,
+                          name=str(name).strip() if name is not None else None,
+                          champion=(champion or "") if "champion" in body else None)
+        return db.get_profile(conn, pid)
+    finally:
+        conn.close()
+
+
+@app.delete("/api/profiles/{pid}")
+def api_delete_profile(pid: int):
+    conn = get_conn()
+    try:
+        profiles = db.list_profiles(conn)
+        if not any(p["id"] == pid for p in profiles):
+            raise HTTPException(404, "no such profile")
+        if len(profiles) <= 1:
+            raise HTTPException(400, "can't delete your only profile")
+        db.delete_profile(conn, pid)  # its research players go with it
+        return {"deleted": pid, "active_id": db.get_active_profile_id(conn)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/profiles/{pid}/activate")
+def api_activate_profile(pid: int):
+    conn = get_conn()
+    try:
+        prof = db.get_profile(conn, pid)
+        if not prof:
+            raise HTTPException(404, "no such profile")
+        db.set_active_profile_id(conn, pid)
+        return prof
+    finally:
+        conn.close()
+
+
 @app.get("/api/comparison-players")
 def api_get_comparison_players():
     conn = get_conn()
     try:
-        players = db.list_comparison_players(conn)
+        players = db.list_comparison_players(conn, db.get_active_profile_id(conn))
         for p in players:
             p["enabled"] = bool(p["enabled"])
             p["games"] = _comparison_games(conn, p["puuid"])
@@ -1587,7 +1673,7 @@ def api_add_comparison_player(body: dict):
         settings = config.resolve_settings(conn)
         if not settings["configured"]:
             raise HTTPException(400, "not configured — set your API key in Settings")
-        existing = db.list_comparison_players(conn)
+        existing = db.list_comparison_players(conn, db.get_active_profile_id(conn))
     finally:
         conn.close()
     # a comparison player can be on a different server than your own accounts;
@@ -1611,7 +1697,8 @@ def api_add_comparison_player(body: dict):
     # metrics/runes for puuids in comparison_players (or tracked).
     conn = get_conn()
     try:
-        db.add_comparison_player(conn, puuid, game_name, tag_line, platform=platform)
+        db.add_comparison_player(conn, puuid, game_name, tag_line, platform=platform,
+                                 profile_id=db.get_active_profile_id(conn))
     finally:
         conn.close()
     _start_comparison_crawl(puuid, game_name, tag_line, platform, settings["riot_api_key"])
@@ -1693,7 +1780,7 @@ def api_matchup_comparison(my_champion: str, opp_champion: str):
         if db.get_settings(conn).get("enable_player_comparison") != "1":
             return {"players": []}
         out = []
-        for p in db.list_comparison_players(conn):
+        for p in db.list_comparison_players(conn, db.get_active_profile_id(conn)):
             if not p["enabled"]:
                 continue
             data = stats.comparison_for_matchup(conn, p["puuid"], my_champion, opp_champion)

@@ -1328,3 +1328,14 @@ footer {
 .cmp-spells, .cmp-items { display: inline-flex; align-items: center; gap: 2px; }
 /* items are square, not round like spells/runes (beats .cmp-card img) */
 .cmp-card .cmp-items img { border-radius: 3px; }
+
+/* profiles manager (Settings) + header switcher */
+.profiles-box { margin: 4px 0 10px; }
+.profile-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; flex-wrap: wrap; }
+.profile-name { font-weight: 600; min-width: 7em; }
+.profile-name.active { color: var(--series-1); }
+.profile-badge {
+  font-size: 11px; color: var(--series-1); border: 1px solid var(--series-1);
+  border-radius: 999px; padding: 1px 8px; white-space: nowrap;
+}
+#profile-select { max-width: 13em; }

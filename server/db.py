@@ -195,7 +195,19 @@ CREATE TABLE IF NOT EXISTS comparison_players (
     enabled INTEGER NOT NULL DEFAULT 1,
     lookback_days INTEGER NOT NULL DEFAULT 60,
     sort INTEGER NOT NULL DEFAULT 0,
-    added_at_ms INTEGER
+    added_at_ms INTEGER,
+    profile_id INTEGER
+);
+
+-- A "profile" is a switchable workspace: a role/champion focus + its own set of
+-- research (comparison) players. Switching profiles swaps which research players
+-- the comparison shows and pre-sets the Role/My-champion filters.
+CREATE TABLE IF NOT EXISTS profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT '',       -- roleFilter value: '' | 'mine' | a team_position
+    champion TEXT NOT NULL DEFAULT '',
+    created_at_ms INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS rank_history (
@@ -229,6 +241,7 @@ def connect(db_path) -> sqlite3.Connection:
     conn.executescript(SCHEMA.format(metric_columns=metric_columns))
     seed_rank_history(conn)
     seed_block_series(conn)
+    seed_default_profile(conn)
     return conn
 
 
@@ -273,6 +286,8 @@ def _migrate(conn):
     cp_columns = {r["name"] for r in conn.execute("PRAGMA table_info(comparison_players)")}
     if cp_columns and "platform" not in cp_columns:  # per-player server added later
         conn.execute("ALTER TABLE comparison_players ADD COLUMN platform TEXT NOT NULL DEFAULT ''")
+    if cp_columns and "profile_id" not in cp_columns:  # profiles added later
+        conn.execute("ALTER TABLE comparison_players ADD COLUMN profile_id INTEGER")
     matchup_notes_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matchup_notes)")}
     if matchup_notes_columns and "my_champion" not in matchup_notes_columns:
         # Pre-v1.14.0 shapes had opp_champion as the sole PK (no per-champion
@@ -420,39 +435,106 @@ MAX_COMPARISON_PLAYERS = 6  # 3 + 3 in the comparison window's 3-per-row grid
 COMPARISON_LOOKBACK_DAYS = 60  # default fetch window; "Fetch more" extends by this
 
 
-def list_comparison_players(conn):
-    return [dict(r) for r in conn.execute(
-        "SELECT puuid, game_name, tag_line, platform, enabled, lookback_days, sort, added_at_ms "
-        "FROM comparison_players ORDER BY sort, added_at_ms")]
+def list_comparison_players(conn, profile_id=None):
+    """Research players, scoped to one profile when profile_id is given."""
+    sql = ("SELECT puuid, game_name, tag_line, platform, enabled, lookback_days, sort, "
+           "added_at_ms, profile_id FROM comparison_players")
+    params = ()
+    if profile_id is not None:
+        sql += " WHERE profile_id=?"
+        params = (profile_id,)
+    sql += " ORDER BY sort, added_at_ms"
+    return [dict(r) for r in conn.execute(sql, params)]
 
 
 def comparison_puuids(conn, enabled_only=False):
+    # ALL profiles' research players — the crawler stores their data regardless
+    # of which profile is active, so switching profiles never re-fetches.
     sql = "SELECT puuid FROM comparison_players"
     if enabled_only:
         sql += " WHERE enabled=1"
     return [r["puuid"] for r in conn.execute(sql)]
 
 
-def add_comparison_player(conn, puuid, game_name, tag_line, platform=""):
-    """Insert a comparison player (enabled by default). Returns False without
-    inserting if the max is already reached (unless this puuid is already one,
-    in which case it's a no-op refresh of the display name/server). `platform`
-    is the player's server (they may be on a different region than you)."""
-    existing = {r["puuid"] for r in conn.execute("SELECT puuid FROM comparison_players")}
-    if puuid not in existing and len(existing) >= MAX_COMPARISON_PLAYERS:
+def add_comparison_player(conn, puuid, game_name, tag_line, platform="", profile_id=None):
+    """Insert a comparison player into a profile (enabled by default). Returns
+    False without inserting if that profile's max is already reached (unless this
+    puuid is already in it — then it's a no-op refresh of the display name)."""
+    in_profile = {r["puuid"] for r in conn.execute(
+        "SELECT puuid FROM comparison_players WHERE profile_id IS ?", (profile_id,))}
+    if puuid not in in_profile and len(in_profile) >= MAX_COMPARISON_PLAYERS:
         return False
     nxt = conn.execute(
         "SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM comparison_players").fetchone()["n"]
     with conn:
         conn.execute(
             f"""INSERT INTO comparison_players
-                  (puuid, game_name, tag_line, platform, lookback_days, sort, added_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, {_now_expr()})
+                  (puuid, game_name, tag_line, platform, lookback_days, sort, added_at_ms, profile_id)
+                VALUES (?, ?, ?, ?, ?, ?, {_now_expr()}, ?)
                 ON CONFLICT(puuid) DO UPDATE SET
                   game_name=excluded.game_name, tag_line=excluded.tag_line,
-                  platform=excluded.platform""",
-            (puuid, game_name, tag_line, platform, COMPARISON_LOOKBACK_DAYS, nxt))
+                  platform=excluded.platform, profile_id=excluded.profile_id""",
+            (puuid, game_name, tag_line, platform, COMPARISON_LOOKBACK_DAYS, nxt, profile_id))
     return True
+
+
+# ---------- profiles: switchable role/champion + research-player workspaces ----
+
+def list_profiles(conn):
+    return [dict(r) for r in conn.execute(
+        "SELECT id, name, role, champion, created_at_ms FROM profiles ORDER BY created_at_ms, id")]
+
+
+def get_profile(conn, pid):
+    r = conn.execute("SELECT id, name, role, champion FROM profiles WHERE id=?", (pid,)).fetchone()
+    return dict(r) if r else None
+
+
+def create_profile(conn, name, role="", champion=""):
+    with conn:
+        cur = conn.execute(
+            f"INSERT INTO profiles (name, role, champion, created_at_ms) VALUES (?,?,?,{_now_expr()})",
+            (name, role, champion))
+    return cur.lastrowid
+
+
+def update_profile(conn, pid, name=None, role=None, champion=None):
+    sets, params = [], []
+    for col, val in (("name", name), ("role", role), ("champion", champion)):
+        if val is not None:
+            sets.append(f"{col}=?")
+            params.append(val)
+    if not sets:
+        return
+    with conn:
+        conn.execute(f"UPDATE profiles SET {', '.join(sets)} WHERE id=?", (*params, pid))
+
+
+def delete_profile(conn, pid):
+    with conn:  # its research players go with it
+        conn.execute("DELETE FROM comparison_players WHERE profile_id=?", (pid,))
+        conn.execute("DELETE FROM profiles WHERE id=?", (pid,))
+
+
+def seed_default_profile(conn):
+    """Ensure at least one profile exists and adopt any orphan research players."""
+    row = conn.execute("SELECT id FROM profiles ORDER BY created_at_ms, id LIMIT 1").fetchone()
+    pid = row["id"] if row else create_profile(conn, "Default")
+    with conn:
+        conn.execute("UPDATE comparison_players SET profile_id=? WHERE profile_id IS NULL", (pid,))
+    return pid
+
+
+def get_active_profile_id(conn):
+    v = get_settings(conn).get("active_profile_id")
+    if v and v.isdigit() and get_profile(conn, int(v)):
+        return int(v)
+    row = conn.execute("SELECT id FROM profiles ORDER BY created_at_ms, id LIMIT 1").fetchone()
+    return row["id"] if row else None
+
+
+def set_active_profile_id(conn, pid):
+    set_settings(conn, {"active_profile_id": str(pid)})
 
 
 def remove_comparison_player(conn, puuid):
