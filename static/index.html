@@ -105,101 +105,55 @@
     history (a long first crawl — roughly 2 minutes per 100 games).
   </div>
   <section id="settings-card">
-    <h3 class="settings-group-head">Riot API &amp; accounts</h3>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-key">Riot API key</label>
-      <div class="key-row">
-        <input type="password" id="setting-key" placeholder="RGAPI-..." spellcheck="false" autocomplete="off">
-        <button id="key-reveal" class="preset icon-btn" type="button"
-          title="Show key" aria-label="Show or hide the API key">👁</button>
+    <div class="settings-group">
+      <h3 class="settings-group-head">Riot API &amp; accounts</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-key">Riot API key</label>
+        <div class="key-row">
+          <input type="password" id="setting-key" placeholder="RGAPI-..." spellcheck="false" autocomplete="off">
+          <button id="key-reveal" class="preset icon-btn" type="button"
+            title="Show key" aria-label="Show or hide the API key">👁</button>
+        </div>
+        <p class="muted">Get one at
+          <a href="https://developer.riotgames.com" target="_blank" rel="noopener">developer.riotgames.com</a>.
+          A <strong>personal product</strong> key is persistent; the instant <em>development key</em>
+          works too but expires every 24&nbsp;h — paste a fresh one when crawls start failing.</p>
       </div>
-      <p class="muted">Get one at
-        <a href="https://developer.riotgames.com" target="_blank" rel="noopener">developer.riotgames.com</a>.
-        Best option: register a <strong>personal product</strong> there for a
-        persistent key. The instant <em>development key</em> works too, but
-        expires every 24&nbsp;h — paste a fresh one here when crawls start failing.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="settings-accounts-input">Accounts to track</label>
-      <div class="chip-box" id="settings-accounts">
-        <input class="chip-input" id="settings-accounts-input" placeholder="Name#TAG, Enter to add…">
+      <div class="settings-field">
+        <label class="filter-label" for="settings-accounts-input">Accounts to track</label>
+        <div class="chip-box" id="settings-accounts">
+          <input class="chip-input" id="settings-accounts-input" placeholder="Name#TAG, Enter to add…">
+        </div>
+        <p class="muted">Any number of Riot IDs, e.g. <code>Player#EUW</code>. Stats combine all of them.</p>
       </div>
-      <p class="muted">Any number of Riot IDs, e.g. <code>Player#EUW</code>. Stats combine all of them.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-platform">Server / platform</label>
-      <select id="setting-platform"></select>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-auto-crawl">Auto-update interval (hours)</label>
-      <input type="number" id="setting-auto-crawl" min="0" step="1" value="3" style="width:6em">
-      <p class="muted">While the app is open, new games are fetched on this schedule
-        (0 = off). Data also updates once on startup and whenever you press
-        <em>Update data</em>.</p>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-platform">Server / platform</label>
+        <select id="setting-platform"></select>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-auto-crawl">Auto-update interval (hours)</label>
+        <input type="number" id="setting-auto-crawl" min="0" step="1" value="3" style="width:6em">
+        <p class="muted">While the app is open, new games are fetched on this schedule
+          (0 = off). Data also updates on startup and whenever you press <em>Update data</em>.</p>
+      </div>
     </div>
 
-    <h3 class="settings-group-head">Blocks</h3>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-block-size">Block size (games per block)</label>
-      <input type="number" id="setting-block-size" min="1" step="1" value="3" style="width:6em">
-      <p class="muted">Blocks auto-advance after this many games. Changing it
-        applies to the current and future blocks; finished blocks keep their size.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-block-gap">Auto-close time gap (hours)</label>
-      <input type="number" id="setting-block-gap" min="0" max="168" step="0.5" value="3" style="width:6em">
-      <p class="muted">Blocks are meant to be played in succession: if a game you add
-        starts this many hours (game time) away from the block's latest game, the
-        block closes and a new one starts. 0 turns this off.</p>
-    </div>
-    <div class="settings-field">
-      <label><input type="checkbox" id="setting-block-gap-confirm" checked>
-        Ask before auto-closing a block</label>
-      <p class="muted">Untick to auto-close silently when the time gap is exceeded.</p>
-    </div>
-    <div class="settings-field">
-      <label><input type="checkbox" id="setting-block-series" checked>
-        Group blocks into series</label>
-      <p class="muted">A series (e.g. a 2-week challenge) gives your blocks a shared
-        title with a per-series number after it, and a "+ New series" button on the
-        Blocks page. Untick to just number blocks continuously as "#1, #2, …".</p>
-    </div>
-
-    <h3 class="settings-group-head">Your roles</h3>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-main-role">Main role</label>
-      <select id="setting-main-role" style="max-width:14em"></select>
+    <div class="settings-group">
+      <h3 class="settings-group-head">Your roles</h3>
       <p class="muted">Stats default to your main + secondary role, so autofill games don't
-        muddy your matchups. Choose "All roles" in a view's Role filter to include every game.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-secondary-role">Secondary role</label>
-      <select id="setting-secondary-role" style="max-width:14em"></select>
+        muddy your matchups. Each view has a Role filter — pick "All roles" there to include every game.</p>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-main-role">Main role</label>
+        <select id="setting-main-role" style="max-width:14em"></select>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-secondary-role">Secondary role</label>
+        <select id="setting-secondary-role" style="max-width:14em"></select>
+      </div>
     </div>
 
-    <h3 class="settings-group-head">Interface</h3>
-    <div class="settings-field">
-      <span class="filter-label">Visible views</span>
-      <div class="view-toggles">
-        <label><input type="checkbox" class="view-toggle-cb" value="overview" checked> Overview</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="matchups" checked> Matchups</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="trends" checked> Trends</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="blocks" checked> Blocks</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Matchup guide</label>
-      </div>
-      <p class="muted">Untick views you don't use to hide them from the top bar
-        (data collection is unaffected). The Research and Macros tabs are toggled
-        in the Research &amp; comparison section below.</p>
-    </div>
-    <div class="settings-field">
-      <label><input type="checkbox" id="setting-hide-rank"> Hide my rank / LP</label>
-      <p class="muted">Hides your own solo-queue rank and LP everywhere — summary
-        tile, account tabs, rank chart, coaching/block rank columns. Rank history
-        keeps being recorded and reappears when you untick this.</p>
-    </div>
-    <div class="settings-field">
-      <span class="filter-label">Champion pool</span>
+    <div class="settings-group">
+      <h3 class="settings-group-head">Champion pool</h3>
       <div id="pool-card" aria-label="Champion pool">
         <div class="pool-group">
           <span class="filter-label">Main Blind</span>
@@ -225,52 +179,71 @@
         </div>
         <datalist id="champ-list"></datalist>
       </div>
-      <p class="muted">Ordered — drag chips to reorder; the first champion is
-        your main and acts as your default (Matchup guide, cooldown comparison).
-        The pool is grouped on top of champion dropdowns and stamped onto
-        completed blocks. Saves immediately with "Save pool".</p>
+      <p class="muted">Drag chips to reorder; the first champion is your main and default
+        (Matchup guide, cooldown comparison). Grouped on top of champion dropdowns and
+        stamped onto completed blocks. Saves with "Save pool".</p>
     </div>
 
-    <h3 class="settings-group-head">Research &amp; comparison</h3>
-    <div class="settings-field">
-      <span class="filter-label">Visible tabs</span>
-      <div class="view-toggles">
-        <label><input type="checkbox" class="view-toggle-cb" value="research" checked> Research</label>
-        <label><input type="checkbox" class="view-toggle-cb" value="macros" checked> Macros</label>
+    <div class="settings-group">
+      <h3 class="settings-group-head">Blocks</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-block-size">Block size (games per block)</label>
+        <input type="number" id="setting-block-size" min="1" step="1" value="3" style="width:6em">
+        <p class="muted">Blocks auto-advance after this many games. Applies to current and
+          future blocks; finished blocks keep their size.</p>
       </div>
-      <p class="muted">Show or hide the Research and Macros tabs in the top bar.</p>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-block-gap">Auto-close time gap (hours)</label>
+        <input type="number" id="setting-block-gap" min="0" max="168" step="0.5" value="3" style="width:6em">
+        <p class="muted">If a game you add starts this many hours away from the block's latest
+          game, the block closes and a new one starts. 0 turns this off.</p>
+      </div>
+      <div class="settings-field">
+        <label><input type="checkbox" id="setting-block-gap-confirm" checked>
+          Ask before auto-closing a block</label>
+      </div>
+      <div class="settings-field">
+        <label><input type="checkbox" id="setting-block-series" checked>
+          Group blocks into series</label>
+        <p class="muted">A series gives blocks a shared title + per-series number and a
+          "+ New series" button. Untick to number blocks continuously as "#1, #2, …".</p>
+      </div>
     </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-runes-mode">Runes in the Matchup guide</label>
-      <select id="setting-runes-mode" style="max-width:22em">
-        <option value="matchup">Per matchup — a rune set for each opponent (as now)</option>
-        <option value="general">General — one rune set per champion, by the item build</option>
-      </select>
-      <p class="muted">"Per matchup" keeps rune pages inside each opponent's row.
-        "General" shows a single champion-level rune set up next to the item build
-        instead. Your per-matchup rune pages aren't deleted — they reappear if you
-        switch back.</p>
+
+    <div class="settings-group">
+      <h3 class="settings-group-head">Matchup guide</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-runes-mode">Runes</label>
+        <select id="setting-runes-mode" style="max-width:22em">
+          <option value="matchup">Per matchup — a rune set for each opponent</option>
+          <option value="general">General — one rune set per champion, by the item build</option>
+        </select>
+        <p class="muted">"Per matchup" keeps rune pages in each opponent's row. "General" shows
+          a single champion-level rune set by the item build. Switching back restores per-matchup pages.</p>
+      </div>
     </div>
-    <div class="settings-field">
-      <label><input type="checkbox" id="setting-enable-comparison"> Compare against other players</label>
-      <p class="muted">Add up to five other players (looked up via the Riot API) to
-        compare yourself against in a matchup — their stats, runes and recent games
-        show side by side with yours in the Matchup guide, for theorycrafting runes
-        and notes. Games are fetched deep in the background when you add a player
-        (Riot's API is slow, so it can take a few minutes); "Fetch more" pulls further
-        back. The guide comparison shows every stored game, regardless of date.</p>
+
+    <div class="settings-group">
+      <h3 class="settings-group-head">Player comparison &amp; profiles</h3>
+      <div class="settings-field">
+        <label><input type="checkbox" id="setting-enable-comparison"> Compare against other players</label>
+        <p class="muted">Add other players (via the Riot API) to compare against in a matchup —
+          their runes, spells, items and laning show beside yours in the Matchup guide's ⧉ pop-out.
+          Games are fetched in the background (Riot's API is slow, so it can take a few minutes).</p>
+      </div>
       <div id="comparison-card" class="hidden">
-        <div class="profiles-box">
-          <label class="filter-label">Profiles</label>
-          <div id="profiles-list"></div>
-          <div class="key-row" style="margin-top:6px">
-            <input class="chip-input" id="profile-new-name" placeholder="New profile name…"
-              spellcheck="false" autocomplete="off" style="max-width:200px">
-            <button id="profile-new" class="preset" type="button">Create profile</button>
-          </div>
-          <p class="muted">Each profile bundles a role + champion focus and its own research
-            players. Switch profiles from the header. The players below belong to the active profile.</p>
+        <div class="settings-subhead">Profiles</div>
+        <p class="muted">A <strong>profile</strong> is a saved setup you switch between from the
+          <strong>top-bar dropdown</strong> — each with its own role/champion focus and its own
+          research players. e.g. one profile for "Fiora / Top" and another for "Mid + Bot".</p>
+        <div id="profiles-list"></div>
+        <div class="key-row" style="margin-top:8px">
+          <input class="chip-input" id="profile-new-name" placeholder="New profile name…"
+            spellcheck="false" autocomplete="off" style="max-width:200px">
+          <button id="profile-new" class="preset" type="button">Create profile</button>
         </div>
+        <div class="settings-subhead" style="margin-top:16px">Research players
+          <span class="muted">— belong to the active profile</span></div>
         <div id="comparison-players-list"></div>
         <div class="key-row" style="margin-top:6px">
           <input class="chip-input" id="comparison-add-input" placeholder="Name#TAG…"
@@ -278,80 +251,104 @@
           <select id="comparison-add-platform" title="Server the player is on" style="max-width:9em"></select>
           <button id="comparison-add" class="preset" type="button">Add player</button>
         </div>
-        <p class="muted" style="margin-top:2px">Pick the player's server — they can be
-          on a different region than your own accounts.</p>
+        <p class="muted" style="margin-top:2px">Pick the player's server — they can be on a
+          different region than your own accounts.</p>
         <p id="comparison-status" class="muted"></p>
       </div>
     </div>
 
-    <h3 class="settings-group-head">Appearance</h3>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-date-format">Date format</label>
-      <select id="setting-date-format" style="max-width:16em">
-        <option value="iso">ISO — 2026-07-20 (24h)</option>
-        <option value="us">US — 7/20/2026 (12h)</option>
-        <option value="eu">EU — 20/7/2026 (24h)</option>
-      </select>
-      <p class="muted">How dates and times are shown throughout the app.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-accent-color">Accent color</label>
-      <div class="accent-color-row">
-        <input type="color" id="setting-accent-color" value="#2a78d6">
-        <button id="setting-accent-reset" class="preset hidden" type="button">Reset to default</button>
-      </div>
-      <p class="muted">Used for buttons, active tabs, links, and chart lines.</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="setting-ui-opacity">Opacity</label>
-      <div class="opacity-row">
-        <input type="range" id="setting-ui-opacity" min="20" max="100" step="5" value="100">
-        <span id="setting-ui-opacity-value" class="muted">100%</span>
-      </div>
-      <p class="muted">Makes panels and the page background see-through, like a
-        translucent terminal — lower it to let a background picture show through.</p>
-    </div>
-    <div class="settings-field">
-      <span class="filter-label">Background picture</span>
-      <div class="bg-image-row">
-        <input type="file" id="setting-bg-file" accept="image/png,image/jpeg,image/webp,image/gif">
-        <button id="setting-bg-remove" class="preset hidden" type="button">Remove</button>
-      </div>
-      <span id="setting-bg-status" class="muted"></span>
-      <p class="muted">Uploads and applies immediately (up to 15 MB).</p>
-    </div>
-
-    <div id="legacy-notes-section" class="hidden">
-      <h3 class="settings-group-head">Older matchup notes</h3>
+    <div class="settings-group">
+      <h3 class="settings-group-head">Views</h3>
       <div class="settings-field">
-        <p class="muted" id="legacy-notes-summary"></p>
-        <div class="legacy-notes-row">
-          <select id="legacy-migrate-champion" style="max-width:16em"></select>
-          <button id="legacy-migrate-btn" class="preset" type="button">Migrate</button>
-          <button id="legacy-delete-btn" class="preset" type="button">Delete</button>
+        <span class="filter-label">Visible tabs</span>
+        <div class="view-toggles">
+          <label><input type="checkbox" class="view-toggle-cb" value="overview" checked> Overview</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="matchups" checked> Matchups</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="progress" checked> Coaching progress</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="trends" checked> Trends</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="blocks" checked> Blocks</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Matchup guide</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="research" checked> Research</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="macros" checked> Macros</label>
         </div>
-        <span id="legacy-notes-status" class="muted"></span>
+        <p class="muted">Untick tabs you don't use to hide them from the top bar (data
+          collection is unaffected).</p>
+      </div>
+      <div class="settings-field">
+        <label><input type="checkbox" id="setting-hide-rank"> Hide my rank / LP</label>
+        <p class="muted">Hides your own solo-queue rank and LP everywhere. Rank history keeps
+          being recorded and reappears when you untick this.</p>
       </div>
     </div>
 
-    <h3 class="settings-group-head">Backup</h3>
-    <div class="settings-field">
-      <a class="preset" href="/api/export-all" download>Export everything (.zip)</a>
-      <p class="muted">Every coaching session, block learning, matchup guide, champion
-        note, item build, and Research entry you've written — plus every uploaded
-        clip and screenshot — as one .zip file. Doesn't include your API key/accounts
-        or crawled match history (Riot's API can always re-supply that).</p>
-    </div>
-    <div class="settings-field">
-      <label class="filter-label" for="import-all-file">Import from a backup</label>
-      <div class="import-all-row">
-        <input type="file" id="import-all-file" accept=".zip,application/zip">
-        <button id="import-all-btn" class="preset" type="button">Import</button>
+    <div class="settings-group">
+      <h3 class="settings-group-head">Appearance</h3>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-date-format">Date format</label>
+        <select id="setting-date-format" style="max-width:16em">
+          <option value="iso">ISO — 2026-07-20 (24h)</option>
+          <option value="us">US — 7/20/2026 (12h)</option>
+          <option value="eu">EU — 20/7/2026 (24h)</option>
+        </select>
       </div>
-      <span id="import-all-status" class="muted"></span>
-      <p class="muted">Restore an "Export everything" .zip — only meant for a fresh/empty
-        setup (new machine, reinstall). Refuses (nothing is written) if anything in the
-        backup would collide with data already here.</p>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-accent-color">Accent color</label>
+        <div class="accent-color-row">
+          <input type="color" id="setting-accent-color" value="#2a78d6">
+          <button id="setting-accent-reset" class="preset hidden" type="button">Reset to default</button>
+        </div>
+        <p class="muted">Buttons, active tabs, links, and chart lines.</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="setting-ui-opacity">Opacity</label>
+        <div class="opacity-row">
+          <input type="range" id="setting-ui-opacity" min="20" max="100" step="5" value="100">
+          <span id="setting-ui-opacity-value" class="muted">100%</span>
+        </div>
+        <p class="muted">Makes panels and the page see-through — lower it to let a background
+          picture show through.</p>
+      </div>
+      <div class="settings-field">
+        <span class="filter-label">Background picture</span>
+        <div class="bg-image-row">
+          <input type="file" id="setting-bg-file" accept="image/png,image/jpeg,image/webp,image/gif">
+          <button id="setting-bg-remove" class="preset hidden" type="button">Remove</button>
+        </div>
+        <span id="setting-bg-status" class="muted"></span>
+        <p class="muted">Uploads and applies immediately (up to 15 MB).</p>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <h3 class="settings-group-head">Backup &amp; restore</h3>
+      <div class="settings-field">
+        <a class="preset" href="/api/export-all" download>Export everything (.zip)</a>
+        <p class="muted">Every session, block learning, matchup guide, note, item build and Research
+          entry — plus uploaded clips and screenshots — as one .zip. Excludes your API key/accounts
+          and crawled match history (Riot can re-supply that).</p>
+      </div>
+      <div class="settings-field">
+        <label class="filter-label" for="import-all-file">Import from a backup</label>
+        <div class="import-all-row">
+          <input type="file" id="import-all-file" accept=".zip,application/zip">
+          <button id="import-all-btn" class="preset" type="button">Import</button>
+        </div>
+        <span id="import-all-status" class="muted"></span>
+        <p class="muted">Restore an "Export everything" .zip — only for a fresh/empty setup.
+          Refuses (nothing written) if anything would collide with existing data.</p>
+      </div>
+      <div id="legacy-notes-section" class="hidden">
+        <div class="settings-subhead" style="margin-top:14px">Older matchup notes</div>
+        <div class="settings-field">
+          <p class="muted" id="legacy-notes-summary"></p>
+          <div class="legacy-notes-row">
+            <select id="legacy-migrate-champion" style="max-width:16em"></select>
+            <button id="legacy-migrate-btn" class="preset" type="button">Migrate</button>
+            <button id="legacy-delete-btn" class="preset" type="button">Delete</button>
+          </div>
+          <span id="legacy-notes-status" class="muted"></span>
+        </div>
+      </div>
     </div>
 
     <div class="settings-savebar">
