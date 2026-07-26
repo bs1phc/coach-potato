@@ -182,6 +182,7 @@ async function initGuide() {
       addGuideMatchup();
     });
     $("#guide-live-btn").addEventListener("click", liveLookup);
+    $("#guide-otp-btn").addEventListener("click", openTopOtps);
     $("#guide-search").addEventListener("input", (e) => {
       guideState.search = e.target.value;
       renderGuide(); // the search box lives outside #guide-list, so focus is kept
@@ -1190,6 +1191,24 @@ async function guessLaneOpponent(myChampion, enemies) {
   } catch {
     return enemies[0];
   }
+}
+
+// Open the current champion's top one-tricks ranking on onetricks.gg in a new
+// tab. onetricks.gg is behind a bot-challenge, so we can't scrape it server-side
+// — instead we deep-link the user there; they copy a Riot ID and add it as a
+// research player via Settings. URL uses the DDragon champion key (what we store).
+function openTopOtps() {
+  const champ = guideState.myChampion;
+  const status = $("#guide-live-status");
+  status.classList.remove("status-error");
+  if (!champ) {
+    status.classList.add("status-error");
+    status.textContent = "Pick a champion first.";
+    return;
+  }
+  const url = `https://www.onetricks.gg/champions/ranking/${encodeURIComponent(champ)}`;
+  window.open(url, "_blank", "noopener");
+  status.textContent = `Opened top ${displayName(champ)} OTPs — copy a Riot ID, then add it in Settings → Player comparison.`;
 }
 
 async function liveLookup() {

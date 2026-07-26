@@ -4,6 +4,7 @@
       "version": "1.48.0",
       "date": "2026-07-24",
       "items": [
+        "New '🔗 Top OTPs' button on the Matchup guide opens your champion's top one-tricks ranking on onetricks.gg in your browser — copy a Riot ID from there and add it as a research player in Settings → Player comparison",
         "The Matchup guide's Recent games and the player-comparison pop-out now show what was actually run per game: summoner spells, the full rune page (with stat shards) and the first 3 items",
         "The comparison pop-out was redesigned into clean aligned columns, with a 'Show spells & items' toggle so recent games stay uncluttered by default",
         "The comparison pop-out now shows the lane Δ @14m (ΔCS / ΔGold vs the direct lane opponent) for every compared player, so you can see who wins lane, not just the game — comparison fetches now pull match timelines again to make this possible (slightly slower deep-fetch), and older stored games are back-filled automatically on the next fetch",
