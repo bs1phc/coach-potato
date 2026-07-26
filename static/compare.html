@@ -26,14 +26,17 @@
   .cmp-recent { margin-top: 6px; }
   .cmp-ghead, .cmp-game {
     display: grid; align-items: center; justify-items: start; gap: 7px;
-    grid-template-columns: 14px 40px 1fr;
+    grid-template-columns: 14px 40px 34px 1fr;
   }
   .cmp-recent.loadout .cmp-ghead,
   .cmp-recent.loadout .cmp-game {
     /* runes sized to content; Build fills the rest and left-aligns (justify-items:
        start) so builds start right after runes with the blank on the right */
-    grid-template-columns: 16px 42px 46px 40px minmax(120px, max-content) minmax(0, 1fr);
+    grid-template-columns: 16px 42px 34px 46px 40px minmax(120px, max-content) minmax(0, 1fr);
   }
+  .cmp-lane { display: inline-flex; gap: 2px; }
+  .cmp-legend { font-size: 11px; color: var(--muted); margin: -8px 0 14px; line-height: 1.9; }
+  .cmp-legend .lane-pill { margin-right: 1px; }
   .cmp-ghead {
     font-size: 8.5px; text-transform: uppercase; letter-spacing: .03em;
     color: var(--muted); padding-bottom: 3px; margin-bottom: 2px;
@@ -65,7 +68,11 @@
   <label class="cmp-patch-label">Patch
     <select id="patch-filter" class="cmp-toggle"><option value="">All</option></select>
   </label>
+  <label class="cmp-patch-label">Lane won by
+    <select id="lane-method" class="cmp-toggle"></select>
+  </label>
 </div>
+<div class="cmp-legend" id="lane-legend"></div>
 <div class="cmp-cards" id="cards"><p class="muted">Loading…</p></div>
 <p class="cmp-note">Runes (with shards) are what each player actually ran in recent games.
   Toggle "Show spells &amp; items" to also reveal the ability max order (Skill),
@@ -198,23 +205,96 @@ function aggLine(s) {
 // they're ahead at 7/14 min (lane_adv_*), the ΔCS/ΔGold vs the lane opponent,
 // and CS@10 · solo kills · plates. All from the aggregated matchup metrics.
 const sgn = (v, d = 0) => (v == null ? "—" : (v > 0 ? "+" : "") + (+v).toFixed(d));
+
+// --- Lane-win verdict (kept in sync with app.js; this popup is standalone) ---
+const LANE_METHODS = [
+  { key: "combined", label: "Gold + XP" },
+  { key: "gold", label: "Gold" },
+  { key: "cs", label: "CS" },
+  { key: "xp", label: "XP / level" },
+];
+const LANE_THRESHOLDS = {
+  gold:     { 7: { won: 250, stomp: 700 }, 14: { won: 500, stomp: 1200 } },
+  combined: { 7: { won: 250, stomp: 700 }, 14: { won: 500, stomp: 1200 } },
+  cs:       { 7: { won: 12,  stomp: 25 },  14: { won: 18,  stomp: 40 } },
+  xp:       { 7: { won: 1,   stomp: 2 },   14: { won: 1,   stomp: 2 } },
+};
+const LANE_TIERS = {
+  stomp:   { symbol: "⇈", label: "Stomp",   cls: "lane-stomp" },
+  won:     { symbol: "✓", label: "Won",     cls: "lane-won" },
+  even:    { symbol: "=", label: "Even",    cls: "lane-even" },
+  lost:    { symbol: "✗", label: "Lost",    cls: "lane-lost" },
+  stomped: { symbol: "⇊", label: "Stomped", cls: "lane-stomped" },
+};
+function laneWinMethod() {
+  const m = localStorage.getItem("cp-lane-metric");
+  return LANE_THRESHOLDS[m] ? m : "combined";
+}
+function laneOutcome(g, mark, method = laneWinMethod()) {
+  const t = LANE_THRESHOLDS[method][mark];
+  const gold = g[`gold_diff_${mark}`], cs = g[`cs_diff_${mark}`], lvl = g[`level_diff_${mark}`];
+  let value, unit;
+  if (method === "cs") { value = cs; unit = "CS"; }
+  else if (method === "xp") { value = lvl; unit = "lvl"; }
+  else { value = gold; unit = "g"; }
+  if (value == null) return null;
+  const mag = Math.abs(value);
+  let name = mag >= t.stomp ? "stomp" : mag >= t.won ? "won" : "even";
+  if (name !== "even" && value < 0) name = name === "stomp" ? "stomped" : "lost";
+  if (method === "combined" && name !== "even" && lvl != null) {
+    const ls = Math.sign(lvl);
+    if (ls !== 0 && ls !== Math.sign(value)) name = "even";
+  }
+  return { tier: name, value, unit, ...LANE_TIERS[name] };
+}
+function laneVerdictPill(g, mark) {
+  const o = laneOutcome(g, mark);
+  if (!o) return `<span class="lane-pill lane-even" title="No lane data @${mark}m">–</span>`;
+  const sign = o.value > 0 ? "+" : "";
+  const val = o.unit === "CS" ? o.value.toFixed(1) : Math.round(o.value);
+  return `<span class="lane-pill ${o.cls}" title="${o.label} lane @${mark}m · ${sign}${val} ${o.unit}">${o.symbol}</span>`;
+}
+// Won/lost record across a set of games at a mark, using the current method.
+function laneRecord(games, mark) {
+  let won = 0, lost = 0, even = 0, n = 0;
+  for (const g of games) {
+    const o = laneOutcome(g, mark);
+    if (!o) continue;
+    n++;
+    if (o.tier === "won" || o.tier === "stomp") won++;
+    else if (o.tier === "lost" || o.tier === "stomped") lost++;
+    else even++;
+  }
+  if (!n) return "<span class='muted'>no timeline data</span>";
+  return `${won}W-${lost}L${even ? `-${even}E` : ""} (${Math.round(100 * won / n)}%)`;
+}
+function renderLaneLegend() {
+  const method = laneWinMethod();
+  const u = method === "cs" ? " CS" : method === "xp" ? " lvl" : "g";
+  const t7 = LANE_THRESHOLDS[method][7], t14 = LANE_THRESHOLDS[method][14];
+  const chip = (k) => `<span class="lane-pill ${LANE_TIERS[k].cls}">${LANE_TIERS[k].symbol}</span> ${LANE_TIERS[k].label}`;
+  document.getElementById("lane-legend").innerHTML =
+    `<strong>Winning lane</strong> = ahead vs your direct lane opponent. `
+    + `${chip("won")} ≥ ${t7.won}${u} @7 / ${t14.won}${u} @14 · `
+    + `${chip("stomp")} ≥ ${t7.stomp}${u} / ${t14.stomp}${u} · ${chip("even")} in between · `
+    + `${chip("lost")} / ${chip("stomped")} the same behind`
+    + (method === "combined" ? " · a gold lead only counts if XP agrees." : ".");
+}
+
 function laneDelta(m, min) {
   const cs = m[`cs_diff_${min}`], gold = m[`gold_diff_${min}`];
   if (cs == null && gold == null) return "<span class='muted'>—</span>";
   return `ΔCS ${sgn(cs, 1)} · ΔGold ${sgn(gold)}`;
 }
-function laningBlock(s) {
+function laningBlock(s, games) {
   const m = s.metrics || {};
   if (!s.games) return statRow("Laning", "—");
-  const ahead = (m.lane_adv_early != null || m.lane_adv_late != null)
-    ? `@7 ${m.lane_adv_early == null ? "—" : Math.round(m.lane_adv_early) + "%"}`
-      + ` · @14 ${m.lane_adv_late == null ? "—" : Math.round(m.lane_adv_late) + "%"}`
-    : "<span class='muted'>no timeline data</span>";
   const extras = [];
   if (m.cs_at_10 != null) extras.push(`CS@10 ${(+m.cs_at_10).toFixed(0)}`);
   if (m.solo_kills != null) extras.push(`Solo ${(+m.solo_kills).toFixed(1)}`);
   if (m.plates != null) extras.push(`Plates ${(+m.plates).toFixed(1)}`);
-  return statRow("Wins lane (ahead)", ahead)
+  return statRow("Wins lane @7", laneRecord(games, 7))
+    + statRow("Wins lane @14", laneRecord(games, 14))
     + statRow("Lane Δ @7m", laneDelta(m, 7))
     + statRow("Lane Δ @14m", laneDelta(m, 14))
     + (extras.length ? statRow("Laning", extras.join(" · ")) : "");
@@ -229,15 +309,20 @@ const gamesFor = (p) => (p.recent || []).filter((g) => !patchFilter || patchOf(g
 
 function headRow() {
   const cols = showLoadout
-    ? ["", "KDA", "Skill", "Spells", "Runes", "Build"]
-    : ["", "KDA", "Runes"];
+    ? ["", "KDA", "Lane", "Skill", "Spells", "Runes", "Build"]
+    : ["", "KDA", "Lane", "Runes"];
   return `<div class="cmp-ghead">${cols.map((c) => `<span>${c}</span>`).join("")}</div>`;
+}
+function laneVerdictCell(g) {
+  return `<span class="cmp-lane" title="Lane @7m / @14m vs opponent">`
+    + `${laneVerdictPill(g, 7)}${laneVerdictPill(g, 14)}</span>`;
 }
 function gameRow(g) {
   const kdaTxt = `${num(g.kills, 0)}/${num(g.deaths, 0)}/${num(g.assists, 0)}`;
   const cells = [
     `<span class="cmp-res ${g.win ? "w" : "l"}">${g.win ? "W" : "L"}</span>`,
     `<span class="cmp-kda">${kdaTxt}</span>`,
+    laneVerdictCell(g),
   ];
   if (showLoadout) {
     cells.push(skillOrder(g), spellStrip(g), runeStrip(g.runes),
@@ -258,7 +343,7 @@ function card(p) {
   return `<div class="cmp-card">
     <h2>${esc(p.game_name)}<span class="muted">#${esc(p.tag_line)}</span></h2>
     ${statRow(`This matchup vs ${esc(opp)}`, aggLine(p.matchup))}
-    ${laningBlock(p.matchup)}
+    ${laningBlock(p.matchup, games)}
     ${statRow(`Overall on ${esc(my)}`, aggLine(p.overall))}
     <h3>Recent games</h3>${recent}
   </div>`;
@@ -286,6 +371,15 @@ function syncToggle() {
     patchFilter = e.target.value;
     renderCards();
   });
+  const laneSel = document.getElementById("lane-method");
+  laneSel.innerHTML = LANE_METHODS.map((m) => `<option value="${m.key}">${m.label}</option>`).join("");
+  laneSel.value = laneWinMethod();
+  laneSel.addEventListener("change", (e) => {
+    localStorage.setItem("cp-lane-metric", e.target.value);
+    renderLaneLegend();
+    renderCards();
+  });
+  renderLaneLegend();
   syncToggle();
   await Promise.all([loadRunes(), loadDdragon()]);
   let data;

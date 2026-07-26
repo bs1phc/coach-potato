@@ -57,8 +57,8 @@ const BLOCK_GAME_SORT = {
   account: { type: "text", get: (g) => g.account },
   me: { type: "text", get: (g) => displayName(g.my_champion) },
   opponent: { type: "text", get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
-  lane7: { type: "num", get: (g) => g.lane_adv_early },
-  lane14: { type: "num", get: (g) => g.lane_adv_late },
+  lane7: { type: "num", get: (g) => { const o = laneOutcome(g, 7); return o ? o.value : null; } },
+  lane14: { type: "num", get: (g) => { const o = laneOutcome(g, 14); return o ? o.value : null; } },
   cs_diff_7: { type: "num", get: (g) => g.cs_diff_7 },
   level_diff_7: { type: "num", get: (g) => g.level_diff_7 },
   gold_diff_7: { type: "num", get: (g) => g.gold_diff_7 },
@@ -109,6 +109,16 @@ async function initBlocks() {
     });
     renderColPicker($("#blocks-cols"), "cp-cols-blocks-v3", BLOCK_COLS, blockCols,
       () => renderBlocks());
+    const laneSel = $("#blocks-lane-method");
+    laneSel.innerHTML = LANE_METHODS
+      .map((m) => `<option value="${m.key}">${m.label}</option>`).join("");
+    laneSel.value = laneWinMethod();
+    laneSel.title = laneLegendText();
+    laneSel.addEventListener("change", (e) => {
+      setLaneWinMethod(e.target.value);
+      e.target.title = laneLegendText();
+      renderBlocks();
+    });
     await loadChampionRoster();
   }
   await Promise.all([loadPool(), loadBlocks()]);
@@ -375,11 +385,17 @@ async function toggleGameStats(entryId, matchId, puuid) {
   renderBlocks();
 }
 
-function laneCell(value) {
-  if (value == null) return `<td class="muted">–</td>`;
-  return value >= 1
-    ? `<td><span class="lane-yes" title="Ahead in lane">✓</span></td>`
-    : `<td><span class="lane-no" title="Behind in lane">✗</span></td>`;
+// Graded lane verdict, computed from the game's own ΔCS/ΔGold/ΔLevel via the
+// shared laneOutcome() (app.js) — not Riot's opaque lane_adv flag. Shows ⏳
+// until the timeline is fetched, – when there's no lane opponent.
+function laneCell(game, mark) {
+  if (game.has_timeline !== 1) return `<td class="muted" title="Fetching deeper stats…">⏳</td>`;
+  const o = laneOutcome(game, mark);
+  if (!o) return `<td class="muted" title="No lane opponent / data">–</td>`;
+  const sign = o.value > 0 ? "+" : "";
+  const val = o.unit === "CS" ? o.value.toFixed(1) : Math.round(o.value);
+  return `<td><span class="lane-pill ${o.cls}" `
+    + `title="${o.label} lane @${mark}m · ${sign}${val} ${o.unit} vs opponent">${o.symbol}</span></td>`;
 }
 
 // signed lane-delta cell. Until the game's timeline has been fetched
@@ -431,8 +447,8 @@ function blockGameRow(g) {
     result: `<td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>`,
     kda: `<td>${g.kills}/${g.deaths}/${g.assists}</td>`,
     cs: `<td>${(g.cs * 60 / g.game_duration_s).toFixed(1)}</td>`,
-    lane7: laneCell(g.lane_adv_early),
-    lane14: laneCell(g.lane_adv_late),
+    lane7: laneCell(g, 7),
+    lane14: laneCell(g, 14),
     cs_diff_7: deltaCell(g, g.cs_diff_7, 1),
     level_diff_7: deltaCell(g, g.level_diff_7, 0),
     gold_diff_7: deltaCell(g, g.gold_diff_7, 0),

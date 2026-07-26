@@ -386,6 +386,21 @@ tbody tr.games-row:hover td { background: var(--page); }
 .lane-yes { color: var(--good-text); font-weight: 700; }
 .lane-no { color: var(--critical); font-weight: 700; }
 
+/* Graded lane-win verdict pills (shared: Blocks table + comparison pop-out).
+   Tiers computed client-side from ΔCS/ΔGold/ΔLevel — see laneOutcome() (app.js). */
+.lane-pill {
+  display: inline-block; min-width: 15px; text-align: center;
+  font-size: 11px; font-weight: 700; line-height: 1.5;
+  border-radius: 4px; padding: 0 3px;
+}
+.lane-won, .lane-stomp { color: var(--good-text); background: color-mix(in srgb, var(--good-text) 15%, transparent); }
+.lane-lost, .lane-stomped { color: var(--critical); background: color-mix(in srgb, var(--critical) 15%, transparent); }
+.lane-even { color: var(--text-secondary); background: var(--grid); }
+.lane-stomp { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--good-text) 55%, transparent); }
+.lane-stomped { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--critical) 55%, transparent); }
+.lane-method-sel { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.lane-method-sel select { padding: 3px 6px; }
+
 .metric-groups {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));

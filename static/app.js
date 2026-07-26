@@ -596,6 +596,79 @@ const recentUi = { runesOpen: new Set(), sort: { key: "date", dir: -1 } };
 
 function kdaRatio(g) { return (g.kills + g.assists) / Math.max(1, g.deaths); }
 
+// ---------- lane-win verdict ----------
+// A transparent, graded replacement for Riot's opaque earlyLaningPhaseGoldExp-
+// Advantage / laningPhaseGoldExpAdvantage flags (which could show a red "lost
+// lane" on a game you were +32 CS / +611 gold ahead). We score lane outcome
+// ourselves from the ΔCS / ΔGold / ΔLevel we already store vs the DIRECT lane
+// opponent at the ~7 and ~14 min timeline frames. Several "ways of doing the
+// math" are offered; the user picks one (stored in localStorage, shared by the
+// Blocks table and the comparison pop-out). Thresholds are fixed and shown in a
+// legend so the verdict is never a black box. Gold already bundles CS + kills +
+// plates, so it's the default lens; the others exist because no single number
+// is right for every lane.
+const LANE_METHODS = [
+  { key: "combined", label: "Gold + XP", blurb: "Gold lead, confirmed by XP" },
+  { key: "gold", label: "Gold", blurb: "Gold lead vs lane opponent (includes CS, kills, plates)" },
+  { key: "cs", label: "CS", blurb: "Creep-score lead vs lane opponent" },
+  { key: "xp", label: "XP / level", blurb: "Level lead vs lane opponent" },
+];
+// won / stomp cutoffs (absolute Δ) per method per mark. even = |Δ| < won;
+// lost/stomped mirror won/stomp negatively.
+const LANE_THRESHOLDS = {
+  gold:     { 7: { won: 250, stomp: 700 }, 14: { won: 500, stomp: 1200 } },
+  combined: { 7: { won: 250, stomp: 700 }, 14: { won: 500, stomp: 1200 } },
+  cs:       { 7: { won: 12,  stomp: 25 },  14: { won: 18,  stomp: 40 } },
+  xp:       { 7: { won: 1,   stomp: 2 },   14: { won: 1,   stomp: 2 } },
+};
+const LANE_TIERS = {
+  stomp:   { symbol: "⇈", label: "Stomp",   cls: "lane-stomp",   rank: 2 },
+  won:     { symbol: "✓", label: "Won",     cls: "lane-won",     rank: 1 },
+  even:    { symbol: "=", label: "Even",    cls: "lane-even",    rank: 0 },
+  lost:    { symbol: "✗", label: "Lost",    cls: "lane-lost",    rank: -1 },
+  stomped: { symbol: "⇊", label: "Stomped", cls: "lane-stomped", rank: -2 },
+};
+
+function laneWinMethod() {
+  const m = localStorage.getItem("cp-lane-metric");
+  return LANE_THRESHOLDS[m] ? m : "combined";
+}
+function setLaneWinMethod(m) {
+  if (LANE_THRESHOLDS[m]) localStorage.setItem("cp-lane-metric", m);
+}
+
+// Returns {tier, symbol, label, cls, value, unit} or null when the deltas for
+// this mark aren't available (no lane opponent / timeline not fetched yet).
+function laneOutcome(g, mark, method = laneWinMethod()) {
+  const t = LANE_THRESHOLDS[method][mark];
+  const gold = g[`gold_diff_${mark}`], cs = g[`cs_diff_${mark}`], lvl = g[`level_diff_${mark}`];
+  let value, unit;
+  if (method === "cs") { value = cs; unit = "CS"; }
+  else if (method === "xp") { value = lvl; unit = "lvl"; }
+  else { value = gold; unit = "g"; }         // gold + combined
+  if (value == null) return null;
+  const mag = Math.abs(value);
+  let name = mag >= t.stomp ? "stomp" : mag >= t.won ? "won" : "even";
+  if (name !== "even" && value < 0) name = name === "stomp" ? "stomped" : "lost";
+  // "combined" gates a gold win/loss on XP agreeing in sign — a gold lead while
+  // XP-starved (or vice versa) is only "even", not a clean win.
+  if (method === "combined" && name !== "even" && lvl != null) {
+    const goldSign = Math.sign(value), lvlSign = Math.sign(lvl);
+    if (lvlSign !== 0 && lvlSign !== goldSign) name = "even";
+  }
+  return { tier: name, value, unit, ...LANE_TIERS[name] };
+}
+
+// A little "= method: thresholds" legend for the current method.
+function laneLegendText(method = laneWinMethod()) {
+  const u = method === "cs" ? "CS" : method === "xp" ? "levels" : "gold";
+  const t7 = LANE_THRESHOLDS[method][7], t14 = LANE_THRESHOLDS[method][14];
+  return `vs your lane opponent · Won = ±${t7.won}${u === "gold" ? "g" : ""} @7 / `
+    + `±${t14.won}${u === "gold" ? "g" : ""} @14 ${u === "gold" ? "" : u + " "}`
+    + `· Stomp = ±${t7.stomp}/${t14.stomp}`
+    + (method === "combined" ? " · needs XP to agree" : "");
+}
+
 function runesCompareCol(champ, runes, whose) {
   const body = runes
     ? `<div class="recent-runes-cell-inner">${

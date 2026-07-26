@@ -309,7 +309,9 @@ def comparison_for_matchup(conn, puuid, my_champion, opp_champion, queues=None):
                    my_puuid, my_champion, opp_champion, rank_tier, win,
                    kills, deaths, assists, cs, my_runes_json, opp_runes_json,
                    spell1, spell2, my_items_json, my_starting_items_json, my_build_order_json,
-                   my_skill_order_json
+                   my_skill_order_json,
+                   cs_diff_7, level_diff_7, gold_diff_7,
+                   cs_diff_14, level_diff_14, gold_diff_14
             FROM ({mbase}) ORDER BY game_creation_ms DESC LIMIT 20""",
         mparams)]
     return {"matchup": matchup, "overall": overall, "recent": recent}
