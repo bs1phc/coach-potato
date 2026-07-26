@@ -4,6 +4,7 @@
       "version": "1.48.0",
       "date": "2026-07-24",
       "items": [
+        "Lane deltas now include actual ΔXP (raw experience) vs your lane opponent at 7/14 min, not just whole levels — a far more granular 'am I ahead' signal. The 'XP' lane-win method and the Gold+XP gate use it. New games capture it automatically; existing games fill in as you crawl / open Blocks / re-fetch comparison players (or run ./crawl.sh --recompute-lane-deltas), falling back to ΔLevel until then",
         "Reworked 'winning lane': the Blocks table and comparison pop-out no longer use Riot's opaque laning flag (which could show a red ✗ on a game you were +32 CS / +611 gold ahead). Lane outcome is now graded (Stomp / Won / Even / Lost / Stomped) from the ΔCS / ΔGold / ΔLevel vs your direct lane opponent, with a visible legend of the thresholds and a picker to choose how it's scored (Gold+XP / Gold / CS / XP)",
         "New '🔗 Top OTPs' button on the Matchup guide opens your champion's top one-tricks ranking on onetricks.gg in your browser — copy a Riot ID from there and add it as a research player in Settings → Player comparison",
         "The Matchup guide's Recent games and the player-comparison pop-out now show what was actually run per game: summoner spells, the full rune page (with stat shards) and the first 3 items",

@@ -46,12 +46,16 @@ METRICS = [
             decimals=1, default_hidden=True, signed=True),
     _metric("level_diff_7", "ΔLevel (7m)", "Laning", "level_diff_7", source="timeline",
             decimals=2, default_hidden=True, signed=True),
+    _metric("xp_diff_7", "ΔXP (7m)", "Laning", "xp_diff_7", source="timeline",
+            decimals=0, default_hidden=True, signed=True),
     _metric("gold_diff_7", "ΔGold (7m)", "Laning", "gold_diff_7", source="timeline",
             decimals=0, default_hidden=True, signed=True),
     _metric("cs_diff_14", "ΔCS (14m)", "Laning", "cs_diff_14", source="timeline",
             decimals=1, default_hidden=True, signed=True),
     _metric("level_diff_14", "ΔLevel (14m)", "Laning", "level_diff_14", source="timeline",
             decimals=2, default_hidden=True, signed=True),
+    _metric("xp_diff_14", "ΔXP (14m)", "Laning", "xp_diff_14", source="timeline",
+            decimals=0, default_hidden=True, signed=True),
     _metric("gold_diff_14", "ΔGold (14m)", "Laning", "gold_diff_14", source="timeline",
             decimals=0, default_hidden=True, signed=True),
     # --- Damage & fighting ---
@@ -269,5 +273,6 @@ def parse_timeline_deltas(timeline_json, me_puuid, opp_puuid):
             continue
         out[f"cs_diff_{minute}"] = _cs(mine) - _cs(theirs)
         out[f"level_diff_{minute}"] = (mine.get("level") or 0) - (theirs.get("level") or 0)
+        out[f"xp_diff_{minute}"] = (mine.get("xp") or 0) - (theirs.get("xp") or 0)
         out[f"gold_diff_{minute}"] = (mine.get("totalGold") or 0) - (theirs.get("totalGold") or 0)
     return out

@@ -37,9 +37,11 @@ const BLOCK_COLS = [
   // lane deltas vs the opponent from the match timeline — off by default
   { key: "cs_diff_7", label: "ΔCS (7m)", off: true },
   { key: "level_diff_7", label: "ΔLvl (7m)", off: true },
+  { key: "xp_diff_7", label: "ΔXP (7m)", off: true },
   { key: "gold_diff_7", label: "ΔGold (7m)", off: true },
   { key: "cs_diff_14", label: "ΔCS (14m)", off: true },
   { key: "level_diff_14", label: "ΔLvl (14m)", off: true },
+  { key: "xp_diff_14", label: "ΔXP (14m)", off: true },
   { key: "gold_diff_14", label: "ΔGold (14m)", off: true },
   { key: "result", label: "Result" },
   { key: "kda", label: "K/D/A" },
@@ -48,8 +50,8 @@ const BLOCK_COLS = [
   { key: "rank", label: "Rank (start → end)" },
 ];
 const GAME_COL_KEYS = ["date", "account", "me", "opponent", "lane7", "lane14",
-                       "cs_diff_7", "level_diff_7", "gold_diff_7",
-                       "cs_diff_14", "level_diff_14", "gold_diff_14",
+                       "cs_diff_7", "level_diff_7", "xp_diff_7", "gold_diff_7",
+                       "cs_diff_14", "level_diff_14", "xp_diff_14", "gold_diff_14",
                        "result", "kda", "cs", "notes"];
 // sort type + accessor per block-game column (kdaRatio/displayName from app.js)
 const BLOCK_GAME_SORT = {
@@ -61,9 +63,11 @@ const BLOCK_GAME_SORT = {
   lane14: { type: "num", get: (g) => { const o = laneOutcome(g, 14); return o ? o.value : null; } },
   cs_diff_7: { type: "num", get: (g) => g.cs_diff_7 },
   level_diff_7: { type: "num", get: (g) => g.level_diff_7 },
+  xp_diff_7: { type: "num", get: (g) => g.xp_diff_7 },
   gold_diff_7: { type: "num", get: (g) => g.gold_diff_7 },
   cs_diff_14: { type: "num", get: (g) => g.cs_diff_14 },
   level_diff_14: { type: "num", get: (g) => g.level_diff_14 },
+  xp_diff_14: { type: "num", get: (g) => g.xp_diff_14 },
   gold_diff_14: { type: "num", get: (g) => g.gold_diff_14 },
   result: { type: "num", get: (g) => (g.win ? 1 : 0) },
   kda: { type: "num", get: kdaRatio },
@@ -451,9 +455,11 @@ function blockGameRow(g) {
     lane14: laneCell(g, 14),
     cs_diff_7: deltaCell(g, g.cs_diff_7, 1),
     level_diff_7: deltaCell(g, g.level_diff_7, 0),
+    xp_diff_7: deltaCell(g, g.xp_diff_7, 0),
     gold_diff_7: deltaCell(g, g.gold_diff_7, 0),
     cs_diff_14: deltaCell(g, g.cs_diff_14, 1),
     level_diff_14: deltaCell(g, g.level_diff_14, 0),
+    xp_diff_14: deltaCell(g, g.xp_diff_14, 0),
     gold_diff_14: deltaCell(g, g.gold_diff_14, 0),
     notes: `<td class="notes-cell">${blockState.editingNotes === g.entry_id
       ? `<textarea class="game-notes" data-entry="${g.entry_id}" rows="1"

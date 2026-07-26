@@ -619,8 +619,10 @@ const LANE_THRESHOLDS = {
   gold:     { 7: { won: 250, stomp: 700 }, 14: { won: 500, stomp: 1200 } },
   combined: { 7: { won: 250, stomp: 700 }, 14: { won: 500, stomp: 1200 } },
   cs:       { 7: { won: 12,  stomp: 25 },  14: { won: 18,  stomp: 40 } },
-  xp:       { 7: { won: 1,   stomp: 2 },   14: { won: 1,   stomp: 2 } },
+  xp:       { 7: { won: 150, stomp: 450 }, 14: { won: 300, stomp: 800 } }, // raw XP
 };
+// fallback when a game predates ΔXP capture (run ./crawl.sh --recompute-lane-deltas)
+const LANE_LEVEL_THRESHOLDS = { 7: { won: 1, stomp: 2 }, 14: { won: 1, stomp: 2 } };
 const LANE_TIERS = {
   stomp:   { symbol: "⇈", label: "Stomp",   cls: "lane-stomp",   rank: 2 },
   won:     { symbol: "✓", label: "Won",     cls: "lane-won",     rank: 1 },
@@ -640,28 +642,33 @@ function setLaneWinMethod(m) {
 // Returns {tier, symbol, label, cls, value, unit} or null when the deltas for
 // this mark aren't available (no lane opponent / timeline not fetched yet).
 function laneOutcome(g, mark, method = laneWinMethod()) {
-  const t = LANE_THRESHOLDS[method][mark];
-  const gold = g[`gold_diff_${mark}`], cs = g[`cs_diff_${mark}`], lvl = g[`level_diff_${mark}`];
+  let t = LANE_THRESHOLDS[method][mark];
+  const gold = g[`gold_diff_${mark}`], cs = g[`cs_diff_${mark}`];
+  const xp = g[`xp_diff_${mark}`], lvl = g[`level_diff_${mark}`];
   let value, unit;
   if (method === "cs") { value = cs; unit = "CS"; }
-  else if (method === "xp") { value = lvl; unit = "lvl"; }
-  else { value = gold; unit = "g"; }         // gold + combined
+  else if (method === "xp") {
+    // prefer raw XP; fall back to whole levels for games captured before ΔXP
+    if (xp != null) { value = xp; unit = "XP"; }
+    else { value = lvl; unit = "lvl"; t = LANE_LEVEL_THRESHOLDS[mark]; }
+  } else { value = gold; unit = "g"; }        // gold + combined
   if (value == null) return null;
   const mag = Math.abs(value);
   let name = mag >= t.stomp ? "stomp" : mag >= t.won ? "won" : "even";
   if (name !== "even" && value < 0) name = name === "stomp" ? "stomped" : "lost";
   // "combined" gates a gold win/loss on XP agreeing in sign — a gold lead while
-  // XP-starved (or vice versa) is only "even", not a clean win.
-  if (method === "combined" && name !== "even" && lvl != null) {
-    const goldSign = Math.sign(value), lvlSign = Math.sign(lvl);
-    if (lvlSign !== 0 && lvlSign !== goldSign) name = "even";
+  // XP-starved (or vice versa) is only "even", not a clean win. Prefer raw XP,
+  // fall back to level for older games.
+  if (method === "combined" && name !== "even") {
+    const agree = xp != null ? xp : lvl;
+    if (agree != null && Math.sign(agree) !== 0 && Math.sign(agree) !== Math.sign(value)) name = "even";
   }
   return { tier: name, value, unit, ...LANE_TIERS[name] };
 }
 
 // A little "= method: thresholds" legend for the current method.
 function laneLegendText(method = laneWinMethod()) {
-  const u = method === "cs" ? "CS" : method === "xp" ? "levels" : "gold";
+  const u = method === "cs" ? "CS" : method === "xp" ? "XP" : "gold";
   const t7 = LANE_THRESHOLDS[method][7], t14 = LANE_THRESHOLDS[method][14];
   return `vs your lane opponent · Won = ±${t7.won}${u === "gold" ? "g" : ""} @7 / `
     + `±${t14.won}${u === "gold" ? "g" : ""} @14 ${u === "gold" ? "" : u + " "}`

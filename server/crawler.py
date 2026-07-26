@@ -326,18 +326,25 @@ class Crawler:
                 self.conn, match_id, p["puuid"],
                 p.get("summoner1Id", 0), p.get("summoner2Id", 0), items)
 
-    def backfill_lane_deltas(self, limit=None, block_games_only=False):
+    def backfill_lane_deltas(self, limit=None, block_games_only=False, recompute=False):
         """Fetch the match timeline for tracked-participant metrics rows that
         don't have lane deltas yet (has_timeline=0) and fill in the ΔCS/level/
-        gold-vs-opponent columns. The lane opponent comes from the stored
+        xp/gold-vs-opponent columns. The lane opponent comes from the stored
         participants (same team_position, other team), so this needs only the
         timeline — not the match detail. A missing/failed timeline still marks
         the row done (blank deltas) so it isn't retried forever.
         block_games_only restricts to games sitting in a block (used by the
-        web app to deepen block insights proactively). Returns matches fetched."""
+        web app to deepen block insights proactively).
+        recompute also re-fetches already-processed rows (has_timeline=1) that
+        have a lane opponent but are missing a newer timeline metric (ΔXP) —
+        used once after adding a timeline column so history isn't left blank.
+        Returns matches fetched."""
         block_filter = ("AND EXISTS (SELECT 1 FROM block_games bg "
                         "WHERE bg.match_id = pm.match_id AND bg.puuid = pm.puuid)"
                         if block_games_only else "")
+        # a lane opponent exists but ΔXP was never computed → re-fetch it
+        want = ("(pm.has_timeline = 0 OR (opp.puuid IS NOT NULL AND pm.xp_diff_7 IS NULL))"
+                if recompute else "pm.has_timeline = 0")
         rows = self.conn.execute(
             f"""SELECT me.match_id, me.puuid, opp.puuid AS opp_puuid
                FROM participant_metrics pm
@@ -347,13 +354,18 @@ class Crawler:
                LEFT JOIN participants opp
                  ON opp.match_id = me.match_id AND opp.team_id != me.team_id
                     AND opp.team_position = me.team_position AND me.team_position != ''
-               WHERE pm.has_timeline = 0 {block_filter}"""
+               WHERE {want} {block_filter}"""
         ).fetchall()
         count = 0
         for row in rows:
             if limit is not None and count >= limit:
                 break
             timeline = self._safe_timeline(row["match_id"])
+            # On recompute we're touching rows that already hold good deltas; a
+            # failed fetch (e.g. a comparison player on another region this client
+            # can't reach) must NOT clobber them with blanks — skip instead.
+            if recompute and timeline is None:
+                continue
             deltas = parse_timeline_deltas(timeline, row["puuid"], row["opp_puuid"])
             db.update_participant_timeline(self.conn, row["match_id"], row["puuid"], deltas)
             count += 1

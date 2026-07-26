@@ -217,8 +217,9 @@ const LANE_THRESHOLDS = {
   gold:     { 7: { won: 250, stomp: 700 }, 14: { won: 500, stomp: 1200 } },
   combined: { 7: { won: 250, stomp: 700 }, 14: { won: 500, stomp: 1200 } },
   cs:       { 7: { won: 12,  stomp: 25 },  14: { won: 18,  stomp: 40 } },
-  xp:       { 7: { won: 1,   stomp: 2 },   14: { won: 1,   stomp: 2 } },
+  xp:       { 7: { won: 150, stomp: 450 }, 14: { won: 300, stomp: 800 } }, // raw XP
 };
+const LANE_LEVEL_THRESHOLDS = { 7: { won: 1, stomp: 2 }, 14: { won: 1, stomp: 2 } };
 const LANE_TIERS = {
   stomp:   { symbol: "⇈", label: "Stomp",   cls: "lane-stomp" },
   won:     { symbol: "✓", label: "Won",     cls: "lane-won" },
@@ -231,19 +232,22 @@ function laneWinMethod() {
   return LANE_THRESHOLDS[m] ? m : "combined";
 }
 function laneOutcome(g, mark, method = laneWinMethod()) {
-  const t = LANE_THRESHOLDS[method][mark];
-  const gold = g[`gold_diff_${mark}`], cs = g[`cs_diff_${mark}`], lvl = g[`level_diff_${mark}`];
+  let t = LANE_THRESHOLDS[method][mark];
+  const gold = g[`gold_diff_${mark}`], cs = g[`cs_diff_${mark}`];
+  const xp = g[`xp_diff_${mark}`], lvl = g[`level_diff_${mark}`];
   let value, unit;
   if (method === "cs") { value = cs; unit = "CS"; }
-  else if (method === "xp") { value = lvl; unit = "lvl"; }
-  else { value = gold; unit = "g"; }
+  else if (method === "xp") {
+    if (xp != null) { value = xp; unit = "XP"; }
+    else { value = lvl; unit = "lvl"; t = LANE_LEVEL_THRESHOLDS[mark]; }
+  } else { value = gold; unit = "g"; }
   if (value == null) return null;
   const mag = Math.abs(value);
   let name = mag >= t.stomp ? "stomp" : mag >= t.won ? "won" : "even";
   if (name !== "even" && value < 0) name = name === "stomp" ? "stomped" : "lost";
-  if (method === "combined" && name !== "even" && lvl != null) {
-    const ls = Math.sign(lvl);
-    if (ls !== 0 && ls !== Math.sign(value)) name = "even";
+  if (method === "combined" && name !== "even") {
+    const agree = xp != null ? xp : lvl;
+    if (agree != null && Math.sign(agree) !== 0 && Math.sign(agree) !== Math.sign(value)) name = "even";
   }
   return { tier: name, value, unit, ...LANE_TIERS[name] };
 }
@@ -270,7 +274,7 @@ function laneRecord(games, mark) {
 }
 function renderLaneLegend() {
   const method = laneWinMethod();
-  const u = method === "cs" ? " CS" : method === "xp" ? " lvl" : "g";
+  const u = method === "cs" ? " CS" : method === "xp" ? " XP" : "g";
   const t7 = LANE_THRESHOLDS[method][7], t14 = LANE_THRESHOLDS[method][14];
   const chip = (k) => `<span class="lane-pill ${LANE_TIERS[k].cls}">${LANE_TIERS[k].symbol}</span> ${LANE_TIERS[k].label}`;
   document.getElementById("lane-legend").innerHTML =
@@ -282,9 +286,9 @@ function renderLaneLegend() {
 }
 
 function laneDelta(m, min) {
-  const cs = m[`cs_diff_${min}`], gold = m[`gold_diff_${min}`];
-  if (cs == null && gold == null) return "<span class='muted'>—</span>";
-  return `ΔCS ${sgn(cs, 1)} · ΔGold ${sgn(gold)}`;
+  const cs = m[`cs_diff_${min}`], xp = m[`xp_diff_${min}`], gold = m[`gold_diff_${min}`];
+  if (cs == null && gold == null && xp == null) return "<span class='muted'>—</span>";
+  return `ΔCS ${sgn(cs, 1)} · ΔXP ${sgn(xp)} · ΔGold ${sgn(gold)}`;
 }
 function laningBlock(s, games) {
   const m = s.metrics || {};

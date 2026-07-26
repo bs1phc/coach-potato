@@ -1533,8 +1533,10 @@ def _run_comparison_crawl(puuid, game_name, tag_line, platform, api_key):
                                        fetch_timeline=True)
             COMPARISON_CRAWL["new_matches"] = res["new_matches"]
             # fill lane Δ on any of this/other comparison players' older games
-            # that were stored before timelines were fetched (has_timeline=0).
-            crawler.backfill_lane_deltas()
+            # that were stored before timelines were fetched (has_timeline=0),
+            # and recompute rows missing a newer metric (ΔXP) — this client is on
+            # the player's region so it can reach their timelines.
+            crawler.backfill_lane_deltas(recompute=True)
             # this client is on the player's region, so it can fill loadout
             # (spells + items) on their already-stored matches that crawl_player
             # skipped (has_participant) — the global backfill can't cross region.
@@ -2349,7 +2351,7 @@ def _run_crawl():
         CRAWL_STATE["message"] = "fetching opponent ranks"
         crawler.enrich_ranks()
         crawler.backfill_metrics()
-        crawler.backfill_lane_deltas(block_games_only=True)  # deepen block-game stats
+        crawler.backfill_lane_deltas(block_games_only=True, recompute=True)  # deepen block-game stats
         crawler.refresh_tracked_ranks()
         db.set_settings(conn, {"last_crawl_ms": str(int(time.time() * 1000))})
         conn.close()
@@ -2393,7 +2395,7 @@ def _run_timeline_backfill():
             TIMELINE_STATE["total"] = int(total or 0)
 
         crawler = Crawler(client, conn, status_cb=status_cb)
-        crawler.backfill_lane_deltas(block_games_only=True)
+        crawler.backfill_lane_deltas(block_games_only=True, recompute=True)
         conn.close()
         TIMELINE_STATE["error"] = None
     except Exception as exc:  # surfaced via /api/blocks/timeline-status

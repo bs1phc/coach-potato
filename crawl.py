@@ -32,7 +32,10 @@ def main():
     parser.add_argument("--backfill-runes", action="store_true",
                         help="only backfill actual runes played for stored matches, no crawl")
     parser.add_argument("--backfill-lane-deltas", action="store_true",
-                        help="only backfill lane ΔCS/level/gold (needs the match timeline), no crawl")
+                        help="only backfill lane ΔCS/level/xp/gold (needs the match timeline), no crawl")
+    parser.add_argument("--recompute-lane-deltas", action="store_true",
+                        help="re-fetch timelines for games already processed but missing newer "
+                             "lane metrics (e.g. ΔXP added later); no crawl")
     parser.add_argument("--backfill-items", action="store_true",
                         help="only backfill summoner spells + items for stored matches, no crawl")
     args = parser.parse_args()
@@ -64,6 +67,11 @@ def main():
         if args.backfill_lane_deltas:
             print("Backfilling lane deltas (timeline) for stored matches ...")
             n = crawler.backfill_lane_deltas(limit=args.limit)
+            print(f"  -> {n} matches re-fetched")
+            return
+        if args.recompute_lane_deltas:
+            print("Recomputing lane deltas (incl. ΔXP) for already-processed matches ...")
+            n = crawler.backfill_lane_deltas(limit=args.limit, recompute=True)
             print(f"  -> {n} matches re-fetched")
             return
         if args.backfill_items:

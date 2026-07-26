@@ -167,16 +167,24 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   `stats.trend_buckets` (day/week/month; week = Monday date) feed
   `/api/stats/metrics` and `/api/stats/trends` (both include `meta`);
   `/api/metrics/meta` returns the registry alone (for the per-view metric
-  column pickers). Metrics with `source="timeline"` (lane ΔCS/ΔLevel/ΔGold
+  column pickers). Metrics with `source="timeline"` (lane ΔCS/ΔLevel/ΔXP/ΔGold
   vs the direct lane opponent at ~7 & ~14 min) come from the match-v5
   TIMELINE, not the detail payload: `metrics.parse_timeline_deltas` reads
-  the frame nearest each mark; the crawler fetches the timeline per new
-  match (`Crawler._safe_timeline`, tolerant of 404/failure) and merges the
-  deltas, setting `has_timeline=1`. `crawler.backfill_lane_deltas()` /
-  `./crawl.sh --backfill-lane-deltas` fills existing rows (has_timeline=0)
-  using only the timeline + stored participants for the lane opponent, via
-  `db.update_participant_timeline` (which never clobbers challenge metrics).
-  These six are `default_hidden`. Across the app the pattern is: EXPANDED
+  the frame nearest each mark (CS, `level`, raw `xp`, `totalGold`); the crawler
+  fetches the timeline per new match (`Crawler._safe_timeline`, tolerant of
+  404/failure) and merges the deltas, setting `has_timeline=1`.
+  `crawler.backfill_lane_deltas()` / `./crawl.sh --backfill-lane-deltas` fills
+  existing rows (has_timeline=0) using only the timeline + stored participants
+  for the lane opponent, via `db.update_participant_timeline` (which never
+  clobbers challenge metrics). `backfill_lane_deltas(recompute=True)` /
+  `./crawl.sh --recompute-lane-deltas` ALSO re-fetches already-processed rows
+  (has_timeline=1) that have a lane opponent but are missing a newer timeline
+  metric (e.g. ΔXP, added after those rows were first processed) — it skips
+  (never clobbers) when the fetch fails, e.g. a comparison player on a region
+  the current client can't reach. The web app runs the block-game and
+  comparison backfills with `recompute=True` so ΔXP fills in naturally with the
+  correct per-player region (self-limiting: a row drops out once ΔXP is set).
+  These lane-delta metrics are `default_hidden`. Across the app the pattern is: EXPANDED
   per-game/segment stat panels always show ALL metrics (no picker), and each
   aggregate TABLE has a column picker whose metric-average columns start off.
   Matchups (`muAllCols`/`cp-mucols`, base cols default on) and coaching

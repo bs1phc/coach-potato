@@ -310,8 +310,8 @@ def comparison_for_matchup(conn, puuid, my_champion, opp_champion, queues=None):
                    kills, deaths, assists, cs, my_runes_json, opp_runes_json,
                    spell1, spell2, my_items_json, my_starting_items_json, my_build_order_json,
                    my_skill_order_json,
-                   cs_diff_7, level_diff_7, gold_diff_7,
-                   cs_diff_14, level_diff_14, gold_diff_14
+                   cs_diff_7, level_diff_7, xp_diff_7, gold_diff_7,
+                   cs_diff_14, level_diff_14, xp_diff_14, gold_diff_14
             FROM ({mbase}) ORDER BY game_creation_ms DESC LIMIT 20""",
         mparams)]
     return {"matchup": matchup, "overall": overall, "recent": recent}
@@ -492,8 +492,8 @@ def block_games_detailed(conn):
                   me.champion_name AS my_champion, me.win,
                   me.kills, me.deaths, me.assists, me.cs,
                   pm.lane_adv_early, pm.lane_adv_late, pm.has_timeline,
-                  pm.cs_diff_7, pm.level_diff_7, pm.gold_diff_7,
-                  pm.cs_diff_14, pm.level_diff_14, pm.gold_diff_14,
+                  pm.cs_diff_7, pm.level_diff_7, pm.xp_diff_7, pm.gold_diff_7,
+                  pm.cs_diff_14, pm.level_diff_14, pm.xp_diff_14, pm.gold_diff_14,
                   opp.champion_name AS opp_champion,
                   myr.runes AS my_runes_json,
                   oppr.runes AS opp_runes_json
