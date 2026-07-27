@@ -428,6 +428,7 @@ tbody tr.games-row:hover td { background: var(--page); }
 }
 .wc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .wc-head h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.wc-head h3 img { width: 24px; height: 24px; border-radius: 50%; vertical-align: middle; }
 .wc-table { width: 100%; border-collapse: collapse; margin: 12px 0 4px; }
 .wc-table th, .wc-table td { text-align: left; padding: 4px 6px; }
 .wc-table thead th { color: var(--text-secondary); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
