@@ -21,7 +21,7 @@ _counter = {"n": 0}
 def add_match(conn, my_champ="Garen", opp_champ="Darius", win=True, when=1_700_000_000_000,
               queue=420, duration=1800, my_pos="TOP", opp_pos="TOP", opp_puuid=None,
               kills=6, deaths=3, assists=9, cs=210, gold=12000, dmg=18000, puuid=None,
-              my_team=100, spell1=None, spell2=None, items=None):
+              my_team=100, spell1=None, spell2=None, items=None, in_block=False):
     me = puuid or ME
     opp_team = 200 if my_team == 100 else 100  # my_team 100 = blue, 200 = red
     _counter["n"] += 1
@@ -67,6 +67,12 @@ def add_match(conn, my_champ="Garen", opp_champ="Darius", win=True, when=1_700_0
          "game_duration_s": duration, "game_version": "14.1.1"},
         parts,
     )
+    if in_block:  # put the game into a block (the review queue is scoped to blocks)
+        conn.execute("INSERT OR IGNORE INTO blocks (id, created_at_ms) VALUES (1, 0)")
+        conn.execute(
+            "INSERT OR IGNORE INTO block_games (block_id, match_id, puuid, added_at_ms) "
+            "VALUES (1, ?, ?, 0)", (match_id, me))
+        conn.commit()
     return match_id, opp_puuid
 
 
@@ -798,7 +804,7 @@ def set_notes(conn, my_champion, opp_champion, updated_at_ms):
 
 
 def test_review_queue_flags_matchup_with_no_notes_at_all(conn):
-    add_match(conn, my_champ="Garen", opp_champ="Darius", when=BASE)
+    add_match(conn, my_champ="Garen", opp_champ="Darius", when=BASE, in_block=True)
     rows = stats.review_queue(conn, ME)
     assert len(rows) == 1
     row = rows[0]
@@ -808,21 +814,27 @@ def test_review_queue_flags_matchup_with_no_notes_at_all(conn):
     assert row["games_since_review"] == 1
 
 
+def test_review_queue_scoped_to_block_games_only(conn):
+    # a played game NOT added to any block is ignored by the review nudge
+    add_match(conn, my_champ="Garen", opp_champ="Darius", when=BASE)  # not in a block
+    assert stats.review_queue(conn, ME) == []
+
+
 def test_review_queue_excludes_matchup_reviewed_after_last_game(conn):
-    add_match(conn, my_champ="Ahri", opp_champ="Zed", when=BASE)
+    add_match(conn, my_champ="Ahri", opp_champ="Zed", when=BASE, in_block=True)
     set_notes(conn, "Ahri", "Zed", updated_at_ms=BASE + DAY_MS)  # reviewed after playing
     assert stats.review_queue(conn, ME) == []
 
 
 def test_review_queue_excludes_matchup_played_again_within_the_window(conn):
     set_notes(conn, "Jinx", "Caitlyn", updated_at_ms=BASE)
-    add_match(conn, my_champ="Jinx", opp_champ="Caitlyn", when=BASE + 2 * DAY_MS)  # only 2d later
+    add_match(conn, my_champ="Jinx", opp_champ="Caitlyn", when=BASE + 2 * DAY_MS, in_block=True)
     assert stats.review_queue(conn, ME) == []
 
 
 def test_review_queue_flags_matchup_played_well_after_notes_were_touched(conn):
     set_notes(conn, "Lux", "Annie", updated_at_ms=BASE)
-    add_match(conn, my_champ="Lux", opp_champ="Annie", when=BASE + 20 * DAY_MS)  # 20d later
+    add_match(conn, my_champ="Lux", opp_champ="Annie", when=BASE + 20 * DAY_MS, in_block=True)
     rows = stats.review_queue(conn, ME)
     assert len(rows) == 1
     row = rows[0]
@@ -834,9 +846,9 @@ def test_review_queue_flags_matchup_played_well_after_notes_were_touched(conn):
 def test_review_queue_ranks_never_reviewed_ahead_of_stale_reviewed(conn):
     # stale-but-reviewed pair
     set_notes(conn, "Lux", "Annie", updated_at_ms=BASE)
-    add_match(conn, my_champ="Lux", opp_champ="Annie", when=BASE + 20 * DAY_MS)
+    add_match(conn, my_champ="Lux", opp_champ="Annie", when=BASE + 20 * DAY_MS, in_block=True)
     # never-reviewed pair, played earlier and only once — still ranks first
-    add_match(conn, my_champ="Garen", opp_champ="Darius", when=BASE)
+    add_match(conn, my_champ="Garen", opp_champ="Darius", when=BASE, in_block=True)
     rows = stats.review_queue(conn, ME)
     assert [(r["my_champion"], r["opp_champion"]) for r in rows] == [
         ("Garen", "Darius"), ("Lux", "Annie")]
@@ -844,9 +856,9 @@ def test_review_queue_ranks_never_reviewed_ahead_of_stale_reviewed(conn):
 
 def test_review_queue_orders_by_games_since_review_within_a_tier(conn):
     # both never-reviewed; Garen/Darius played twice since, Yasuo/Riven once
-    add_match(conn, my_champ="Garen", opp_champ="Darius", when=BASE)
-    add_match(conn, my_champ="Garen", opp_champ="Darius", when=BASE + DAY_MS)
-    add_match(conn, my_champ="Yasuo", opp_champ="Riven", when=BASE)
+    add_match(conn, my_champ="Garen", opp_champ="Darius", when=BASE, in_block=True)
+    add_match(conn, my_champ="Garen", opp_champ="Darius", when=BASE + DAY_MS, in_block=True)
+    add_match(conn, my_champ="Yasuo", opp_champ="Riven", when=BASE, in_block=True)
     rows = stats.review_queue(conn, ME)
     assert [(r["my_champion"], r["opp_champion"]) for r in rows] == [
         ("Garen", "Darius"), ("Yasuo", "Riven")]
@@ -855,6 +867,6 @@ def test_review_queue_orders_by_games_since_review_within_a_tier(conn):
 
 def test_review_queue_respects_limit(conn):
     for i in range(5):
-        add_match(conn, my_champ="Garen", opp_champ=f"Opp{i}", when=BASE)
+        add_match(conn, my_champ="Garen", opp_champ=f"Opp{i}", when=BASE, in_block=True)
     rows = stats.review_queue(conn, ME, limit=3)
     assert len(rows) == 3

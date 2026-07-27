@@ -105,9 +105,11 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   `stat_filters` for matchups/summary, explicit elsewhere). Frontend: a Side
   select in the Overview/Matchups/Trends/Progress filter rows.
   `stats.review_queue(conn, puuid, limit=8)` powers the Overview's "🔔
-  Matchups to review" nudge: per (my_champion, opp_champion) pair actually
-  played, compares `last_played_ms` (max `game_creation_ms`, over the plain
-  `_filtered_base`) against that pair's `matchup_notes.updated_at_ms` (NULL
+  Matchups to review" nudge, scoped to games you put in a BLOCK (the
+  `_filtered_base` is INNER-JOINed to `block_games` on match_id+puuid) — the
+  matchups you're actively practising, not every game ever played: per
+  (my_champion, opp_champion) block-game pair, compares `last_played_ms` (max
+  `game_creation_ms`) against that pair's `matchup_notes.updated_at_ms` (NULL
   = never reviewed, always flagged); otherwise flagged when played more than
   `REVIEW_STALE_WINDOW_MS` (14 days, a constant, not a setting) after the
   notes were last touched. Ranked never-reviewed first, then by

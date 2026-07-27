@@ -670,16 +670,17 @@ REVIEW_STALE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000  # 14 days
 
 
 def review_queue(conn, puuid, limit=8, stale_window_ms=REVIEW_STALE_WINDOW_MS):
-    """Matchups you've actually played whose Matchup-guide notes are missing
+    """Matchups you've put in your BLOCKS whose Matchup-guide notes are missing
     or stale — a "review before you queue" nudge (like spaced repetition).
 
-    Per (my_champion, opp_champion) pair with at least one played game:
-    last_played_ms (max game_creation_ms) is compared against
-    matchup_notes.updated_at_ms (NULL = notes were never written for that
-    pair, always flagged). A pair is included when notes are missing, or when
-    it's been played more than `stale_window_ms` after the notes were last
-    touched (a game played, then notes promptly updated, doesn't count —
-    only a gap bigger than the window does).
+    Scoped to games you added to a block (block_games) — the matchups you're
+    actively practising — rather than every game ever played. Per (my_champion,
+    opp_champion) pair with at least one block game: last_played_ms (max
+    game_creation_ms) is compared against matchup_notes.updated_at_ms (NULL =
+    notes were never written for that pair, always flagged). A pair is included
+    when notes are missing, or when it's been played more than `stale_window_ms`
+    after the notes were last touched (a game played, then notes promptly
+    updated, doesn't count — only a gap bigger than the window does).
 
     Ranked never-reviewed pairs first, then by games_since_review (most
     game activity since the notes were last touched) descending, with
@@ -692,6 +693,7 @@ def review_queue(conn, puuid, limit=8, stale_window_ms=REVIEW_STALE_WINDOW_MS):
                SUM(CASE WHEN b.game_creation_ms > COALESCE(mn.updated_at_ms, 0)
                         THEN 1 ELSE 0 END) AS games_since_review
         FROM ({base}) b
+        JOIN block_games bg ON bg.match_id = b.match_id AND bg.puuid = b.my_puuid
         LEFT JOIN matchup_notes mn
             ON mn.my_champion = b.my_champion AND mn.opp_champion = b.opp_champion
         GROUP BY b.my_champion, b.opp_champion

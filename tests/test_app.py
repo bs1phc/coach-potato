@@ -75,10 +75,20 @@ def test_filters_endpoint(client):
     assert set(opts["champions"]) == {"Garen", "Kled"}
 
 
+def _put_all_games_in_block(conn):
+    # the review nudge is scoped to block games — drop every stored game into one
+    conn.execute("INSERT OR IGNORE INTO blocks (id, created_at_ms) VALUES (1, 0)")
+    conn.execute(
+        "INSERT OR IGNORE INTO block_games (block_id, match_id, puuid, added_at_ms) "
+        "SELECT 1, match_id, ?, 0 FROM participants WHERE puuid=?", (ME, ME))
+    conn.commit()
+
+
 def test_review_queue_endpoint_flags_never_reviewed_matchups(client):
     # the client fixture's two matchups (Garen/Darius x2, Kled/Teemo x1) have
     # no matchup_notes rows at all, so both should come back never-reviewed,
     # Garen/Darius ranked first (2 games since review vs 1)
+    conn = db.connect(app_module.get_db_path()); _put_all_games_in_block(conn); conn.close()
     rows = client.get(f"/api/stats/review-queue?puuid={ME}").json()
     assert [(r["my_champion"], r["opp_champion"]) for r in rows] == [
         ("Garen", "Darius"), ("Kled", "Teemo")]
@@ -88,6 +98,7 @@ def test_review_queue_endpoint_flags_never_reviewed_matchups(client):
 
 def test_review_queue_endpoint_excludes_freshly_reviewed_matchup(client):
     conn = db.connect(app_module.get_db_path())
+    _put_all_games_in_block(conn)
     db.set_matchup_note(conn, "Garen", "Darius", notes="reviewed just now")
     conn.close()
     rows = client.get(f"/api/stats/review-queue?puuid={ME}").json()
@@ -95,6 +106,7 @@ def test_review_queue_endpoint_excludes_freshly_reviewed_matchup(client):
 
 
 def test_review_queue_endpoint_respects_limit(client):
+    conn = db.connect(app_module.get_db_path()); _put_all_games_in_block(conn); conn.close()
     rows = client.get(f"/api/stats/review-queue?puuid={ME}&limit=1").json()
     assert len(rows) == 1
 
