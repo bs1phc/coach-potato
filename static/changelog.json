@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.49.0",
+      "date": "2026-07-27",
+      "items": [
+        "New Death map in the Trends view — an expandable schematic Rift showing where you died, plotted from the match timeline and filtered by the same Period/Champion/Role filters as the rest of Trends (which also gained its own Period and Role filters)",
+        "Ward positions aren't recorded by Riot's match-v5 API, so this is deaths-only for now — no ward heatmap",
+        "Deaths are picked up automatically on new crawls (piggybacking the existing timeline fetch); run ./crawl.sh --backfill-map-events to fill them in for already-stored games"
+      ]
+    },
+    {
       "version": "1.48.0",
       "date": "2026-07-24",
       "items": [

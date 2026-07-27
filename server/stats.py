@@ -431,13 +431,15 @@ _BUCKET_EXPRS = {
 }
 
 
-def trend_buckets(conn, puuids, bucket="month", champion=None, queues=None, side=None, roles=None):
+def trend_buckets(conn, puuids, bucket="month", from_ms=None, to_ms=None, champion=None,
+                  queues=None, side=None, roles=None):
     """Base stats + coaching metrics grouped per calendar bucket, oldest first.
-    Week buckets are labeled with their Monday's date."""
+    Week buckets are labeled with their Monday's date. from_ms/to_ms optionally
+    restrict to a period (default: full history, as before)."""
     if bucket not in _BUCKET_EXPRS:
         raise ValueError(f"bucket must be one of {sorted(_BUCKET_EXPRS)}")
-    base, params = _filtered_base(puuids, champion=champion, queues=queues,
-                                  require_opponent=False, side=side, roles=roles)
+    base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms, champion=champion,
+                                  queues=queues, require_opponent=False, side=side, roles=roles)
     rows = conn.execute(
         f"""SELECT {_BUCKET_EXPRS[bucket]} AS bucket,
             COUNT(pm_match_id) AS metrics_games,
@@ -552,6 +554,23 @@ def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues
         FROM ({base}) ORDER BY game_creation_ms DESC
     """
     return [_decode_game_runes(r) for r in conn.execute(sql, params)]
+
+
+def map_events(conn, puuids, from_ms=None, to_ms=None, champion=None, roles=None):
+    """Death-location map events (see player_map_events) for the tracked
+    puuids, filtered the same way as the other Trends-style queries (period/
+    champion/role via _filtered_base). Deaths-only for now — match-v5's
+    WARD_PLACED events don't carry a position (see CLAUDE.md), so there's no
+    ward counterpart to join in here yet."""
+    base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms,
+                                  champion=champion, require_opponent=False, roles=roles)
+    sql = f"""
+        SELECT pme.event_type, pme.x, pme.y, pme.timestamp_ms
+        FROM player_map_events pme
+        JOIN ({base}) b ON b.match_id = pme.match_id AND b.my_puuid = pme.puuid
+        ORDER BY pme.timestamp_ms
+    """
+    return [dict(r) for r in conn.execute(sql, params)]
 
 
 def filter_options(conn, puuid):
