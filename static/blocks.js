@@ -61,9 +61,9 @@ const BLOCK_GAME_SORT = {
   me: { type: "text", get: (g) => displayName(g.my_champion) },
   opponent: { type: "text", get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
   side: { type: "num", get: (g) => (g.weakside == null ? null : g.weakside) },
-  lane7: { type: "num", get: (g) => { const m = manualLaneOutcome(g); if (m) return LANE_TIERS[m.tier].rank;
+  lane7: { type: "num", get: (g) => { const m = manualLaneOutcome(g, 7); if (m) return LANE_TIERS[m.tier].rank;
                                        const o = laneOutcome(g, 7); return o ? o.value : null; } },
-  lane14: { type: "num", get: (g) => { const m = manualLaneOutcome(g); if (m) return LANE_TIERS[m.tier].rank;
+  lane14: { type: "num", get: (g) => { const m = manualLaneOutcome(g, 14); if (m) return LANE_TIERS[m.tier].rank;
                                         const o = laneOutcome(g, 14); return o ? o.value : null; } },
   cs_diff_7: { type: "num", get: (g) => g.cs_diff_7 },
   level_diff_7: { type: "num", get: (g) => g.level_diff_7 },
@@ -386,24 +386,28 @@ function weaksideControl(entryId, game) {
 const LANE_RESULT_LABELS = {
   stomped: "Stomped loss", lost: "Lost", even: "Even", won: "Won", stomp: "Stomp win",
 };
-function manualLaneOutcome(game) {
-  const r = game.lane_result;
+function manualLaneOutcome(game, mark) {
+  const r = game[`lane_result_${mark}`];
   if (!r || !LANE_TIERS[r]) return null;
   const label = LANE_RESULT_LABELS[r];
   return { tier: r, symbol: LANE_TIERS[r].symbol, cls: LANE_TIERS[r].cls, label,
-           tooltip: `${label} (manually set)` };
+           tooltip: `${label} @${mark}m (manually set)` };
 }
 function laneResultControl(entryId, game) {
-  const r = game.lane_result;
-  const opt = (v, label) =>
-    `<option value="${v}"${(r == null ? v === "" : r === v) ? " selected" : ""}>${label}</option>`;
+  const opt = (mark, v, label) => {
+    const r = game[`lane_result_${mark}`];
+    return `<option value="${v}"${(r == null ? v === "" : r === v) ? " selected" : ""}>${label}</option>`;
+  };
+  const select = (mark) => `<select class="game-lane-result" data-entry="${entryId}" data-mark="${mark}">
+      ${opt(mark, "", "Auto (graded)")}${opt(mark, "stomped", "Stomped loss")}${opt(mark, "lost", "Lost")}
+      ${opt(mark, "even", "Even")}${opt(mark, "won", "Won")}${opt(mark, "stomp", "Stomp win")}
+    </select>`;
   return `<div class="weakside-row">
-    <span class="filter-label">Lane result</span>
-    <select class="game-lane-result" data-entry="${entryId}">
-      ${opt("", "Auto (graded)")}${opt("stomped", "Stomped loss")}${opt("lost", "Lost")}
-      ${opt("even", "Even")}${opt("won", "Won")}${opt("stomp", "Stomp win")}
-    </select>
-    <span class="muted">Overrides the graded verdict (both lane columns) when the
+    <span class="filter-label">Lane result @7m</span>
+    ${select(7)}
+    <span class="filter-label">@14m</span>
+    ${select(14)}
+    <span class="muted">Overrides the graded verdict per mark when the
       numbers don't tell the whole story.</span>
   </div>`;
 }
@@ -445,7 +449,7 @@ async function toggleGameStats(entryId, matchId, puuid) {
 // shared laneOutcome() (app.js) — not Riot's opaque lane_adv flag. Shows ⏳
 // until the timeline is fetched, – when there's no lane opponent.
 function laneCell(game, mark) {
-  const o = manualLaneOutcome(game) || laneOutcome(game, mark);
+  const o = manualLaneOutcome(game, mark) || laneOutcome(game, mark);
   if (o) return `<td><span class="lane-pill ${o.cls}" title="${escapeHtml(o.tooltip)}">${o.symbol}</span></td>`;
   // no verdict: distinguish "timeline still fetching" from "no data / N/A"
   if (game.has_timeline !== 1) return `<td class="muted" title="Fetching deeper stats…">⏳</td>`;
@@ -796,15 +800,17 @@ function renderBlocks() {
   target.querySelectorAll(".game-lane-result").forEach((sel) => {
     sel.addEventListener("change", async (e) => {
       const entryId = +sel.dataset.entry;
-      const lane_result = e.target.value === "" ? null : e.target.value;
+      const mark = sel.dataset.mark;
+      const key = `lane_result_${mark}`;
+      const value = e.target.value === "" ? null : e.target.value;
       await fetch(`/api/blocks/games/${entryId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lane_result }),
+        body: JSON.stringify({ [key]: value }),
       });
       for (const block of blockState.blocks) {
         const game = block.games.find((g) => g.entry_id === entryId);
-        if (game) game.lane_result = lane_result;
+        if (game) game[key] = value;
       }
       renderBlocks();
     });

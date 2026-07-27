@@ -133,7 +133,8 @@ CREATE TABLE IF NOT EXISTS block_games (
     puuid TEXT NOT NULL,
     notes TEXT NOT NULL DEFAULT '',
     weakside INTEGER,
-    lane_result TEXT,
+    lane_result_7 TEXT,
+    lane_result_14 TEXT,
     added_at_ms INTEGER,
     UNIQUE (match_id, puuid)
 );
@@ -325,8 +326,10 @@ def _migrate(conn):
     bg_columns = {r["name"] for r in conn.execute("PRAGMA table_info(block_games)")}
     if bg_columns and "weakside" not in bg_columns:  # manual per-game side flag
         conn.execute("ALTER TABLE block_games ADD COLUMN weakside INTEGER")
-    if bg_columns and "lane_result" not in bg_columns:  # manual lane-verdict override
-        conn.execute("ALTER TABLE block_games ADD COLUMN lane_result TEXT")
+    if bg_columns and "lane_result_7" not in bg_columns:  # manual lane-verdict override, per mark
+        conn.execute("ALTER TABLE block_games ADD COLUMN lane_result_7 TEXT")
+    if bg_columns and "lane_result_14" not in bg_columns:
+        conn.execute("ALTER TABLE block_games ADD COLUMN lane_result_14 TEXT")
     part_columns = {r["name"] for r in conn.execute("PRAGMA table_info(participants)")}
     if part_columns:  # summoner spells + item build added later
         if "summoner1_id" not in part_columns:
@@ -1384,16 +1387,21 @@ def set_block_game_weakside(conn, entry_id, weakside):
 LANE_RESULT_VALUES = {"stomp", "won", "even", "lost", "stomped"}
 
 
-def set_block_game_lane_result(conn, entry_id, lane_result):
-    """Manual lane-verdict override: None (auto-graded from ΔCS/ΔGold/ΔLevel,
-    the default) or one of LANE_RESULT_VALUES. Lets the user overrule the
-    graded verdict with their own read of the lane when the numbers don't tell
-    the whole story."""
+def set_block_game_lane_result(conn, entry_id, mark, lane_result):
+    """Manual lane-verdict override for one mark (7 or 14 — the two lane
+    columns are graded independently, e.g. a game can be a proactive dive
+    that's "lost" at 7m but "won" by 14m): None (auto-graded from ΔCS/ΔGold/
+    ΔLevel, the default) or one of LANE_RESULT_VALUES. Lets the user overrule
+    the graded verdict with their own read of the lane when the numbers
+    don't tell the whole story."""
+    if mark not in (7, 14):
+        raise ValueError(f"invalid mark: {mark!r}")
     if lane_result is not None and lane_result not in LANE_RESULT_VALUES:
         raise ValueError(f"invalid lane_result: {lane_result!r}")
+    column = f"lane_result_{mark}"
     with conn:
         cursor = conn.execute(
-            "UPDATE block_games SET lane_result=? WHERE id=?", (lane_result, entry_id))
+            f"UPDATE block_games SET {column}=? WHERE id=?", (lane_result, entry_id))
     return cursor.rowcount > 0
 
 

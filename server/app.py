@@ -571,7 +571,8 @@ def api_export_all():
             """SELECT id, title, learnings, pool_snapshot, start_ranks, end_ranks,
                       closed_at_ms, created_at_ms FROM blocks ORDER BY id""")]
         block_games_rows = [dict(r) for r in conn.execute(
-            """SELECT id, block_id, match_id, puuid, notes, weakside, lane_result, added_at_ms
+            """SELECT id, block_id, match_id, puuid, notes, weakside,
+                      lane_result_7, lane_result_14, added_at_ms
                FROM block_games ORDER BY id""")]
         matchup_notes_rows = [dict(r) for r in conn.execute(
             """SELECT my_champion, opp_champion, notes, runes, patch_version,
@@ -768,10 +769,12 @@ async def api_import_all(file: UploadFile = File(...)):
             for row in payload.get("block_games") or []:
                 conn.execute(
                     """INSERT INTO block_games
-                       (id, block_id, match_id, puuid, notes, weakside, lane_result, added_at_ms)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                       (id, block_id, match_id, puuid, notes, weakside,
+                        lane_result_7, lane_result_14, added_at_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (row["id"], row["block_id"], row["match_id"], row["puuid"],
-                     row.get("notes", ""), row.get("weakside"), row.get("lane_result"),
+                     row.get("notes", ""), row.get("weakside"),
+                     row.get("lane_result_7"), row.get("lane_result_14"),
                      row.get("added_at_ms")))
             for row in payload.get("matchup_notes") or []:
                 skill_order = row.get("skill_order") or []
@@ -2219,16 +2222,19 @@ def api_update_block(block_id: int, body: dict):
 @app.patch("/api/blocks/games/{entry_id}")
 def api_update_block_game(entry_id: int, body: dict):
     """Partial update of a block game: `notes` (Markdown), `weakside`
-    (true/false/null — the manual side flag), and/or `lane_result`
-    (one of db.LANE_RESULT_VALUES, or null — the manual lane-verdict override)."""
+    (true/false/null — the manual side flag), and/or `lane_result_7`/
+    `lane_result_14` (each one of db.LANE_RESULT_VALUES, or null — the manual
+    lane-verdict override, graded independently per mark)."""
     body = body or {}
     has_notes = body.get("notes") is not None
     has_weakside = "weakside" in body
-    has_lane_result = "lane_result" in body
-    if not has_notes and not has_weakside and not has_lane_result:
-        raise HTTPException(400, "provide notes, weakside, and/or lane_result")
-    if has_lane_result and body["lane_result"] is not None and body["lane_result"] not in db.LANE_RESULT_VALUES:
-        raise HTTPException(400, "invalid lane_result")
+    lane_result_marks = [m for m in (7, 14) if f"lane_result_{m}" in body]
+    if not has_notes and not has_weakside and not lane_result_marks:
+        raise HTTPException(400, "provide notes, weakside, and/or lane_result_7/lane_result_14")
+    for m in lane_result_marks:
+        value = body[f"lane_result_{m}"]
+        if value is not None and value not in db.LANE_RESULT_VALUES:
+            raise HTTPException(400, f"invalid lane_result_{m}")
     conn = get_conn()
     try:
         ok = True
@@ -2236,8 +2242,8 @@ def api_update_block_game(entry_id: int, body: dict):
             ok = db.update_block_game(conn, entry_id, body["notes"])
         if has_weakside:
             ok = db.set_block_game_weakside(conn, entry_id, body["weakside"]) and ok
-        if has_lane_result:
-            ok = db.set_block_game_lane_result(conn, entry_id, body["lane_result"]) and ok
+        for m in lane_result_marks:
+            ok = db.set_block_game_lane_result(conn, entry_id, m, body[f"lane_result_{m}"]) and ok
         if not ok:
             raise HTTPException(404, "no such block game")
         return {"updated": True}

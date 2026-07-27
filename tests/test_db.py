@@ -546,19 +546,28 @@ def test_block_game_manual_lane_result(conn):
     ids = _seed_block_matches(conn, 1)
     db.add_game_to_block(conn, ids[0], "me")
     entry_id = conn.execute("SELECT id FROM block_games LIMIT 1").fetchone()["id"]
-    assert conn.execute("SELECT lane_result FROM block_games WHERE id=?",
-                        (entry_id,)).fetchone()["lane_result"] is None
+    assert conn.execute("SELECT lane_result_7, lane_result_14 FROM block_games WHERE id=?",
+                        (entry_id,)).fetchone()["lane_result_7"] is None
     for tier in db.LANE_RESULT_VALUES:
-        assert db.set_block_game_lane_result(conn, entry_id, tier) is True
-        assert conn.execute("SELECT lane_result FROM block_games WHERE id=?",
-                            (entry_id,)).fetchone()["lane_result"] == tier
-    # unset clears back to auto-graded
-    assert db.set_block_game_lane_result(conn, entry_id, None) is True
-    assert conn.execute("SELECT lane_result FROM block_games WHERE id=?",
-                        (entry_id,)).fetchone()["lane_result"] is None
+        assert db.set_block_game_lane_result(conn, entry_id, 7, tier) is True
+        assert conn.execute("SELECT lane_result_7 FROM block_games WHERE id=?",
+                            (entry_id,)).fetchone()["lane_result_7"] == tier
+    # the two marks are independent
+    db.set_block_game_lane_result(conn, entry_id, 7, "lost")
+    db.set_block_game_lane_result(conn, entry_id, 14, "won")
+    row = conn.execute("SELECT lane_result_7, lane_result_14 FROM block_games WHERE id=?",
+                       (entry_id,)).fetchone()
+    assert (row["lane_result_7"], row["lane_result_14"]) == ("lost", "won")
+    # unset clears back to auto-graded, independently per mark
+    assert db.set_block_game_lane_result(conn, entry_id, 7, None) is True
+    row = conn.execute("SELECT lane_result_7, lane_result_14 FROM block_games WHERE id=?",
+                       (entry_id,)).fetchone()
+    assert (row["lane_result_7"], row["lane_result_14"]) == (None, "won")
     with pytest.raises(ValueError):
-        db.set_block_game_lane_result(conn, entry_id, "sideways")
-    assert db.set_block_game_lane_result(conn, 999, "won") is False
+        db.set_block_game_lane_result(conn, entry_id, 7, "sideways")
+    with pytest.raises(ValueError):
+        db.set_block_game_lane_result(conn, entry_id, 10, "won")
+    assert db.set_block_game_lane_result(conn, 999, 7, "won") is False
 
 
 def test_crawl_watermark_round_trip(conn):
@@ -892,7 +901,8 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     db.set_reflection(c, ids[0], "me", tags=["bad TP"], note="keep this reflection")
     # drop a column added by a later version to mimic an older schema
     c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
-    c.execute("ALTER TABLE block_games DROP COLUMN lane_result")
+    c.execute("ALTER TABLE block_games DROP COLUMN lane_result_7")
+    c.execute("ALTER TABLE block_games DROP COLUMN lane_result_14")
     # ...and put champion_item_builds back in its pre-v1.39.0 shape: a
     # privileged unlabeled "core" list alongside labeled situational sections
     c.execute("ALTER TABLE champion_item_builds DROP COLUMN sections")
@@ -922,10 +932,12 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     assert db.get_reflection(c, ids[0], "me") == {
         "tags": ["bad TP"], "note": "keep this reflection"}
     assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None
-    # lane_result column re-added by the migration, usable immediately
-    assert c.execute("SELECT lane_result FROM block_games").fetchone()["lane_result"] is None
-    assert db.set_block_game_lane_result(c, entry, "lost")
-    assert c.execute("SELECT lane_result FROM block_games").fetchone()["lane_result"] == "lost"
+    # lane_result_7/14 columns re-added by the migration, usable immediately
+    row = c.execute("SELECT lane_result_7, lane_result_14 FROM block_games").fetchone()
+    assert (row["lane_result_7"], row["lane_result_14"]) == (None, None)
+    assert db.set_block_game_lane_result(c, entry, 14, "lost")
+    assert c.execute(
+        "SELECT lane_result_14 FROM block_games").fetchone()["lane_result_14"] == "lost"
     c.close()
 
 
