@@ -3,9 +3,9 @@ import json
 import time
 
 from . import db, rune_data
-from .metrics import (parse_build_order, parse_frame_series, parse_metrics,
-                      parse_skill_order, parse_starting_items, parse_timeline_deltas,
-                      parse_timeline_objectives)
+from .metrics import (parse_build_order, parse_death_events, parse_frame_series,
+                      parse_metrics, parse_skill_order, parse_starting_items,
+                      parse_timeline_deltas, parse_timeline_objectives)
 from .parsing import parse_match
 
 _NO_TIMELINE = object()  # _store_metrics sentinel: no timeline fetch was attempted
@@ -140,12 +140,14 @@ class Crawler:
     def _store_metrics(self, match_json, timeline=_NO_TIMELINE):
         """Store challenge/participant metrics for tracked players. When a
         timeline was fetched (crawl path — pass it even if the fetch returned
-        None), also fill the lane-delta + objective-participation columns and
-        mark has_timeline=1 so the backfill skips the match. The lane deltas
+        None), also fill the lane-delta + objective-participation columns,
+        the death-location map events, and mark has_timeline=1/
+        has_map_events=1 so the backfills skip the match. The lane deltas
         need a known lane opponent (None when there isn't one); the objective
         counts don't — they're whole-game team stats, filled whenever a
         timeline was attempted regardless of opponent. Omitting `timeline`
-        (backfill_metrics path) leaves the timeline columns untouched."""
+        (backfill_metrics path) leaves the timeline-derived columns/rows
+        untouched."""
         stored = self._stored_puuids()
         match_id = match_json["metadata"]["matchId"]
         attempted_timeline = timeline is not _NO_TIMELINE
@@ -168,6 +170,9 @@ class Crawler:
                     parse_starting_items(timeline, puuid),
                     parse_build_order(timeline, puuid, final_items),
                     parse_skill_order(timeline, puuid))
+                deaths = parse_death_events(timeline, puuid) or []
+                events = [{"event_type": "death", **d} for d in deaths]
+                db.replace_map_events(self.conn, match_id, puuid, events)
 
     def backfill_metrics(self, limit=None):
         """Re-fetch details for stored matches whose tracked participants
@@ -427,6 +432,37 @@ class Crawler:
             self._store_frame_series(row["match_id"], timeline)
             count += 1
             self.status_cb(f"frame-series backfill: {count}/{len(rows)} matches")
+        return count
+
+    def backfill_map_events(self, limit=None, block_games_only=False):
+        """Fetch the match timeline for tracked/comparison-participant metrics
+        rows that don't have death-location map events yet (has_map_events=0)
+        and store them. Mirrors backfill_lane_deltas exactly (same idle-column
+        marker idiom, same tolerant-of-missing-timeline behavior — a missing/
+        failed timeline still marks the row done with an empty event list so
+        it isn't retried forever). block_games_only restricts to games sitting
+        in a block. Returns matches fetched."""
+        block_filter = ("AND EXISTS (SELECT 1 FROM block_games bg "
+                        "WHERE bg.match_id = pm.match_id AND bg.puuid = pm.puuid)"
+                        if block_games_only else "")
+        rows = self.conn.execute(
+            f"""SELECT me.match_id, me.puuid
+               FROM participant_metrics pm
+               JOIN participants me ON me.match_id = pm.match_id AND me.puuid = pm.puuid
+               JOIN players pl ON pl.puuid = me.puuid
+                 AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
+               WHERE pm.has_map_events = 0 {block_filter}"""
+        ).fetchall()
+        count = 0
+        for row in rows:
+            if limit is not None and count >= limit:
+                break
+            timeline = self._safe_timeline(row["match_id"])
+            deaths = parse_death_events(timeline, row["puuid"]) or []
+            events = [{"event_type": "death", **d} for d in deaths]
+            db.replace_map_events(self.conn, row["match_id"], row["puuid"], events)
+            count += 1
+            self.status_cb(f"map-event backfill: {count}/{len(rows)} matches")
         return count
 
     def _stale_before(self):
