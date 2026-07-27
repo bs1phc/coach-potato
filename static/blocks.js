@@ -354,7 +354,8 @@ function gameMetricsPanel(entryId, game) {
     runesCompareCol(game.my_champion, game.runes, "you")}${
     game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""
   }</div>` : "";
-  return `${metrics}${runes}${clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
+  return `${metrics}${runes}${reflectionSection(game.match_id, game.puuid)}${
+    clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
 }
 
 async function toggleGameStats(entryId, matchId, puuid) {
@@ -371,6 +372,7 @@ async function toggleGameStats(entryId, matchId, puuid) {
       blockState.gameClipsCache.set(entryId,
         await getJSON(`/api/clips?owner_type=block_game&owner_id=${entryId}`));
     }
+    await ensureReflection(matchId, puuid);
   }
   renderBlocks();
 }
@@ -718,6 +720,11 @@ function renderBlocks() {
     blockState.gameClipsCache.delete(+ownerId);
     blockState.gameClipsCache.set(+ownerId,
       await getJSON(`/api/clips?owner_type=block_game&owner_id=${ownerId}`));
+    renderBlocks();
+  }, () => renderBlocks());
+  wireReflectionSection(target, async (matchId, puuid) => {
+    reflectionUi.cache.delete(reflectionKey(matchId, puuid));
+    await ensureReflection(matchId, puuid);
     renderBlocks();
   }, () => renderBlocks());
 }

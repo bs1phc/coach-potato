@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.49.0",
+      "date": "2026-07-27",
+      "items": [
+        "Per-game reflection tags — a quick post-match habit separate from matchup notes/block learnings/sessions: tag any individual game (\"bad TP\", \"int death\", \"tilted\", \"good vision\", \"objective miss\", \"won lane lost game\", or your own custom tags) plus an optional freeform Markdown note, from a small inline editor on Overview's Recent games rows and on block game panels"
+      ]
+    },
+    {
       "version": "1.48.0",
       "date": "2026-07-24",
       "items": [
