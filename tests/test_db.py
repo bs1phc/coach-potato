@@ -444,6 +444,25 @@ def test_block_update_and_game_notes_and_deletes(conn):
     assert conn.execute("SELECT COUNT(*) c FROM block_games").fetchone()["c"] == 0
 
 
+def test_block_game_manual_lane_result(conn):
+    ids = _seed_block_matches(conn, 1)
+    db.add_game_to_block(conn, ids[0], "me")
+    entry_id = conn.execute("SELECT id FROM block_games LIMIT 1").fetchone()["id"]
+    assert conn.execute("SELECT lane_result FROM block_games WHERE id=?",
+                        (entry_id,)).fetchone()["lane_result"] is None
+    for tier in db.LANE_RESULT_VALUES:
+        assert db.set_block_game_lane_result(conn, entry_id, tier) is True
+        assert conn.execute("SELECT lane_result FROM block_games WHERE id=?",
+                            (entry_id,)).fetchone()["lane_result"] == tier
+    # unset clears back to auto-graded
+    assert db.set_block_game_lane_result(conn, entry_id, None) is True
+    assert conn.execute("SELECT lane_result FROM block_games WHERE id=?",
+                        (entry_id,)).fetchone()["lane_result"] is None
+    with pytest.raises(ValueError):
+        db.set_block_game_lane_result(conn, entry_id, "sideways")
+    assert db.set_block_game_lane_result(conn, 999, "won") is False
+
+
 def test_crawl_watermark_round_trip(conn):
     assert db.get_crawl_watermark(conn, "pu1", 420) == (None, False)
     db.set_crawl_watermark(conn, "pu1", 420, newest_ms=123, complete=False)
@@ -742,6 +761,7 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     macro_id = db.create_macro_section(c, "Dragon souls", "take at 20 min")
     # drop a column added by a later version to mimic an older schema
     c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
+    c.execute("ALTER TABLE block_games DROP COLUMN lane_result")
     # ...and put champion_item_builds back in its pre-v1.39.0 shape: a
     # privileged unlabeled "core" list alongside labeled situational sections
     c.execute("ALTER TABLE champion_item_builds DROP COLUMN sections")
@@ -769,6 +789,10 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     assert db.get_research_entry(c, research_id)["notes"] == "keep this too"
     assert db.get_macro_section(c, macro_id)["notes"] == "take at 20 min"
     assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None
+    # lane_result column re-added by the migration, usable immediately
+    assert c.execute("SELECT lane_result FROM block_games").fetchone()["lane_result"] is None
+    assert db.set_block_game_lane_result(c, entry, "lost")
+    assert c.execute("SELECT lane_result FROM block_games").fetchone()["lane_result"] == "lost"
     c.close()
 
 

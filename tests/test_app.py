@@ -313,6 +313,15 @@ def test_block_patch_and_deletes(client):
     assert client.patch(f"/api/blocks/games/{entry_id}",
                         json={"notes": "kept tempo"}).status_code == 200
     assert client.patch("/api/blocks/games/999", json={"notes": "x"}).status_code == 404
+    # manual lane-result override
+    assert client.patch(f"/api/blocks/games/{entry_id}",
+                        json={"lane_result": "won"}).status_code == 200
+    assert client.get("/api/blocks").json()["blocks"][0]["games"][0]["lane_result"] == "won"
+    assert client.patch(f"/api/blocks/games/{entry_id}",
+                        json={"lane_result": "sideways"}).status_code == 400
+    assert client.patch(f"/api/blocks/games/{entry_id}",
+                        json={"lane_result": None}).status_code == 200
+    assert client.get("/api/blocks").json()["blocks"][0]["games"][0]["lane_result"] is None
     assert client.delete(f"/api/blocks/games/{entry_id}").status_code == 200
     assert client.delete(f"/api/blocks/games/{entry_id}").status_code == 404
     assert client.delete(f"/api/blocks/{block_id}").status_code == 200

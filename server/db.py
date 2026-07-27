@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS block_games (
     puuid TEXT NOT NULL,
     notes TEXT NOT NULL DEFAULT '',
     weakside INTEGER,
+    lane_result TEXT,
     added_at_ms INTEGER,
     UNIQUE (match_id, puuid)
 );
@@ -276,6 +277,8 @@ def _migrate(conn):
     bg_columns = {r["name"] for r in conn.execute("PRAGMA table_info(block_games)")}
     if bg_columns and "weakside" not in bg_columns:  # manual per-game side flag
         conn.execute("ALTER TABLE block_games ADD COLUMN weakside INTEGER")
+    if bg_columns and "lane_result" not in bg_columns:  # manual lane-verdict override
+        conn.execute("ALTER TABLE block_games ADD COLUMN lane_result TEXT")
     part_columns = {r["name"] for r in conn.execute("PRAGMA table_info(participants)")}
     if part_columns:  # summoner spells + item build added later
         if "summoner1_id" not in part_columns:
@@ -1236,6 +1239,22 @@ def set_block_game_weakside(conn, entry_id, weakside):
     with conn:
         cursor = conn.execute(
             "UPDATE block_games SET weakside=? WHERE id=?", (val, entry_id))
+    return cursor.rowcount > 0
+
+
+LANE_RESULT_VALUES = {"stomp", "won", "even", "lost", "stomped"}
+
+
+def set_block_game_lane_result(conn, entry_id, lane_result):
+    """Manual lane-verdict override: None (auto-graded from ΔCS/ΔGold/ΔLevel,
+    the default) or one of LANE_RESULT_VALUES. Lets the user overrule the
+    graded verdict with their own read of the lane when the numbers don't tell
+    the whole story."""
+    if lane_result is not None and lane_result not in LANE_RESULT_VALUES:
+        raise ValueError(f"invalid lane_result: {lane_result!r}")
+    with conn:
+        cursor = conn.execute(
+            "UPDATE block_games SET lane_result=? WHERE id=?", (lane_result, entry_id))
     return cursor.rowcount > 0
 
 

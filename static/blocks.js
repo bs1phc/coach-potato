@@ -61,8 +61,10 @@ const BLOCK_GAME_SORT = {
   me: { type: "text", get: (g) => displayName(g.my_champion) },
   opponent: { type: "text", get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
   side: { type: "num", get: (g) => (g.weakside == null ? null : g.weakside) },
-  lane7: { type: "num", get: (g) => { const o = laneOutcome(g, 7); return o ? o.value : null; } },
-  lane14: { type: "num", get: (g) => { const o = laneOutcome(g, 14); return o ? o.value : null; } },
+  lane7: { type: "num", get: (g) => { const m = manualLaneOutcome(g); if (m) return LANE_TIERS[m.tier].rank;
+                                       const o = laneOutcome(g, 7); return o ? o.value : null; } },
+  lane14: { type: "num", get: (g) => { const m = manualLaneOutcome(g); if (m) return LANE_TIERS[m.tier].rank;
+                                        const o = laneOutcome(g, 14); return o ? o.value : null; } },
   cs_diff_7: { type: "num", get: (g) => g.cs_diff_7 },
   level_diff_7: { type: "num", get: (g) => g.level_diff_7 },
   xp_diff_7: { type: "num", get: (g) => g.xp_diff_7 },
@@ -376,6 +378,35 @@ function weaksideControl(entryId, game) {
       records why a lane deficit was expected.</span>
   </div>`;
 }
+// Manual override for the graded lane verdict — same tier vocabulary/symbols/
+// colors as laneOutcome() (app.js), so a manually-set game reads identically
+// to a graded one. Lets the user overrule the numbers when they don't tell
+// the whole story (e.g. a scripted all-in, a disconnect, a jungle gank the
+// deltas can't see).
+const LANE_RESULT_LABELS = {
+  stomped: "Stomped loss", lost: "Lost", even: "Even", won: "Won", stomp: "Stomp win",
+};
+function manualLaneOutcome(game) {
+  const r = game.lane_result;
+  if (!r || !LANE_TIERS[r]) return null;
+  const label = LANE_RESULT_LABELS[r];
+  return { tier: r, symbol: LANE_TIERS[r].symbol, cls: LANE_TIERS[r].cls, label,
+           tooltip: `${label} (manually set)` };
+}
+function laneResultControl(entryId, game) {
+  const r = game.lane_result;
+  const opt = (v, label) =>
+    `<option value="${v}"${(r == null ? v === "" : r === v) ? " selected" : ""}>${label}</option>`;
+  return `<div class="weakside-row">
+    <span class="filter-label">Lane result</span>
+    <select class="game-lane-result" data-entry="${entryId}">
+      ${opt("", "Auto (graded)")}${opt("stomped", "Stomped loss")}${opt("lost", "Lost")}
+      ${opt("even", "Even")}${opt("won", "Won")}${opt("stomp", "Stomp win")}
+    </select>
+    <span class="muted">Overrides the graded verdict (both lane columns) when the
+      numbers don't tell the whole story.</span>
+  </div>`;
+}
 function gameMetricsPanel(entryId, game) {
   const data = blockState.gameMetricsCache.get(entryId);
   // expanded panel shows ALL stats (no column picker here — the picker is on
@@ -386,7 +417,7 @@ function gameMetricsPanel(entryId, game) {
     runesCompareCol(game.my_champion, game.runes, "you")}${
     game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""
   }</div>` : "";
-  return `${weaksideControl(entryId, game)}${metrics}${runes}${
+  return `${weaksideControl(entryId, game)}${laneResultControl(entryId, game)}${metrics}${runes}${
     clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
 }
 
@@ -412,7 +443,7 @@ async function toggleGameStats(entryId, matchId, puuid) {
 // shared laneOutcome() (app.js) — not Riot's opaque lane_adv flag. Shows ⏳
 // until the timeline is fetched, – when there's no lane opponent.
 function laneCell(game, mark) {
-  const o = laneOutcome(game, mark);
+  const o = manualLaneOutcome(game) || laneOutcome(game, mark);
   if (o) return `<td><span class="lane-pill ${o.cls}" title="${escapeHtml(o.tooltip)}">${o.symbol}</span></td>`;
   // no verdict: distinguish "timeline still fetching" from "no data / N/A"
   if (game.has_timeline !== 1) return `<td class="muted" title="Fetching deeper stats…">⏳</td>`;
@@ -756,6 +787,22 @@ function renderBlocks() {
       for (const block of blockState.blocks) {
         const game = block.games.find((g) => g.entry_id === entryId);
         if (game) game.weakside = weakside === null ? null : (weakside ? 1 : 0);
+      }
+      renderBlocks();
+    });
+  });
+  target.querySelectorAll(".game-lane-result").forEach((sel) => {
+    sel.addEventListener("change", async (e) => {
+      const entryId = +sel.dataset.entry;
+      const lane_result = e.target.value === "" ? null : e.target.value;
+      await fetch(`/api/blocks/games/${entryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lane_result }),
+      });
+      for (const block of blockState.blocks) {
+        const game = block.games.find((g) => g.entry_id === entryId);
+        if (game) game.lane_result = lane_result;
       }
       renderBlocks();
     });
