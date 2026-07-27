@@ -552,7 +552,7 @@ def api_export_all():
             """SELECT id, title, learnings, pool_snapshot, start_ranks, end_ranks,
                       closed_at_ms, created_at_ms FROM blocks ORDER BY id""")]
         block_games_rows = [dict(r) for r in conn.execute(
-            """SELECT id, block_id, match_id, puuid, notes, added_at_ms
+            """SELECT id, block_id, match_id, puuid, notes, weakside, added_at_ms
                FROM block_games ORDER BY id""")]
         matchup_notes_rows = [dict(r) for r in conn.execute(
             """SELECT my_champion, opp_champion, notes, runes, patch_version,
@@ -748,10 +748,11 @@ async def api_import_all(file: UploadFile = File(...)):
                      row.get("closed_at_ms"), row.get("created_at_ms")))
             for row in payload.get("block_games") or []:
                 conn.execute(
-                    """INSERT INTO block_games (id, block_id, match_id, puuid, notes, added_at_ms)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO block_games
+                       (id, block_id, match_id, puuid, notes, weakside, added_at_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (row["id"], row["block_id"], row["match_id"], row["puuid"],
-                     row.get("notes", ""), row.get("added_at_ms")))
+                     row.get("notes", ""), row.get("weakside"), row.get("added_at_ms")))
             for row in payload.get("matchup_notes") or []:
                 skill_order = row.get("skill_order") or []
                 lane_goal = row.get("lane_goal") or None
@@ -2051,11 +2052,21 @@ def api_update_block(block_id: int, body: dict):
 
 @app.patch("/api/blocks/games/{entry_id}")
 def api_update_block_game(entry_id: int, body: dict):
-    if body.get("notes") is None:
-        raise HTTPException(400, "provide notes")
+    """Partial update of a block game: `notes` (Markdown) and/or `weakside`
+    (true/false/null — the manual side flag)."""
+    body = body or {}
+    has_notes = body.get("notes") is not None
+    has_weakside = "weakside" in body
+    if not has_notes and not has_weakside:
+        raise HTTPException(400, "provide notes and/or weakside")
     conn = get_conn()
     try:
-        if not db.update_block_game(conn, entry_id, body["notes"]):
+        ok = True
+        if has_notes:
+            ok = db.update_block_game(conn, entry_id, body["notes"])
+        if has_weakside:
+            ok = db.set_block_game_weakside(conn, entry_id, body["weakside"]) and ok
+        if not ok:
             raise HTTPException(404, "no such block game")
         return {"updated": True}
     finally:

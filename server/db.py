@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS block_games (
     match_id TEXT NOT NULL,
     puuid TEXT NOT NULL,
     notes TEXT NOT NULL DEFAULT '',
+    weakside INTEGER,
     added_at_ms INTEGER,
     UNIQUE (match_id, puuid)
 );
@@ -270,6 +271,9 @@ def _migrate(conn):
             conn.execute("ALTER TABLE blocks ADD COLUMN closed_at_ms INTEGER")
         if "series_id" not in block_columns:  # block series added in v1.40.0
             conn.execute("ALTER TABLE blocks ADD COLUMN series_id INTEGER")
+    bg_columns = {r["name"] for r in conn.execute("PRAGMA table_info(block_games)")}
+    if bg_columns and "weakside" not in bg_columns:  # manual per-game side flag
+        conn.execute("ALTER TABLE block_games ADD COLUMN weakside INTEGER")
     part_columns = {r["name"] for r in conn.execute("PRAGMA table_info(participants)")}
     if part_columns:  # summoner spells + item build added later
         if "summoner1_id" not in part_columns:
@@ -1197,6 +1201,17 @@ def update_block_game(conn, entry_id, notes):
     with conn:
         cursor = conn.execute(
             "UPDATE block_games SET notes=? WHERE id=?", (notes, entry_id))
+    return cursor.rowcount > 0
+
+
+def set_block_game_weakside(conn, entry_id, weakside):
+    """Manual per-game side flag: None (unset), 0 (strongside), 1 (weakside).
+    Lets the user record that a game was played weakside so a lane 'behind' is
+    read in context rather than as a failure."""
+    val = None if weakside is None else (1 if weakside else 0)
+    with conn:
+        cursor = conn.execute(
+            "UPDATE block_games SET weakside=? WHERE id=?", (val, entry_id))
     return cursor.rowcount > 0
 
 

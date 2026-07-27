@@ -556,7 +556,7 @@ def single_game_metrics(conn, match_id, puuid):
 def block_games_detailed(conn):
     """Block-game entries hydrated from stored matches, oldest first."""
     rows = conn.execute(
-        """SELECT bg.id AS entry_id, bg.block_id, bg.notes, bg.match_id, bg.puuid,
+        """SELECT bg.id AS entry_id, bg.block_id, bg.notes, bg.weakside, bg.match_id, bg.puuid,
                   m.game_creation_ms, m.game_duration_s, m.queue_id,
                   me.champion_name AS my_champion, me.win,
                   me.kills, me.deaths, me.assists, me.cs,

@@ -402,6 +402,18 @@ tbody tr.games-row:hover td { background: var(--page); }
 .lane-method-sel select { padding: 3px 6px; }
 .guide-lane-goal-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .guide-lane-goal-row .muted { flex: 1; min-width: 200px; font-size: 12px; }
+.side-chip {
+  display: inline-block; font-size: 11px; font-weight: 600; border-radius: 4px;
+  padding: 1px 6px; letter-spacing: .02em;
+}
+.side-weak { color: var(--critical); background: color-mix(in srgb, var(--critical) 14%, transparent); }
+.side-strong { color: var(--good-text); background: color-mix(in srgb, var(--good-text) 14%, transparent); }
+.weakside-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--grid);
+}
+.weakside-row .muted { flex: 1; min-width: 220px; font-size: 12px; }
+.weakside-row select { padding: 3px 6px; }
 
 .metric-groups {
   display: grid;

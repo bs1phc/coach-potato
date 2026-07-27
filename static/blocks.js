@@ -32,6 +32,7 @@ const BLOCK_COLS = [
   { key: "account", label: "Account" },
   { key: "me", label: "Me" },
   { key: "opponent", label: "Opponent" },
+  { key: "side", label: "Side", off: true },
   { key: "lane7", label: "Lane (7m)", off: true },
   { key: "lane14", label: "Lane (14m)" },
   // lane deltas vs the opponent from the match timeline — off by default
@@ -49,7 +50,7 @@ const BLOCK_COLS = [
   { key: "notes", label: "Notes" },
   { key: "rank", label: "Rank (start → end)" },
 ];
-const GAME_COL_KEYS = ["date", "account", "me", "opponent", "lane7", "lane14",
+const GAME_COL_KEYS = ["date", "account", "me", "opponent", "side", "lane7", "lane14",
                        "cs_diff_7", "level_diff_7", "xp_diff_7", "gold_diff_7",
                        "cs_diff_14", "level_diff_14", "xp_diff_14", "gold_diff_14",
                        "result", "kda", "cs", "notes"];
@@ -59,6 +60,7 @@ const BLOCK_GAME_SORT = {
   account: { type: "text", get: (g) => g.account },
   me: { type: "text", get: (g) => displayName(g.my_champion) },
   opponent: { type: "text", get: (g) => (g.opp_champion ? displayName(g.opp_champion) : null) },
+  side: { type: "num", get: (g) => (g.weakside == null ? null : g.weakside) },
   lane7: { type: "num", get: (g) => { const o = laneOutcome(g, 7); return o ? o.value : null; } },
   lane14: { type: "num", get: (g) => { const o = laneOutcome(g, 14); return o ? o.value : null; } },
   cs_diff_7: { type: "num", get: (g) => g.cs_diff_7 },
@@ -365,6 +367,22 @@ async function loadBlocks() {
   await renderBlockPicker();
 }
 
+// Manual "which side did I play" flag for a block game. Weakside = the
+// sacrificial/scaling lane (less jungle attention), so a lane deficit was
+// expected — recording it keeps a "behind" verdict in context.
+function weaksideControl(entryId, game) {
+  const w = game.weakside;
+  const opt = (v, label) =>
+    `<option value="${v}"${(w == null ? v === "" : String(w) === v) ? " selected" : ""}>${label}</option>`;
+  return `<div class="weakside-row">
+    <span class="filter-label">Side played</span>
+    <select class="game-weakside" data-entry="${entryId}">
+      ${opt("", "— not set")}${opt("0", "Strongside")}${opt("1", "Weakside")}
+    </select>
+    <span class="muted">Weakside = the sacrificial / scaling lane with less jungle help —
+      records why a lane deficit was expected.</span>
+  </div>`;
+}
 function gameMetricsPanel(entryId, game) {
   const data = blockState.gameMetricsCache.get(entryId);
   // expanded panel shows ALL stats (no column picker here — the picker is on
@@ -375,7 +393,8 @@ function gameMetricsPanel(entryId, game) {
     runesCompareCol(game.my_champion, game.runes, "you")}${
     game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""
   }</div>` : "";
-  return `${metrics}${runes}${clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
+  return `${weaksideControl(entryId, game)}${metrics}${runes}${
+    clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
 }
 
 async function toggleGameStats(entryId, matchId, puuid) {
@@ -408,6 +427,13 @@ function laneCell(game, mark) {
   const exp = o.expected ? ` (matchup usually ${sign(o.expected)}${fmt(o.expected)})` : "";
   return `<td><span class="lane-pill ${o.cls}" `
     + `title="${o.label} @${mark}m · ${sign(o.value)}${fmt(o.value)} ${o.unit} vs opponent${exp}">${o.symbol}</span></td>`;
+}
+
+// manual weakside/strongside flag (set in the expanded per-game panel)
+function sideCell(g) {
+  if (g.weakside === 1) return `<td><span class="side-chip side-weak" title="Weakside — sacrificial/scaling lane">Weak</span></td>`;
+  if (g.weakside === 0) return `<td><span class="side-chip side-strong" title="Strongside — jungle-prioritised lane">Strong</span></td>`;
+  return `<td class="muted" title="Set in the game's stats panel">–</td>`;
 }
 
 // signed lane-delta cell. Until the game's timeline has been fetched
@@ -456,6 +482,7 @@ function blockGameRow(g) {
     account: `<td>${escapeHtml(g.account)}</td>`,
     me: `<td><span class="champ-cell">${champIcon(g.my_champion)}${displayName(g.my_champion)}</span></td>`,
     opponent: `<td><span class="champ-cell">${g.opp_champion ? champIcon(g.opp_champion) + "vs " + displayName(g.opp_champion) : "–"}</span></td>`,
+    side: sideCell(g),
     result: `<td><span class="result-pill ${g.win ? "win" : "loss"}">${g.win ? "W" : "L"}</span></td>`,
     kda: `<td>${g.kills}/${g.deaths}/${g.assists}</td>`,
     cs: `<td>${(g.cs * 60 / g.game_duration_s).toFixed(1)}</td>`,
@@ -723,6 +750,23 @@ function renderBlocks() {
       }
       cancelled = false;
       blockState.editingNotes = null;
+      renderBlocks();
+    });
+  });
+  target.querySelectorAll(".game-weakside").forEach((sel) => {
+    sel.addEventListener("change", async (e) => {
+      const entryId = +sel.dataset.entry;
+      const v = e.target.value;              // "" | "0" | "1"
+      const weakside = v === "" ? null : v === "1";
+      await fetch(`/api/blocks/games/${entryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weakside }),
+      });
+      for (const block of blockState.blocks) {
+        const game = block.games.find((g) => g.entry_id === entryId);
+        if (game) game.weakside = weakside === null ? null : (weakside ? 1 : 0);
+      }
       renderBlocks();
     });
   });
