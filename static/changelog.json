@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.49.0",
+      "date": "2026-07-27",
+      "items": [
+        "Overview now shows a 'Last coaching session: N days ago' nudge (or 'No coaching sessions yet') that turns a warm color once it's been 14+ days — click it to jump straight to Coaching Progress"
+      ]
+    },
+    {
       "version": "1.48.0",
       "date": "2026-07-24",
       "items": [

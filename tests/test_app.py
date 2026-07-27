@@ -398,6 +398,35 @@ def test_single_game_metrics_endpoint(client):
         "/api/stats/games/metrics?match_id=EUW1_nope&puuid=x").status_code == 404
 
 
+def test_settings_last_session_none_when_no_sessions(client):
+    data = client.get("/api/settings").json()
+    assert data["last_session_date"] is None
+    assert data["days_since_last_session"] is None
+
+
+def test_settings_last_session_today_is_zero_days(client):
+    import datetime as dt
+    today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+    client.post("/api/sessions", json={"date": today, "title": "review"})
+    data = client.get("/api/settings").json()
+    assert data["last_session_date"] == today
+    assert data["days_since_last_session"] == 0
+
+
+def test_settings_last_session_long_ago(client):
+    client.post("/api/sessions", json={"date": "2020-01-01", "title": "old"})
+    data = client.get("/api/settings").json()
+    assert data["last_session_date"] == "2020-01-01"
+    assert data["days_since_last_session"] > 365 * 5
+
+
+def test_settings_last_session_picks_most_recent(client):
+    client.post("/api/sessions", json={"date": "2020-01-01"})
+    client.post("/api/sessions", json={"date": "2021-06-15"})
+    data = client.get("/api/settings").json()
+    assert data["last_session_date"] == "2021-06-15"
+
+
 def test_settings_auto_crawl_round_trip_and_default(client):
     data = client.get("/api/settings").json()
     assert data["auto_crawl_hours"] == 3      # default: every few hours
