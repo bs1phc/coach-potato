@@ -352,3 +352,29 @@ def parse_timeline_objectives(timeline_json, me_puuid, me_team_id):
         out[f"enemy_{prefix}"] = counts[monster]["enemy"]
     out["objective_participation"] = participation
     return out
+
+
+def parse_frame_series(timeline_json):
+    """Full-game per-minute gold/CS/XP/level series for EVERY participant in
+    a match timeline (not just two marks like parse_timeline_deltas) — the
+    source for the full-game curve chart. Returns {puuid: [{"minute", "cs",
+    "xp", "gold", "level"}, ...]}, one entry per timeline frame, ordered as
+    the frames appear. Empty dict without a timeline. minute = round(frame
+    timestamp-ms / 60000)."""
+    if not timeline_json:
+        return {}
+    info = timeline_json.get("info") or {}
+    pid_to_puuid = {p.get("participantId"): p.get("puuid")
+                    for p in info.get("participants") or []}
+    out = {}
+    for frame in info.get("frames") or []:
+        minute = round((frame.get("timestamp") or 0) / 60_000)
+        for pid_str, pf in (frame.get("participantFrames") or {}).items():
+            puuid = pid_to_puuid.get(int(pid_str))
+            if not puuid:
+                continue
+            out.setdefault(puuid, []).append({
+                "minute": minute, "cs": _cs(pf), "xp": pf.get("xp"),
+                "gold": pf.get("totalGold"), "level": pf.get("level"),
+            })
+    return out

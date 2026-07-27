@@ -36,6 +36,9 @@ def main():
     parser.add_argument("--recompute-lane-deltas", action="store_true",
                         help="re-fetch timelines for games already processed but missing newer "
                              "lane metrics (e.g. ΔXP added later); no crawl")
+    parser.add_argument("--backfill-frame-series", action="store_true",
+                        help="only backfill the full-game gold/CS/XP/level curve "
+                             "(needs the match timeline), no crawl")
     parser.add_argument("--backfill-items", action="store_true",
                         help="only backfill summoner spells + items for stored matches, no crawl")
     args = parser.parse_args()
@@ -72,6 +75,11 @@ def main():
         if args.recompute_lane_deltas:
             print("Recomputing lane deltas (incl. ΔXP) for already-processed matches ...")
             n = crawler.backfill_lane_deltas(limit=args.limit, recompute=True)
+            print(f"  -> {n} matches re-fetched")
+            return
+        if args.backfill_frame_series:
+            print("Backfilling full-game gold/CS/XP/level curve (timeline) for stored matches ...")
+            n = crawler.backfill_frame_series(limit=args.limit)
             print(f"  -> {n} matches re-fetched")
             return
         if args.backfill_items:
