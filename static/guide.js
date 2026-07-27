@@ -1831,9 +1831,13 @@ function renderWinConditions() {
     </div>`).join("");
   $("#winconditions-box").innerHTML = `
     <div class="wc-head">
-      <h3>🎯 Win conditions — ${champIcon(my)}${displayName(my)}
-        <span class="muted">vs</span> ${champIcon(opp)}${displayName(opp)}</h3>
+      <h3>🎯 Win conditions</h3>
       <button type="button" class="preset icon-btn" id="wc-close" title="Close (Esc)" aria-label="Close">✕</button>
+    </div>
+    <div class="wc-matchup">
+      <div class="wc-champ">${champIcon(my)}<span>${displayName(my)}</span></div>
+      <span class="wc-vs">vs</span>
+      <div class="wc-champ">${champIcon(opp)}<span>${displayName(opp)}</span></div>
     </div>
     <p class="muted">Lane counts as <strong>won</strong> when a game beats these Δ-vs-opponent
       targets. Leave a cell blank to ignore it. Auto-graded in Blocks &amp; the comparison pop-out.</p>
