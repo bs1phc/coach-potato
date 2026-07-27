@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.49.0",
+      "date": "2026-07-27",
+      "items": [
+        "Full-game gold/CS curve chart — expand a game in the Overview's Recent games table with the new 'Curve' toggle to see your gold and CS per minute across the whole game, alongside the lane opponent's, as a small line chart",
+        "The chart is fed by the match timeline, captured for every new crawl; run ./crawl.sh --backfill-frame-series to fill it in for already-stored games"
+      ]
+    },
+    {
       "version": "1.48.0",
       "date": "2026-07-24",
       "items": [

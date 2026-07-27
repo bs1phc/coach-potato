@@ -1,5 +1,6 @@
-from server.metrics import (METRICS, metric_keys, parse_build_order, parse_metrics,
-                            parse_skill_order, parse_starting_items, parse_timeline_deltas)
+from server.metrics import (METRICS, metric_keys, parse_build_order, parse_frame_series,
+                            parse_metrics, parse_skill_order, parse_starting_items,
+                            parse_timeline_deltas)
 
 
 def sample_match(puuid="p1", challenges=True):
@@ -172,6 +173,37 @@ def test_parse_timeline_deltas_short_game_leaves_14m_none():
     assert d["cs_diff_7"] == 5
     assert d["cs_diff_14"] is None
     assert d["gold_diff_14"] is None
+
+
+def test_parse_frame_series_all_participants_per_minute():
+    tl = _timeline(frames=[
+        _frame(0, {1: (0, 0, 1, 500), 6: (0, 0, 1, 500)}),
+        _frame(420_000, {1: (55, 4, 6, 2600), 6: (40, 0, 5, 2100)}),
+        _frame(840_000, {1: (120, 8, 10, 5200), 6: (95, 0, 9, 4300)}),
+    ])
+    series = parse_frame_series(tl)
+    assert set(series) == {"me", "opp"}
+    me = series["me"]
+    assert [e["minute"] for e in me] == [0, 7, 14]
+    assert me[1] == {"minute": 7, "cs": 55 + 4, "xp": None, "gold": 2600, "level": 6}
+    assert series["opp"][2] == {"minute": 14, "cs": 95, "xp": None, "gold": 4300, "level": 9}
+
+
+def test_parse_frame_series_empty_without_timeline():
+    assert parse_frame_series(None) == {}
+    assert parse_frame_series({"info": {"participants": [], "frames": []}}) == {}
+
+
+def test_parse_frame_series_skips_unknown_participant_ids():
+    tl = {"info": {
+        "participants": [{"participantId": 1, "puuid": "me"}],
+        "frames": [{"timestamp": 60_000, "participantFrames": {
+            "1": {"minionsKilled": 10, "level": 2, "totalGold": 800},
+            "9": {"minionsKilled": 5, "level": 1, "totalGold": 400},  # no puuid mapping
+        }}],
+    }}
+    series = parse_frame_series(tl)
+    assert set(series) == {"me"}
 
 
 def test_parse_metrics_without_challenges_gives_nulls_for_challenge_fields():
