@@ -54,6 +54,27 @@ METRICS = [
             decimals=2, default_hidden=True, signed=True),
     _metric("gold_diff_14", "ΔGold (14m)", "Laning", "gold_diff_14", source="timeline",
             decimals=0, default_hidden=True, signed=True),
+    # --- Objective participation, from the SAME match timeline (source=
+    # "timeline"): whole-game team dragon/herald/baron counts (mine vs the
+    # enemy team's) plus how many of MY team's epic-monster kills I got a
+    # kill/assist credit on. Unlike the lane deltas above, these don't need a
+    # known lane opponent — they're team-wide, not a 1v1 comparison. Hidden by
+    # default; all None when there's no timeline. See
+    # metrics.parse_timeline_objectives / crawler. ---
+    _metric("team_dragons", "Team dragons", "Objectives", "team_dragons",
+            source="timeline", decimals=0, default_hidden=True),
+    _metric("enemy_dragons", "Enemy dragons", "Objectives", "enemy_dragons",
+            source="timeline", decimals=0, default_hidden=True, direction=-1),
+    _metric("team_heralds", "Team Rift Heralds", "Objectives", "team_heralds",
+            source="timeline", decimals=0, default_hidden=True),
+    _metric("enemy_heralds", "Enemy Rift Heralds", "Objectives", "enemy_heralds",
+            source="timeline", decimals=0, default_hidden=True, direction=-1),
+    _metric("team_barons", "Team Barons", "Objectives", "team_barons",
+            source="timeline", decimals=0, default_hidden=True),
+    _metric("enemy_barons", "Enemy Barons", "Objectives", "enemy_barons",
+            source="timeline", decimals=0, default_hidden=True, direction=-1),
+    _metric("objective_participation", "Objective participation", "Objectives",
+            "objective_participation", source="timeline", decimals=0, default_hidden=True),
     # --- Damage & fighting ---
     _metric("team_dmg_pct", "Share of team's damage", "Damage & fighting",
             "teamDamagePercentage", agg="pct01", suffix="%"),
@@ -88,7 +109,7 @@ METRICS = [
             direction=-1, suffix="%"),
 ]
 
-GROUPS = ["Laning", "Damage & fighting", "Objectives & map", "Vision & survival"]
+GROUPS = ["Laning", "Objectives", "Damage & fighting", "Objectives & map", "Vision & survival"]
 
 
 def metric_keys():
@@ -117,7 +138,15 @@ def parse_metrics(match_json, puuid):
 # FRAME_TOLERANCE_MS of the mark (games that ended earlier yield None)
 LANE_DELTA_MARKS = {7: 420_000, 14: 840_000}
 FRAME_TOLERANCE_MS = 90_000
+# all source="timeline" metric keys (both buckets below) — for reference/tests
 TIMELINE_KEYS = [m["key"] for m in METRICS if m["source"] == "timeline"]
+# the two timeline-sourced buckets are parsed by separate functions and kept
+# in separate key lists so one bucket's blank-on-missing-data default never
+# clobbers the other's — see parse_timeline_deltas / parse_timeline_objectives.
+LANE_DELTA_KEYS = ["cs_diff_7", "level_diff_7", "gold_diff_7",
+                   "cs_diff_14", "level_diff_14", "gold_diff_14"]
+OBJECTIVE_KEYS = ["team_dragons", "enemy_dragons", "team_heralds", "enemy_heralds",
+                  "team_barons", "enemy_barons", "objective_participation"]
 
 
 def _frame_near(frames, target_ms):
@@ -248,7 +277,7 @@ def parse_timeline_deltas(timeline_json, me_puuid, opp_puuid):
     """CS/level/gold advantage of me_puuid over opp_puuid at ~7 and ~14 min,
     read from the match-v5 timeline. Returns {timeline metric key: value},
     each None when the opponent is unknown or the frame is missing."""
-    blank = {k: None for k in TIMELINE_KEYS}
+    blank = {k: None for k in LANE_DELTA_KEYS}
     if not timeline_json or not opp_puuid:
         return blank
     info = timeline_json.get("info") or {}
@@ -270,4 +299,51 @@ def parse_timeline_deltas(timeline_json, me_puuid, opp_puuid):
         out[f"cs_diff_{minute}"] = _cs(mine) - _cs(theirs)
         out[f"level_diff_{minute}"] = (mine.get("level") or 0) - (theirs.get("level") or 0)
         out[f"gold_diff_{minute}"] = (mine.get("totalGold") or 0) - (theirs.get("totalGold") or 0)
+    return out
+
+
+# monster types we track, mapped to the (team, enemy) key prefix
+_OBJECTIVE_KEY_PREFIX = {
+    "DRAGON": "dragons", "RIFTHERALD": "heralds", "BARON_NASHOR": "barons",
+}
+
+
+def parse_timeline_objectives(timeline_json, me_puuid, me_team_id):
+    """Whole-game team objective counts (dragons/heralds/barons secured by my
+    team vs the enemy team) plus my own objective participation (kill or
+    assist credit on one of MY team's epic-monster kills), read from the
+    match-v5 timeline's ELITE_MONSTER_KILL events. Unlike parse_timeline_deltas,
+    this does NOT need a known lane opponent — objectives are team-wide, not a
+    1v1 lane comparison; only the player's own team matters. Returns
+    {objective metric key: value}, each None when the timeline or the
+    player's participant/team is unknown."""
+    blank = {k: None for k in OBJECTIVE_KEYS}
+    if not timeline_json or me_team_id is None:
+        return blank
+    info = timeline_json.get("info") or {}
+    pid_by_puuid = {p.get("puuid"): p.get("participantId")
+                    for p in info.get("participants") or []}
+    me_pid = pid_by_puuid.get(me_puuid)
+    frames = info.get("frames") or []
+    if me_pid is None or not frames:
+        return blank
+    counts = {name: {"team": 0, "enemy": 0} for name in _OBJECTIVE_KEY_PREFIX}
+    participation = 0
+    for frame in frames:
+        for ev in frame.get("events") or []:
+            if ev.get("type") != "ELITE_MONSTER_KILL":
+                continue
+            monster = ev.get("monsterType")
+            if monster not in _OBJECTIVE_KEY_PREFIX:
+                continue
+            is_mine = ev.get("killerTeamId") == me_team_id
+            counts[monster]["team" if is_mine else "enemy"] += 1
+            if is_mine and (ev.get("killerId") == me_pid
+                            or me_pid in (ev.get("assistingParticipantIds") or [])):
+                participation += 1
+    out = dict(blank)
+    for monster, prefix in _OBJECTIVE_KEY_PREFIX.items():
+        out[f"team_{prefix}"] = counts[monster]["team"]
+        out[f"enemy_{prefix}"] = counts[monster]["enemy"]
+    out["objective_participation"] = participation
     return out

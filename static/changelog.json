@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.49.0",
+      "date": "2026-07-27",
+      "items": [
+        "New objective-participation metrics, parsed from the same match timeline already fetched for the lane Δs: team/enemy dragon, Rift Herald and Baron counts for the game, plus your own objective participation (kill or assist credit on your team's epic-monster kills). Hidden by default like the lane Δs — enable them in the metric column picker on Matchups, Coaching progress or Trends, or see them in any expanded per-game/segment stats panel. Existing games backfill automatically the same way the lane Δs do (./crawl.sh --backfill-lane-deltas)"
+      ]
+    },
+    {
       "version": "1.48.0",
       "date": "2026-07-24",
       "items": [

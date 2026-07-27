@@ -42,19 +42,21 @@ def match_json(match_id, creation_ms, queue_id=420, tracked_pos="TOP",
     }
 
 
-def timeline_json(match_id, me_puuid=TRACKED_PUUID, opp_puuid="opp-1"):
+def timeline_json(match_id, me_puuid=TRACKED_PUUID, opp_puuid="opp-1", events=None):
     """Minimal match-v5 timeline: participantIds 1 (me) and 2 (opp), frames
-    at 0/7/14 min where `me` leads the opponent."""
-    def frame(ts, mine, theirs):
+    at 0/7/14 min where `me` leads the opponent. `events` (optional, e.g.
+    ELITE_MONSTER_KILL objective events) are attached to the 7-min frame."""
+    def frame(ts, mine, theirs, evs=None):
         return {"timestamp": ts, "participantFrames": {
             "1": dict(zip(("minionsKilled", "jungleMinionsKilled", "level", "totalGold"), mine)),
-            "2": dict(zip(("minionsKilled", "jungleMinionsKilled", "level", "totalGold"), theirs))}}
+            "2": dict(zip(("minionsKilled", "jungleMinionsKilled", "level", "totalGold"), theirs))},
+            "events": evs or []}
     return {"metadata": {"matchId": match_id}, "info": {
         "participants": [{"participantId": 1, "puuid": me_puuid},
                          {"participantId": 2, "puuid": opp_puuid}],
         "frames": [
             frame(0, (0, 0, 1, 500), (0, 0, 1, 500)),
-            frame(420_000, (50, 5, 6, 2600), (40, 0, 5, 2200)),
+            frame(420_000, (50, 5, 6, 2600), (40, 0, 5, 2200), events),
             frame(840_000, (110, 10, 10, 5300), (90, 0, 9, 4500)),
         ]}}
 
@@ -389,6 +391,79 @@ def test_backfill_lane_deltas_block_games_only(conn):
                         "AND puuid=?", (TRACKED_PUUID,)).fetchone()["has_timeline"] == 0
     # an unscoped run then handles the remaining (non-block) game
     assert crawler.backfill_lane_deltas() == 1
+
+
+DRAGON_EVENT = {"type": "ELITE_MONSTER_KILL", "timestamp": 420_000, "monsterType": "DRAGON",
+                "killerId": 1, "killerTeamId": 100, "assistingParticipantIds": []}
+
+
+def test_crawl_stores_objective_metrics_inline_from_timeline(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)  # opp_pos TOP shares the lane
+    client = FakeClient([match], timelines=[timeline_json("EUW1_1", events=[DRAGON_EVENT])])
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        """SELECT team_dragons, enemy_dragons, objective_participation
+           FROM participant_metrics WHERE match_id='EUW1_1' AND puuid=?""",
+        (TRACKED_PUUID,)).fetchone()
+    assert row["team_dragons"] == 1
+    assert row["enemy_dragons"] == 0
+    assert row["objective_participation"] == 1  # I'm killerId=1
+
+
+def test_crawl_stores_objective_metrics_without_known_lane_opponent(conn):
+    """Objective counts are whole-game team stats, not a 1v1 lane comparison
+    — they must fill in even when no lane opponent is known (unlike the
+    ΔCS/level/gold lane deltas, which stay None in that case)."""
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    tracked = next(p for p in match["info"]["participants"] if p["puuid"] == TRACKED_PUUID)
+    tracked["teamPosition"] = ""  # no lane opponent can be derived
+    client = FakeClient([match], timelines=[timeline_json("EUW1_1", events=[DRAGON_EVENT])])
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        """SELECT has_timeline, cs_diff_7, team_dragons, objective_participation
+           FROM participant_metrics WHERE match_id='EUW1_1' AND puuid=?""",
+        (TRACKED_PUUID,)).fetchone()
+    assert row["has_timeline"] == 1
+    assert row["cs_diff_7"] is None          # lane delta stays blank — no opponent
+    assert row["team_dragons"] == 1          # objective counts fill in regardless
+    assert row["objective_participation"] == 1
+
+
+def test_backfill_lane_deltas_also_fills_objective_columns(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)
+    client = FakeClient([m1])  # no timeline available during the initial crawl
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    conn.execute("UPDATE participant_metrics SET has_timeline=0, cs_diff_7=NULL, team_dragons=NULL")
+    conn.commit()
+    client.timelines = {"EUW1_1": timeline_json("EUW1_1", events=[DRAGON_EVENT])}
+    assert crawler.backfill_lane_deltas() == 1
+    row = conn.execute(
+        """SELECT cs_diff_7, team_dragons, objective_participation FROM participant_metrics
+           WHERE match_id='EUW1_1' AND puuid=?""", (TRACKED_PUUID,)).fetchone()
+    assert row["cs_diff_7"] == 15       # lane delta still computed — opponent known
+    assert row["team_dragons"] == 1
+    assert row["objective_participation"] == 1
+
+
+def test_backfill_lane_deltas_fills_objectives_without_lane_opponent(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    tracked = next(p for p in match["info"]["participants"] if p["puuid"] == TRACKED_PUUID)
+    tracked["teamPosition"] = ""  # stored with no lane opponent
+    client = FakeClient([match])  # no timeline at crawl time
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    conn.execute("UPDATE participant_metrics SET has_timeline=0")
+    conn.commit()
+    client.timelines = {"EUW1_1": timeline_json("EUW1_1", events=[
+        {**DRAGON_EVENT, "monsterType": "BARON_NASHOR"}])}
+    assert crawler.backfill_lane_deltas() == 1
+    row = conn.execute(
+        """SELECT cs_diff_7, team_barons, objective_participation FROM participant_metrics
+           WHERE match_id='EUW1_1' AND puuid=?""", (TRACKED_PUUID,)).fetchone()
+    assert row["cs_diff_7"] is None        # still no lane opponent -> stays blank
+    assert row["team_barons"] == 1         # objective backfill doesn't need one
+    assert row["objective_participation"] == 1
 
 
 def test_backfill_metrics_fetches_missing_only(conn):

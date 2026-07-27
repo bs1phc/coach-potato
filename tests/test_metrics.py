@@ -1,5 +1,6 @@
 from server.metrics import (METRICS, metric_keys, parse_build_order, parse_metrics,
-                            parse_skill_order, parse_starting_items, parse_timeline_deltas)
+                            parse_skill_order, parse_starting_items, parse_timeline_deltas,
+                            parse_timeline_objectives)
 
 
 def sample_match(puuid="p1", challenges=True):
@@ -37,7 +38,8 @@ def sample_match(puuid="p1", challenges=True):
 def test_registry_shape():
     assert len(METRICS) >= 20
     groups = {m["group"] for m in METRICS}
-    assert groups == {"Laning", "Damage & fighting", "Objectives & map", "Vision & survival"}
+    assert groups == {"Laning", "Objectives", "Damage & fighting",
+                      "Objectives & map", "Vision & survival"}
     for m in METRICS:
         assert m["agg"] in ("avg", "pct01", "per_min", "pct_time")
         assert m["direction"] in (1, -1, 0)
@@ -172,6 +174,54 @@ def test_parse_timeline_deltas_short_game_leaves_14m_none():
     assert d["cs_diff_7"] == 5
     assert d["cs_diff_14"] is None
     assert d["gold_diff_14"] is None
+
+
+def test_parse_timeline_objectives_counts_team_enemy_and_my_participation():
+    evs = [
+        # my team (100) takes a dragon, I get the killing blow
+        _ev("ELITE_MONSTER_KILL", 300_000, 1, monsterType="DRAGON",
+            killerId=1, killerTeamId=100, assistingParticipantIds=[]),
+        # enemy team (200) takes a dragon
+        _ev("ELITE_MONSTER_KILL", 600_000, 6, monsterType="DRAGON",
+            killerId=6, killerTeamId=200, assistingParticipantIds=[]),
+        # my team takes Herald — a teammate gets the kill, I only assist
+        _ev("ELITE_MONSTER_KILL", 900_000, 2, monsterType="RIFTHERALD",
+            killerId=2, killerTeamId=100, assistingParticipantIds=[1]),
+        # my team takes Baron, but I'm neither killer nor assister — no participation credit
+        _ev("ELITE_MONSTER_KILL", 1_500_000, 3, monsterType="BARON_NASHOR",
+            killerId=3, killerTeamId=100, assistingParticipantIds=[4]),
+        # an unrelated/newer monster type is ignored entirely
+        _ev("ELITE_MONSTER_KILL", 1_800_000, 1, monsterType="VOIDGRUB",
+            killerId=1, killerTeamId=100, assistingParticipantIds=[]),
+    ]
+    tl = _timeline_events(evs, me_pid=1)
+    out = parse_timeline_objectives(tl, "me", me_team_id=100)
+    assert out["team_dragons"] == 1
+    assert out["enemy_dragons"] == 1
+    assert out["team_heralds"] == 1
+    assert out["enemy_heralds"] == 0
+    assert out["team_barons"] == 1
+    assert out["enemy_barons"] == 0
+    # kill credit on the dragon + assist credit on the herald = 2; the Baron
+    # (killed/assisted by others) and the unrelated VOIDGRUB don't count
+    assert out["objective_participation"] == 2
+
+
+def test_parse_timeline_objectives_none_without_timeline_or_team():
+    tl = _timeline_events([])
+    assert all(v is None for v in parse_timeline_objectives(None, "me", 100).values())
+    assert all(v is None for v in parse_timeline_objectives(tl, "me", None).values())
+    assert all(v is None for v in parse_timeline_objectives(tl, "ghost", 100).values())
+
+
+def test_parse_timeline_objectives_does_not_need_a_lane_opponent():
+    # unlike parse_timeline_deltas, objective counts are team-wide, not scoped
+    # to a 1v1 lane opponent — only my own team_id is needed
+    evs = [_ev("ELITE_MONSTER_KILL", 300_000, 1, monsterType="DRAGON",
+               killerId=1, killerTeamId=100, assistingParticipantIds=[])]
+    out = parse_timeline_objectives(_timeline_events(evs, me_pid=1), "me", me_team_id=100)
+    assert out["team_dragons"] == 1
+    assert out["objective_participation"] == 1
 
 
 def test_parse_metrics_without_challenges_gives_nulls_for_challenge_fields():
