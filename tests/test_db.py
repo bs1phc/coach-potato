@@ -179,6 +179,17 @@ def test_delete_session(conn):
     assert db.delete_session(conn, session_id) is False
 
 
+def test_last_coaching_session_date_none_when_empty(conn):
+    assert db.last_coaching_session_date(conn) is None
+
+
+def test_last_coaching_session_date_picks_most_recent(conn):
+    db.add_session(conn, "2026-06-28")
+    db.add_session(conn, "2026-07-05")
+    db.add_session(conn, "2026-07-01")
+    assert db.last_coaching_session_date(conn) == "2026-07-05"
+
+
 def test_participant_metrics_round_trip(conn):
     from server.metrics import metric_keys
     values = {k: None for k in metric_keys()}

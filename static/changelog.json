@@ -4,7 +4,8 @@
       "version": "1.49.0",
       "date": "2026-07-27",
       "items": [
-        "Blocks: a manual 'Lane result' override in each game's stats panel (Stomped loss / Lost / Even / Won / Stomp win) — lets you overrule the graded verdict for a game the numbers don't tell the whole story about (a scripted all-in, a disconnect, a jungle gank the deltas can't see). Applies to both the 7m and 14m lane columns and the pill in the per-game panel; clear it to fall back to the auto-graded verdict"
+        "Blocks: a manual 'Lane result' override in each game's stats panel (Stomped loss / Lost / Even / Won / Stomp win) — lets you overrule the graded verdict for a game the numbers don't tell the whole story about (a scripted all-in, a disconnect, a jungle gank the deltas can't see). Applies to both the 7m and 14m lane columns and the pill in the per-game panel; clear it to fall back to the auto-graded verdict",
+        "Overview now shows a 'Last coaching session: N days ago' nudge (or 'No coaching sessions yet') that turns a warm color once it's been 14+ days — click it to jump straight to Coaching Progress"
       ]
     },
     {

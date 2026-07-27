@@ -173,6 +173,26 @@ select, input[type="date"], input[type="number"] {
 .tile .value { font-size: 26px; font-weight: 650; margin-top: 2px; }
 .tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 
+/* "time since last coaching session" nudge — click jumps to Coaching Progress */
+.coaching-nudge {
+  display: block;
+  margin-bottom: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--accent-wash);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.coaching-nudge:hover { border-color: var(--series-1); }
+.coaching-nudge.overdue {
+  border-color: var(--critical);
+  color: var(--critical);
+  font-weight: 600;
+}
+
 .section-head {
   display: flex;
   align-items: center;

@@ -155,7 +155,12 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   baseline + between + since-last segments, half-open at session-date UTC
   midnight. `_filtered_base` accepts a puuid list for multi-account queries.
   Frontend defaults the progress champion filter to Gwen; `#progress` hash
-  deep-links the view.
+  deep-links the view. `db.last_coaching_session_date()` (max `session_date`)
+  feeds `last_session_date`/`days_since_last_session` on `/api/settings`
+  (`_extra_settings` in app.py, computed against UTC today) — a small
+  "Last coaching session: N days ago" nudge badge on the Overview view
+  (`#coaching-nudge`, warm `--critical` styling past 14 days, click
+  deep-links to `#progress`), refreshed after adding/deleting a session.
 - Coaching metrics: `server/metrics.py` is the single-source registry
   (labels/groups/agg kinds/directions/`default_hidden`/`signed`) driving the
   `participant_metrics` DDL, payload parsing, SQL aggregation and frontend

@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -166,6 +166,10 @@ def _extra_settings(conn):
     stored = db.get_settings(conn)
     hours = stored.get("auto_crawl_hours")
     last = stored.get("last_crawl_ms")
+    last_session = db.last_coaching_session_date(conn)
+    days_since_session = (
+        (datetime.now(timezone.utc).date() - date.fromisoformat(last_session)).days
+        if last_session else None)
     return {
         "hidden_views": _hidden_views(conn),
         "auto_crawl_hours": int(hours) if hours is not None else DEFAULT_AUTO_CRAWL_HOURS,
@@ -183,6 +187,8 @@ def _extra_settings(conn):
         "runes_mode": stored.get("runes_mode") or "matchup",
         "main_role": stored.get("main_role") or "",         # team_position or ""
         "secondary_role": stored.get("secondary_role") or "",
+        "last_session_date": last_session,
+        "days_since_last_session": days_since_session,
     }
 
 

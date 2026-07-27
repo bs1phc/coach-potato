@@ -978,6 +978,12 @@ def delete_session(conn, session_id):
     return cursor.rowcount > 0
 
 
+def last_coaching_session_date(conn):
+    """ISO date (YYYY-MM-DD) of the most recent coaching session, or None."""
+    row = conn.execute("SELECT MAX(session_date) AS d FROM coaching_sessions").fetchone()
+    return row["d"] if row and row["d"] else None
+
+
 def get_settings(conn):
     return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings")}
 

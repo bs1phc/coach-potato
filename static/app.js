@@ -388,6 +388,29 @@ function renderSummary(s) {
       <div class="sub">solo queue</div></div>`;
 }
 
+// ---------- coaching-session nudge ----------
+
+const COACHING_NUDGE_OVERDUE_DAYS = 14; // warm color past this many days
+
+function renderCoachingNudge(settings) {
+  const el = $("#coaching-nudge");
+  if (!el) return;
+  const days = settings.days_since_last_session;
+  if (days === null || days === undefined) {
+    el.textContent = "No coaching sessions yet — click to add one";
+    el.classList.remove("overdue");
+  } else {
+    const ago = days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
+    el.textContent = `Last coaching session: ${ago}`;
+    el.classList.toggle("overdue", days >= COACHING_NUDGE_OVERDUE_DAYS);
+  }
+  el.classList.remove("hidden");
+}
+
+async function refreshCoachingNudge() {
+  renderCoachingNudge(await getJSON("/api/settings"));
+}
+
 // ---------- rank-over-time chart ----------
 
 // tier -> base absolute LP (mirror of stats._TIER_BASE); apex tiers collapse
@@ -1436,6 +1459,7 @@ function renderSessions(sessionRows) {
       if (!confirm("Delete this coaching session?")) return;
       await fetch(`/api/sessions/${btn.dataset.id}`, { method: "DELETE" });
       loadProgress();
+      refreshCoachingNudge();
     }));
   wireClipsSection(target, async (ownerType, ownerId) => {
     sessionUi.clips.delete(+ownerId);
@@ -2099,6 +2123,7 @@ function wireProgress() {
   $("#nav-research").addEventListener("click", () => setMainView("research"));
   $("#nav-macros").addEventListener("click", () => setMainView("macros"));
   $("#nav-settings").addEventListener("click", () => setMainView("settings"));
+  $("#coaching-nudge").addEventListener("click", () => setMainView("progress"));
   $("#progress-champion").addEventListener("change", (e) => {
     state.progressChampion = e.target.value; loadProgress();
   });
@@ -2125,6 +2150,7 @@ function wireProgress() {
     $("#session-date").value = "";
     $("#session-title").value = "";
     loadProgress();
+    refreshCoachingNudge();
   });
 }
 
@@ -2378,6 +2404,7 @@ async function init(firstLoad = true) {
     await loadProfiles(true); // profile focus can override the role default
     applyHiddenViews(settings.hidden_views);
     applyAppearance(settings);
+    renderCoachingNudge(settings);
     maybeStartupCrawl(settings);
     setInterval(autoCrawlTick, 10 * 60 * 1000);
   }
