@@ -104,6 +104,17 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   segment_metrics/trend_buckets/games_in_range; endpoints read `?side=` (in
   `stat_filters` for matchups/summary, explicit elsewhere). Frontend: a Side
   select in the Overview/Matchups/Trends/Progress filter rows.
+  `stats.review_queue(conn, puuid, limit=8)` powers the Overview's "🔔
+  Matchups to review" nudge: per (my_champion, opp_champion) pair actually
+  played, compares `last_played_ms` (max `game_creation_ms`, over the plain
+  `_filtered_base`) against that pair's `matchup_notes.updated_at_ms` (NULL
+  = never reviewed, always flagged); otherwise flagged when played more than
+  `REVIEW_STALE_WINDOW_MS` (14 days, a constant, not a setting) after the
+  notes were last touched. Ranked never-reviewed first, then by
+  `games_since_review` (games played after the notes' `updated_at_ms`, or
+  all games if none) descending. `GET /api/stats/review-queue` (`?limit=`);
+  frontend hides the panel entirely when the queue is empty, each row's
+  "Review in guide →" link calls the existing `openGuide()`.
 - `server/app.py` — FastAPI; per-request sqlite connections; crawl runs in a
   daemon thread with module-level `CRAWL_STATE`; db path override via
   `LOL_DB_PATH` env (used by tests). "Hide my rank / LP" setting

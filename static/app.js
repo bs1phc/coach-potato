@@ -1000,9 +1000,10 @@ let refreshSeq = 0;
 async function refresh() {
   const seq = ++refreshSeq;
   const qs = queryString();
-  const [summary, rankHistory] = await Promise.all([
+  const [summary, rankHistory, reviewQueue] = await Promise.all([
     getJSON(`/api/stats/summary?${qs}`),
     getJSON("/api/stats/rank-history"),
+    getJSON(`/api/stats/review-queue?${accountParams()}`),
   ]);
   if (seq !== refreshSeq) return; // superseded by a newer refresh
   state.rankHistory = rankHistory;
@@ -1010,6 +1011,35 @@ async function refresh() {
   renderChampionTable(summary.by_champion ?? []);
   renderRecent(summary.recent ?? []);
   renderRankChart();
+  renderReviewQueue(reviewQueue);
+}
+
+// ---------- "review before queue" nudge ----------
+
+function reviewQueueRow(row) {
+  const badge = row.notes_updated_ms == null
+    ? `<span class="block-badge">never reviewed</span>`
+    : `<span class="block-badge block-closed">${row.games_since_review} game${row.games_since_review === 1 ? "" : "s"} since review</span>`;
+  return `<div class="review-queue-row">
+    <span class="champ-cell">${champIcon(row.my_champion)}${displayName(row.my_champion)}
+      <span class="muted">vs</span> ${champIcon(row.opp_champion)}${displayName(row.opp_champion)}</span>
+    <span class="muted">last played ${fmtDate(row.last_played_ms)}</span>
+    ${badge}
+    <button class="link-btn review-queue-open" data-my="${escapeHtml(row.my_champion)}"
+      data-opp="${escapeHtml(row.opp_champion)}">Review in guide →</button>
+  </div>`;
+}
+
+function renderReviewQueue(rows) {
+  const section = $("#review-queue-section");
+  if (!rows.length) {
+    section.classList.add("hidden");
+    return;
+  }
+  section.classList.remove("hidden");
+  $("#review-queue-list").innerHTML = rows.map(reviewQueueRow).join("");
+  section.querySelectorAll(".review-queue-open").forEach((btn) =>
+    btn.addEventListener("click", () => openGuide(btn.dataset.my, btn.dataset.opp)));
 }
 
 // ---------- coaching progress ----------

@@ -1222,6 +1222,19 @@ td.rank-cell { font-size: 12px; line-height: 1.5; }
   padding: 22px;
   color: var(--muted);
 }
+
+/* ---------- review queue ("review before you queue" nudge) ---------- */
+.review-queue-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px dotted var(--grid);
+  font-size: 13px;
+}
+.review-queue-row:last-child { border-bottom: none; }
+.review-queue-row .review-queue-open { margin-left: auto; }
 footer {
   margin-top: 36px; padding: 12px 16px;
   background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;

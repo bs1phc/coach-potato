@@ -75,6 +75,30 @@ def test_filters_endpoint(client):
     assert set(opts["champions"]) == {"Garen", "Kled"}
 
 
+def test_review_queue_endpoint_flags_never_reviewed_matchups(client):
+    # the client fixture's two matchups (Garen/Darius x2, Kled/Teemo x1) have
+    # no matchup_notes rows at all, so both should come back never-reviewed,
+    # Garen/Darius ranked first (2 games since review vs 1)
+    rows = client.get(f"/api/stats/review-queue?puuid={ME}").json()
+    assert [(r["my_champion"], r["opp_champion"]) for r in rows] == [
+        ("Garen", "Darius"), ("Kled", "Teemo")]
+    assert rows[0]["notes_updated_ms"] is None
+    assert rows[0]["games_since_review"] == 2
+
+
+def test_review_queue_endpoint_excludes_freshly_reviewed_matchup(client):
+    conn = db.connect(app_module.get_db_path())
+    db.set_matchup_note(conn, "Garen", "Darius", notes="reviewed just now")
+    conn.close()
+    rows = client.get(f"/api/stats/review-queue?puuid={ME}").json()
+    assert [(r["my_champion"], r["opp_champion"]) for r in rows] == [("Kled", "Teemo")]
+
+
+def test_review_queue_endpoint_respects_limit(client):
+    rows = client.get(f"/api/stats/review-queue?puuid={ME}&limit=1").json()
+    assert len(rows) == 1
+
+
 def test_crawl_status_shape(client):
     status = client.get("/api/crawl/status").json()
     assert status["running"] is False
