@@ -1623,6 +1623,7 @@ async function refreshLegacySection() {
 async function loadComparisonPlayers() {
   const list = $("#comparison-players-list");
   if (!list) return;
+  await loadChampionRoster(); // champion grouping + the add/move champion inputs need it
   let data;
   try { data = await getJSON("/api/comparison-players"); }
   catch { list.innerHTML = ""; return; }
@@ -1641,25 +1642,54 @@ async function loadComparisonPlayers() {
   }
 }
 
+// resolve a typed champion (display name or id) to its DDragon id via the shared
+// roster (blocks.js); "" when blank, null when non-empty but unknown
+function champIdFromText(text) {
+  const t = (text || "").trim().toLowerCase();
+  if (!t) return "";
+  return roster.byLookup.get(t) || null;
+}
+
 function renderComparisonPlayers(players, fetching = {}) {
   const list = $("#comparison-players-list");
   if (!list) return;
-  const max = state.comparisonMax || 5;
+  const max = state.comparisonMax || 6;
   const busy = Boolean(fetching.running);
-  list.innerHTML = players.length
-    ? players.map((p) => `
+  const playerRow = (p) => `
       <div class="comparison-player" data-puuid="${p.puuid}">
         <label class="comparison-enable" title="Show this player in the guide comparison">
           <input type="checkbox" class="cmp-enable" ${p.enabled ? "checked" : ""}></label>
         <span class="comparison-name">${escapeHtml(p.game_name)}<span class="muted">#${escapeHtml(p.tag_line)}</span></span>
         <span class="muted comparison-games">${p.platform ? (PLATFORM_LABELS[p.platform] || p.platform.toUpperCase()) + " · " : ""}${p.games} game${p.games === 1 ? "" : "s"}${busy && fetching.puuid === p.puuid ? " · fetching…" : ""}</span>
+        <input class="chip-input cmp-champ" list="champ-list" style="max-width:9em"
+          value="${p.champion ? escapeHtml(displayName(p.champion)) : ""}"
+          placeholder="all champs" title="Which champion this player is for (blank = all)">
         <button class="preset cmp-more" type="button" ${busy ? "disabled" : ""}
           title="Fetch &amp; store more of this player's games (deeper history)">Fetch more</button>
         <button class="preset icon-btn cmp-remove" type="button" title="Remove">✕</button>
-      </div>`).join("")
-    : `<p class="muted">No comparison players yet — add up to ${max}.</p>`;
-  $("#comparison-add-input").disabled = busy || players.length >= max;
-  $("#comparison-add").disabled = busy || players.length >= max;
+      </div>`;
+  // group players by champion ('' = shown for all), named champions first
+  const groups = new Map();
+  for (const p of players) {
+    const key = p.champion || "";
+    (groups.get(key) || groups.set(key, []).get(key)).push(p);
+  }
+  const keys = [...groups.keys()].sort((a, b) =>
+    (a === "" ? 1 : b === "" ? -1 : displayName(a).localeCompare(displayName(b))));
+  list.innerHTML = keys.length
+    ? keys.map((key) => {
+        const head = key
+          ? `${champIcon(key)}${displayName(key)}`
+          : `Any champion <span class="muted">— shown for every matchup</span>`;
+        const ps = groups.get(key);
+        return `<div class="cmp-group">
+          <div class="cmp-group-head">${head} <span class="muted">(${ps.length}/${max})</span></div>
+          ${ps.map(playerRow).join("")}</div>`;
+      }).join("")
+    : `<p class="muted">No research players yet — add one below and pick which champion it's for
+        (blank = shown for every matchup).</p>`;
+  $("#comparison-add-input").disabled = busy;
+  $("#comparison-add").disabled = busy;
   list.querySelectorAll(".cmp-enable").forEach((cb) =>
     cb.addEventListener("change", () =>
       toggleComparisonPlayer(cb.closest(".comparison-player").dataset.puuid, cb.checked)));
@@ -1669,6 +1699,9 @@ function renderComparisonPlayers(players, fetching = {}) {
   list.querySelectorAll(".cmp-remove").forEach((btn) =>
     btn.addEventListener("click", () =>
       removeComparisonPlayer(btn.closest(".comparison-player").dataset.puuid)));
+  list.querySelectorAll(".cmp-champ").forEach((inp) =>
+    inp.addEventListener("change", () =>
+      moveComparisonPlayer(inp.closest(".comparison-player").dataset.puuid, inp.value)));
 }
 
 async function addComparisonPlayer() {
@@ -1676,19 +1709,38 @@ async function addComparisonPlayer() {
   const riotId = input.value.trim();
   if (!riotId) return;
   const status = $("#comparison-status");
+  const champText = $("#comparison-add-champion").value.trim();
+  const champion = champIdFromText(champText);
+  if (champion === null) { status.textContent = `unknown champion "${champText}"`; return; }
   status.textContent = `looking up ${riotId}…`;
   const res = await fetch("/api/comparison-players", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ riot_id: riotId, platform: $("#comparison-add-platform").value }),
+    body: JSON.stringify({ riot_id: riotId, platform: $("#comparison-add-platform").value, champion }),
   });
   const body = await res.json().catch(() => ({}));
   if (res.ok) {
     input.value = "";
+    $("#comparison-add-champion").value = "";
     status.textContent = `added ${body.game_name}#${body.tag_line} — fetching games in the background…`;
     loadComparisonPlayers(); // picks up the running fetch and polls it
   } else {
     status.textContent = body.detail || `error ${res.status}`;
   }
+}
+
+async function moveComparisonPlayer(puuid, champText) {
+  const status = $("#comparison-status");
+  const champion = champIdFromText(champText);
+  if (champion === null) { status.textContent = `unknown champion "${champText}"`; return; }
+  const res = await fetch(`/api/comparison-players/${encodeURIComponent(puuid)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ champion }),
+  });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    status.textContent = b.detail || `error ${res.status}`;
+  }
+  loadComparisonPlayers();
 }
 
 async function comparisonFetchMore(puuid, btn) {

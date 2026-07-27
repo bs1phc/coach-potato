@@ -1719,7 +1719,7 @@ def api_activate_profile(pid: int):
 def api_get_comparison_players():
     conn = get_conn()
     try:
-        players = db.list_comparison_players(conn, db.get_active_profile_id(conn))
+        players = db.list_comparison_players(conn)  # all — grouped by champion in the UI
         for p in players:
             p["enabled"] = bool(p["enabled"])
             p["games"] = _comparison_games(conn, p["puuid"])
@@ -1738,12 +1738,16 @@ def api_add_comparison_player(body: dict):
     name, _, tag = riot_id.partition("#")
     if not name.strip() or not tag.strip():
         raise HTTPException(400, "player must be Name#TAG")
+    champion = (body.get("champion") or "").strip()
+    if champion:
+        _validate_champion(champion)   # '' = shown for every champion
     conn = get_conn()
     try:
         settings = config.resolve_settings(conn)
         if not settings["configured"]:
             raise HTTPException(400, "not configured — set your API key in Settings")
-        existing = db.list_comparison_players(conn, db.get_active_profile_id(conn))
+        # the cap is per champion group
+        existing = [p for p in db.list_comparison_players(conn) if p["champion"] == champion]
     finally:
         conn.close()
     # a comparison player can be on a different server than your own accounts;
@@ -1759,8 +1763,8 @@ def api_add_comparison_player(body: dict):
     puuid = account["puuid"]
     if (puuid not in {p["puuid"] for p in existing}
             and len(existing) >= db.MAX_COMPARISON_PLAYERS):
-        raise HTTPException(409, f"at most {db.MAX_COMPARISON_PLAYERS} comparison players — "
-                                 "remove one first")
+        raise HTTPException(409, f"at most {db.MAX_COMPARISON_PLAYERS} research players per "
+                                 "champion — remove one first")
     game_name = account.get("gameName", name.strip())
     tag_line = account.get("tagLine", tag.strip())
     # Register as a comparison player FIRST: the crawler only stores per-match
@@ -1768,7 +1772,7 @@ def api_add_comparison_player(body: dict):
     conn = get_conn()
     try:
         db.add_comparison_player(conn, puuid, game_name, tag_line, platform=platform,
-                                 profile_id=db.get_active_profile_id(conn))
+                                 champion=champion)
     finally:
         conn.close()
     _start_comparison_crawl(puuid, game_name, tag_line, platform, settings["riot_api_key"])
@@ -1799,15 +1803,25 @@ def api_comparison_fetch_more(puuid: str):
 
 @app.patch("/api/comparison-players/{puuid}")
 def api_patch_comparison_player(puuid: str, body: dict):
-    enabled = body.get("enabled")
-    if not isinstance(enabled, bool):
+    body = body or {}
+    has_enabled = "enabled" in body
+    has_champion = "champion" in body
+    if has_enabled and not isinstance(body["enabled"], bool):
         raise HTTPException(400, "enabled must be a boolean")
+    champion = (body.get("champion") or "").strip()
+    if has_champion and champion:
+        _validate_champion(champion)
+    if not has_enabled and not has_champion:
+        raise HTTPException(400, "provide enabled and/or champion")
     conn = get_conn()
     try:
-        db.set_comparison_enabled(conn, puuid, enabled)
+        if has_enabled:
+            db.set_comparison_enabled(conn, puuid, body["enabled"])
+        if has_champion:
+            db.set_comparison_champion(conn, puuid, champion)
     finally:
         conn.close()
-    return {"puuid": puuid, "enabled": enabled}
+    return {"puuid": puuid, "updated": True}
 
 
 @app.delete("/api/comparison-players/{puuid}")
@@ -1850,7 +1864,8 @@ def api_matchup_comparison(my_champion: str, opp_champion: str):
         if db.get_settings(conn).get("enable_player_comparison") != "1":
             return {"players": []}
         out = []
-        for p in db.list_comparison_players(conn, db.get_active_profile_id(conn)):
+        # players scoped to THIS champion (+ any '' shown-for-all players)
+        for p in db.list_comparison_players(conn, my_champion):
             if not p["enabled"]:
                 continue
             data = stats.comparison_for_matchup(conn, p["puuid"], my_champion, opp_champion)

@@ -1335,6 +1335,14 @@ footer {
 .comparison-name .muted { font-weight: 400; }
 .comparison-games { margin-left: auto; }
 .comparison-player .cmp-more { font-size: 12px; padding: 2px 8px; }
+.comparison-player .cmp-champ { font-size: 12px; padding: 3px 6px; }
+.cmp-group { margin-bottom: 12px; }
+.cmp-group-head {
+  display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px;
+  padding: 4px 0; border-bottom: 1px solid var(--grid); margin-bottom: 2px;
+}
+.cmp-group-head img { width: 20px; height: 20px; border-radius: 50%; }
+.cmp-group-head .muted { font-weight: 400; }
 
 /* ---- rune analysis (Matchup guide) ---- */
 .rune-analysis { margin-top: 8px; }

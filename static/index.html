@@ -233,9 +233,9 @@
       </div>
       <div id="comparison-card" class="hidden">
         <div class="settings-subhead">Profiles</div>
-        <p class="muted">A <strong>profile</strong> is a saved setup you switch between from the
-          <strong>top-bar dropdown</strong> — each with its own role/champion focus and its own
-          research players. e.g. one profile for "Fiora / Top" and another for "Mid + Bot".</p>
+        <p class="muted">A <strong>profile</strong> is a saved role/champion focus you switch between
+          from the <strong>top-bar dropdown</strong> — e.g. one for "Fiora / Top" and another for
+          "Mid + Bot". Research players are scoped to a champion (below), not to a profile.</p>
         <div id="profiles-list"></div>
         <div class="key-row" style="margin-top:8px">
           <input class="chip-input" id="profile-new-name" placeholder="New profile name…"
@@ -243,16 +243,19 @@
           <button id="profile-new" class="preset" type="button">Create profile</button>
         </div>
         <div class="settings-subhead" style="margin-top:16px">Research players
-          <span class="muted">— belong to the active profile</span></div>
+          <span class="muted">— grouped by the champion they're for</span></div>
         <div id="comparison-players-list"></div>
-        <div class="key-row" style="margin-top:6px">
+        <div class="key-row" style="margin-top:6px; flex-wrap:wrap">
           <input class="chip-input" id="comparison-add-input" placeholder="Name#TAG…"
-            spellcheck="false" autocomplete="off" style="max-width:200px">
+            spellcheck="false" autocomplete="off" style="max-width:170px">
+          <input class="chip-input" id="comparison-add-champion" list="champ-list"
+            placeholder="for champion (blank = all)" spellcheck="false" autocomplete="off" style="max-width:180px">
           <select id="comparison-add-platform" title="Server the player is on" style="max-width:9em"></select>
           <button id="comparison-add" class="preset" type="button">Add player</button>
         </div>
-        <p class="muted" style="margin-top:2px">Pick the player's server — they can be on a
-          different region than your own accounts.</p>
+        <p class="muted" style="margin-top:2px">Pick which champion this player mains (blank = shown
+          for every matchup) and their server — they can be on a different region than your accounts.
+          The Matchup guide auto-loads the players for your selected "My champion".</p>
         <p id="comparison-status" class="muted"></p>
       </div>
     </div>

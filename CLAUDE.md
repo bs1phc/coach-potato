@@ -385,11 +385,20 @@ editing, `guideState.draft` holds the champion-level pages (no matchup edit is
 active at once), rendered by `generalRunesSection()` at the top of
 `#guide-list`. `runes_mode` is a settings key (`matchup` default | `general`),
 surfaced on `state.runesMode`.
-`comparison_players(puuid PK, game_name, tag_line, enabled, lookback_days,
-sort, added_at_ms)` — up to 2 (`db.MAX_COMPARISON_PLAYERS`) "research" players
+`comparison_players(puuid PK, game_name, tag_line, platform, enabled,
+lookback_days, sort, added_at_ms, profile_id, champion)` — "research" players
 to compare yourself against in the Matchup guide, in their OWN table (separate
 from tracked `players`) so each can be enabled/disabled independently. Gated by
-the `enable_player_comparison` setting. Their match data lands in
+the `enable_player_comparison` setting. **Scoped by `champion`** (`''` = shown
+for every matchup), NOT by profile: `db.MAX_COMPARISON_PLAYERS`=6 PER champion
+group; `list_comparison_players(conn, champion)` returns that champion's players
++ the `''` ones (what `/api/matchups/comparison` loads for the viewed
+`my_champion`), `list_comparison_players(conn)` returns all (Settings groups
+them by champion). `add_comparison_player(..., champion='')`,
+`set_comparison_champion` (PATCH `champion` moves a player). `profile_id` is a
+legacy column (profiles no longer own players — `delete_profile` keeps them);
+the `champion` migration back-filled each player from their profile's champion.
+Profiles now just hold a switchable role/champion **focus**. Their match data lands in
 `matches`/`participants` like anyone else; the crawler stores their
 per-match metrics + runes because `Crawler._stored_puuids()` = tracked ∪
 comparison (broadened from `is_tracked=1`; the three backfill queries too), but

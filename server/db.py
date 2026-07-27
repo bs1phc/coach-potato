@@ -198,7 +198,9 @@ CREATE TABLE IF NOT EXISTS comparison_players (
     lookback_days INTEGER NOT NULL DEFAULT 60,
     sort INTEGER NOT NULL DEFAULT 0,
     added_at_ms INTEGER,
-    profile_id INTEGER
+    profile_id INTEGER,
+    champion TEXT NOT NULL DEFAULT ''   -- which champion this research player is
+                                        -- scoped to ('' = shown for every champion)
 );
 
 -- A "profile" is a switchable workspace: a role/champion focus + its own set of
@@ -293,6 +295,16 @@ def _migrate(conn):
         conn.execute("ALTER TABLE comparison_players ADD COLUMN platform TEXT NOT NULL DEFAULT ''")
     if cp_columns and "profile_id" not in cp_columns:  # profiles added later
         conn.execute("ALTER TABLE comparison_players ADD COLUMN profile_id INTEGER")
+    if cp_columns and "champion" not in cp_columns:
+        # research players are now scoped to a champion (not a profile). Seed each
+        # player's champion from their profile's champion focus, preserving the
+        # "these players are for <champion>" intent; blank = shown for all.
+        conn.execute("ALTER TABLE comparison_players ADD COLUMN champion TEXT NOT NULL DEFAULT ''")
+        conn.execute("""
+            UPDATE comparison_players
+               SET champion = COALESCE(
+                   (SELECT p.champion FROM profiles p WHERE p.id = comparison_players.profile_id), '')
+             WHERE champion = ''""")
     matchup_notes_columns = {r["name"] for r in conn.execute("PRAGMA table_info(matchup_notes)")}
     if matchup_notes_columns and "my_champion" not in matchup_notes_columns:
         # Pre-v1.14.0 shapes had opp_champion as the sole PK (no per-champion
@@ -448,15 +460,17 @@ MAX_COMPARISON_PLAYERS = 6  # 3 + 3 in the comparison window's 3-per-row grid
 COMPARISON_LOOKBACK_DAYS = 60  # default fetch window; "Fetch more" extends by this
 
 
-def list_comparison_players(conn, profile_id=None):
-    """Research players, scoped to one profile when profile_id is given."""
+def list_comparison_players(conn, champion=None):
+    """Research players. With no champion: all (Settings groups them by champion).
+    With a champion: that champion's players PLUS any '' (shown-for-all) players —
+    what the Matchup guide's comparison loads for the champion you're viewing."""
     sql = ("SELECT puuid, game_name, tag_line, platform, enabled, lookback_days, sort, "
-           "added_at_ms, profile_id FROM comparison_players")
+           "added_at_ms, profile_id, champion FROM comparison_players")
     params = ()
-    if profile_id is not None:
-        sql += " WHERE profile_id=?"
-        params = (profile_id,)
-    sql += " ORDER BY sort, added_at_ms"
+    if champion is not None:
+        sql += " WHERE champion=? OR champion=''"
+        params = (champion,)
+    sql += " ORDER BY champion, sort, added_at_ms"
     return [dict(r) for r in conn.execute(sql, params)]
 
 
@@ -469,26 +483,35 @@ def comparison_puuids(conn, enabled_only=False):
     return [r["puuid"] for r in conn.execute(sql)]
 
 
-def add_comparison_player(conn, puuid, game_name, tag_line, platform="", profile_id=None):
-    """Insert a comparison player into a profile (enabled by default). Returns
-    False without inserting if that profile's max is already reached (unless this
-    puuid is already in it — then it's a no-op refresh of the display name)."""
-    in_profile = {r["puuid"] for r in conn.execute(
-        "SELECT puuid FROM comparison_players WHERE profile_id IS ?", (profile_id,))}
-    if puuid not in in_profile and len(in_profile) >= MAX_COMPARISON_PLAYERS:
+def add_comparison_player(conn, puuid, game_name, tag_line, platform="", champion=""):
+    """Add a research player scoped to `champion` ('' = shown for all champions),
+    enabled by default. Returns False without inserting if that champion group is
+    already at MAX_COMPARISON_PLAYERS (unless this puuid is already in it — then
+    it's a no-op refresh of the display name / champion)."""
+    in_group = {r["puuid"] for r in conn.execute(
+        "SELECT puuid FROM comparison_players WHERE champion=?", (champion,))}
+    if puuid not in in_group and len(in_group) >= MAX_COMPARISON_PLAYERS:
         return False
     nxt = conn.execute(
         "SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM comparison_players").fetchone()["n"]
     with conn:
         conn.execute(
             f"""INSERT INTO comparison_players
-                  (puuid, game_name, tag_line, platform, lookback_days, sort, added_at_ms, profile_id)
+                  (puuid, game_name, tag_line, platform, lookback_days, sort, added_at_ms, champion)
                 VALUES (?, ?, ?, ?, ?, ?, {_now_expr()}, ?)
                 ON CONFLICT(puuid) DO UPDATE SET
                   game_name=excluded.game_name, tag_line=excluded.tag_line,
-                  platform=excluded.platform, profile_id=excluded.profile_id""",
-            (puuid, game_name, tag_line, platform, COMPARISON_LOOKBACK_DAYS, nxt, profile_id))
+                  platform=excluded.platform, champion=excluded.champion""",
+            (puuid, game_name, tag_line, platform, COMPARISON_LOOKBACK_DAYS, nxt, champion))
     return True
+
+
+def set_comparison_champion(conn, puuid, champion):
+    """Move a research player to a different champion group ('' = all)."""
+    with conn:
+        cur = conn.execute("UPDATE comparison_players SET champion=? WHERE puuid=?",
+                           (champion or "", puuid))
+    return cur.rowcount > 0
 
 
 # ---------- profiles: switchable role/champion + research-player workspaces ----
@@ -524,8 +547,9 @@ def update_profile(conn, pid, name=None, role=None, champion=None):
 
 
 def delete_profile(conn, pid):
-    with conn:  # its research players go with it
-        conn.execute("DELETE FROM comparison_players WHERE profile_id=?", (pid,))
+    # research players are scoped to a champion now, not a profile, so they are
+    # NOT deleted with the profile (only the role/champion-focus workspace goes)
+    with conn:
         conn.execute("DELETE FROM profiles WHERE id=?", (pid,))
 
 
