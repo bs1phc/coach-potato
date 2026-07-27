@@ -115,21 +115,14 @@ async function initBlocks() {
     });
     renderColPicker($("#blocks-cols"), "cp-cols-blocks-v3", BLOCK_COLS, blockCols,
       () => renderBlocks());
-    const laneSel = $("#blocks-lane-method");
-    laneSel.innerHTML = LANE_METHODS
-      .map((m) => `<option value="${m.key}">${m.label}</option>`).join("");
-    laneSel.value = laneWinMethod();
-    laneSel.title = laneLegendText();
-    laneSel.addEventListener("change", (e) => {
-      setLaneWinMethod(e.target.value);
-      e.target.title = laneLegendText();
-      renderBlocks();
-    });
+    // the lane-win metric (Gold+XP by default) is no longer a Blocks control —
+    // per-metric granularity now lives in each matchup's 🎯 Win conditions.
     const gradeSel = $("#blocks-lane-grade");
     gradeSel.value = laneGradeMode();
+    gradeSel.title = laneLegendText();
     gradeSel.addEventListener("change", (e) => {
       setLaneGradeMode(e.target.value);
-      laneSel.title = laneLegendText();
+      e.target.title = laneLegendText();
       renderBlocks();
     });
     await loadChampionRoster();
