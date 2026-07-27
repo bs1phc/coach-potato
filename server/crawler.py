@@ -4,7 +4,8 @@ import time
 
 from . import db, rune_data
 from .metrics import (parse_build_order, parse_metrics, parse_skill_order,
-                      parse_starting_items, parse_timeline_deltas)
+                      parse_starting_items, parse_timeline_deltas,
+                      parse_timeline_objectives)
 from .parsing import parse_match
 
 _NO_TIMELINE = object()  # _store_metrics sentinel: no timeline fetch was attempted
@@ -134,9 +135,12 @@ class Crawler:
     def _store_metrics(self, match_json, timeline=_NO_TIMELINE):
         """Store challenge/participant metrics for tracked players. When a
         timeline was fetched (crawl path — pass it even if the fetch returned
-        None), also fill the lane-delta columns and mark has_timeline=1 so the
-        backfill skips the match. Omitting `timeline` (backfill_metrics path)
-        leaves the timeline columns untouched."""
+        None), also fill the lane-delta + objective-participation columns and
+        mark has_timeline=1 so the backfill skips the match. The lane deltas
+        need a known lane opponent (None when there isn't one); the objective
+        counts don't — they're whole-game team stats, filled whenever a
+        timeline was attempted regardless of opponent. Omitting `timeline`
+        (backfill_metrics path) leaves the timeline columns untouched."""
         stored = self._stored_puuids()
         match_id = match_json["metadata"]["matchId"]
         attempted_timeline = timeline is not _NO_TIMELINE
@@ -148,6 +152,8 @@ class Crawler:
             if attempted_timeline:
                 opp = self._lane_opponent(match_json, puuid)
                 values.update(parse_timeline_deltas(timeline, puuid, opp))  # None -> all None
+                values.update(parse_timeline_objectives(
+                    timeline, puuid, participant.get("teamId")))  # opponent-independent
                 values["has_timeline"] = 1
             db.insert_participant_metrics(self.conn, match_id, puuid, values)
             if attempted_timeline:  # start buy + build order + skill order, one timeline
@@ -328,17 +334,21 @@ class Crawler:
 
     def backfill_lane_deltas(self, limit=None, block_games_only=False, recompute=False):
         """Fetch the match timeline for tracked-participant metrics rows that
-        don't have lane deltas yet (has_timeline=0) and fill in the ΔCS/level/
-        xp/gold-vs-opponent columns. The lane opponent comes from the stored
-        participants (same team_position, other team), so this needs only the
-        timeline — not the match detail. A missing/failed timeline still marks
-        the row done (blank deltas) so it isn't retried forever.
-        block_games_only restricts to games sitting in a block (used by the
-        web app to deepen block insights proactively).
-        recompute also re-fetches already-processed rows (has_timeline=1) that
-        have a lane opponent but are missing a newer timeline metric (ΔXP) —
-        used once after adding a timeline column so history isn't left blank.
-        Returns matches fetched."""
+        don't have timeline data yet (has_timeline=0) and fill in the ΔCS/
+        level/xp/gold-vs-opponent columns plus the objective-participation
+        columns. The lane opponent comes from the stored participants (same
+        team_position, other team), so this needs only the timeline — not the
+        match detail; the objective counts only need the row's own team_id
+        (already selected as me.team_id) and are filled even when no lane
+        opponent is known — LEFT JOIN opp already means this runs for those
+        rows too, parse_timeline_deltas just leaves its own columns blank. A
+        missing/failed timeline still marks the row done (blank columns) so
+        it isn't retried forever. block_games_only restricts to games sitting
+        in a block (used by the web app to deepen block insights
+        proactively). recompute also re-fetches already-processed rows
+        (has_timeline=1) that have a lane opponent but are missing a newer
+        timeline metric (ΔXP) — used once after adding a timeline column so
+        history isn't left blank. Returns matches fetched."""
         block_filter = ("AND EXISTS (SELECT 1 FROM block_games bg "
                         "WHERE bg.match_id = pm.match_id AND bg.puuid = pm.puuid)"
                         if block_games_only else "")
@@ -346,7 +356,7 @@ class Crawler:
         want = ("(pm.has_timeline = 0 OR (opp.puuid IS NOT NULL AND pm.xp_diff_7 IS NULL))"
                 if recompute else "pm.has_timeline = 0")
         rows = self.conn.execute(
-            f"""SELECT me.match_id, me.puuid, opp.puuid AS opp_puuid
+            f"""SELECT me.match_id, me.puuid, me.team_id AS my_team_id, opp.puuid AS opp_puuid
                FROM participant_metrics pm
                JOIN participants me ON me.match_id = pm.match_id AND me.puuid = pm.puuid
                JOIN players pl ON pl.puuid = me.puuid
@@ -367,6 +377,7 @@ class Crawler:
             if recompute and timeline is None:
                 continue
             deltas = parse_timeline_deltas(timeline, row["puuid"], row["opp_puuid"])
+            deltas.update(parse_timeline_objectives(timeline, row["puuid"], row["my_team_id"]))
             db.update_participant_timeline(self.conn, row["match_id"], row["puuid"], deltas)
             count += 1
             self.status_cb(f"lane-delta backfill: {count}/{len(rows)} matches")

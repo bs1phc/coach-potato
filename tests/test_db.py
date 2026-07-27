@@ -677,6 +677,7 @@ def test_participant_metrics_gains_new_columns_on_upgrade(tmp_path):
     cols = {r["name"] for r in c.execute("PRAGMA table_info(participant_metrics)")}
     assert "has_timeline" in cols
     assert {"cs_diff_7", "level_diff_14", "gold_diff_7"} <= cols
+    assert {"team_dragons", "enemy_barons", "objective_participation"} <= cols
     row = c.execute("SELECT cs_at_10, has_timeline, cs_diff_7 FROM participant_metrics").fetchone()
     assert row["cs_at_10"] == 80  # preserved
     assert row["has_timeline"] == 0

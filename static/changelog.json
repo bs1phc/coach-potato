@@ -6,7 +6,8 @@
       "items": [
         "Blocks: a manual 'Lane result' override in each game's stats panel (Stomped loss / Lost / Even / Won / Stomp win) — lets you overrule the graded verdict for a game the numbers don't tell the whole story about (a scripted all-in, a disconnect, a jungle gank the deltas can't see). Applies to both the 7m and 14m lane columns and the pill in the per-game panel; clear it to fall back to the auto-graded verdict",
         "Overview now shows a 'Last coaching session: N days ago' nudge (or 'No coaching sessions yet') that turns a warm color once it's been 14+ days — click it to jump straight to Coaching Progress",
-        "New 'Matchups to review' nudge on the Overview page: surfaces matchups you've recently played whose Matchup-guide notes are missing or stale (played more than 14 days after the notes were last touched), like a spaced-repetition reminder to review before you queue again — click through to jump straight into that matchup's guide"
+        "New 'Matchups to review' nudge on the Overview page: surfaces matchups you've recently played whose Matchup-guide notes are missing or stale (played more than 14 days after the notes were last touched), like a spaced-repetition reminder to review before you queue again — click through to jump straight into that matchup's guide",
+        "New objective-participation metrics, parsed from the same match timeline already fetched for the lane Δs: team/enemy dragon, Rift Herald and Baron counts for the game, plus your own objective participation (kill or assist credit on your team's epic-monster kills). Hidden by default like the lane Δs — enable them in the metric column picker on Matchups, Coaching progress or Trends, or see them in any expanded per-game/segment stats panel. Existing games backfill automatically the same way the lane Δs do (./crawl.sh --backfill-lane-deltas)"
       ]
     },
     {

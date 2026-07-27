@@ -200,7 +200,26 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   the current client can't reach. The web app runs the block-game and
   comparison backfills with `recompute=True` so ΔXP fills in naturally with the
   correct per-player region (self-limiting: a row drops out once ΔXP is set).
-  These lane-delta metrics are `default_hidden`. Across the app the pattern is: EXPANDED
+  These lane-delta metrics are `default_hidden`. The SAME fetched timeline also
+  feeds objective-participation metrics (group `"Objectives"`, also
+  `source="timeline"`/`default_hidden`): `team_dragons`/`enemy_dragons`,
+  `team_heralds`/`enemy_heralds`, `team_barons`/`enemy_barons` (whole-game
+  counts by team) and `objective_participation` (count of your own team's
+  epic-monster kills where you're the killer or in `assistingParticipantIds`),
+  parsed by `metrics.parse_timeline_objectives` from the timeline's
+  `ELITE_MONSTER_KILL` events (`monsterType`/`killerTeamId`/`killerId`/
+  `assistingParticipantIds` are on the event itself — no need to derive team
+  from the timeline's own bare `{participantId, puuid}` participant list).
+  Unlike the lane deltas, these are NOT gated on a known lane opponent — only
+  the player's own `teamId` (from the match detail's `info.participants`,
+  threaded through the same places `_store_metrics`/`backfill_lane_deltas`
+  already get participant data) is needed, so they're filled in whenever a
+  timeline was fetched, lane opponent known or not. Both timeline-sourced
+  metric groups share `has_timeline`/the same backfill pass (fetching the
+  timeline once fills both), but are computed by separate functions into
+  separate key lists (`metrics.LANE_DELTA_KEYS`/`OBJECTIVE_KEYS`) so one
+  group's blank-when-missing default never clobbers the other's. Across the
+  app the pattern is: EXPANDED
   per-game/segment stat panels always show ALL metrics (no picker), and each
   aggregate TABLE has a column picker whose metric-average columns start off.
   Matchups (`muAllCols`/`cp-mucols`, base cols default on) and coaching
