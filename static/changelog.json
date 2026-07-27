@@ -9,7 +9,8 @@
         "New 'Matchups to review' nudge on the Overview page: surfaces matchups you've recently played whose Matchup-guide notes are missing or stale (played more than 14 days after the notes were last touched), like a spaced-repetition reminder to review before you queue again — click through to jump straight into that matchup's guide",
         "New objective-participation metrics, parsed from the same match timeline already fetched for the lane Δs: team/enemy dragon, Rift Herald and Baron counts for the game, plus your own objective participation (kill or assist credit on your team's epic-monster kills). Hidden by default like the lane Δs — enable them in the metric column picker on Matchups, Coaching progress or Trends, or see them in any expanded per-game/segment stats panel. Existing games backfill automatically the same way the lane Δs do (./crawl.sh --backfill-lane-deltas)",
         "Full-game gold/CS curve chart — expand a game in the Overview's Recent games table with the new 'Curve' toggle to see your gold and CS per minute across the whole game, alongside the lane opponent's, as a small line chart",
-        "The chart is fed by the match timeline, captured for every new crawl; run ./crawl.sh --backfill-frame-series to fill it in for already-stored games"
+        "The chart is fed by the match timeline, captured for every new crawl; run ./crawl.sh --backfill-frame-series to fill it in for already-stored games",
+        "Per-game reflection tags — a quick post-match habit separate from matchup notes/block learnings/sessions: tag any individual game (\"bad TP\", \"int death\", \"tilted\", \"good vision\", \"objective miss\", \"won lane lost game\", or your own custom tags) plus an optional freeform Markdown note, from a small inline editor on Overview's Recent games rows and on block game panels"
       ]
     },
     {

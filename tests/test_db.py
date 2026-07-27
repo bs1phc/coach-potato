@@ -737,6 +737,33 @@ def test_champion_note_roundtrip(conn):
     assert db.get_champion_note(conn, "Gwen") == ""
 
 
+def test_game_reflection_roundtrip_and_partial_update(conn):
+    assert db.get_reflection(conn, "EUW1_1", "me") == {"tags": [], "note": ""}
+    db.set_reflection(conn, "EUW1_1", "me", tags=["bad TP", "tilted"], note="- forced a bad TP")
+    assert db.get_reflection(conn, "EUW1_1", "me") == {
+        "tags": ["bad TP", "tilted"], "note": "- forced a bad TP"}
+    # a tags-only update never clobbers the stored note
+    db.set_reflection(conn, "EUW1_1", "me", tags=["bad TP"])
+    reflection = db.get_reflection(conn, "EUW1_1", "me")
+    assert reflection["tags"] == ["bad TP"]
+    assert reflection["note"] == "- forced a bad TP"
+    # a note-only update never clobbers the stored tags
+    db.set_reflection(conn, "EUW1_1", "me", note="updated note")
+    reflection = db.get_reflection(conn, "EUW1_1", "me")
+    assert reflection["tags"] == ["bad TP"]
+    assert reflection["note"] == "updated note"
+    # scoped per (match_id, puuid) — another player's reflection on the same game is independent
+    db.set_reflection(conn, "EUW1_1", "opp", tags=["good vision"])
+    assert db.get_reflection(conn, "EUW1_1", "opp") == {"tags": ["good vision"], "note": ""}
+    assert db.get_reflection(conn, "EUW1_1", "me")["tags"] == ["bad TP"]
+    # clearing both fields deletes the row
+    db.set_reflection(conn, "EUW1_1", "me", tags=[], note="  ")
+    assert db.get_reflection(conn, "EUW1_1", "me") == {"tags": [], "note": ""}
+    assert conn.execute(
+        "SELECT COUNT(*) AS c FROM game_reflections WHERE match_id='EUW1_1' AND puuid='me'"
+    ).fetchone()["c"] == 0
+
+
 def test_item_build_roundtrip(conn):
     assert db.get_item_build(conn, "Gwen") == {"sections": []}
     sections = [
@@ -813,6 +840,7 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     db.set_champion_note(c, "Gwen", "general champion note")
     research_id = db.create_research_entry(c, "Faker", "Azir", "Zed", "Level 1", "keep this too")
     macro_id = db.create_macro_section(c, "Dragon souls", "take at 20 min")
+    db.set_reflection(c, ids[0], "me", tags=["bad TP"], note="keep this reflection")
     # drop a column added by a later version to mimic an older schema
     c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
     c.execute("ALTER TABLE block_games DROP COLUMN lane_result")
@@ -842,6 +870,8 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     ]}
     assert db.get_research_entry(c, research_id)["notes"] == "keep this too"
     assert db.get_macro_section(c, macro_id)["notes"] == "take at 20 min"
+    assert db.get_reflection(c, ids[0], "me") == {
+        "tags": ["bad TP"], "note": "keep this reflection"}
     assert c.execute("SELECT closed_at_ms FROM blocks").fetchone()["closed_at_ms"] is None
     # lane_result column re-added by the migration, usable immediately
     assert c.execute("SELECT lane_result FROM block_games").fetchone()["lane_result"] is None
