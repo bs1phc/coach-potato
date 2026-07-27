@@ -412,10 +412,11 @@ async function toggleGameStats(entryId, matchId, puuid) {
 // shared laneOutcome() (app.js) — not Riot's opaque lane_adv flag. Shows ⏳
 // until the timeline is fetched, – when there's no lane opponent.
 function laneCell(game, mark) {
-  if (game.has_timeline !== 1) return `<td class="muted" title="Fetching deeper stats…">⏳</td>`;
   const o = laneOutcome(game, mark);
-  if (!o) return `<td class="muted" title="No lane opponent / data">–</td>`;
-  return `<td><span class="lane-pill ${o.cls}" title="${escapeHtml(o.tooltip)}">${o.symbol}</span></td>`;
+  if (o) return `<td><span class="lane-pill ${o.cls}" title="${escapeHtml(o.tooltip)}">${o.symbol}</span></td>`;
+  // no verdict: distinguish "timeline still fetching" from "no data / N/A"
+  if (game.has_timeline !== 1) return `<td class="muted" title="Fetching deeper stats…">⏳</td>`;
+  return `<td class="muted" title="No lane opponent / data">–</td>`;
 }
 
 // manual weakside/strongside flag (set in the expanded per-game panel)

@@ -394,6 +394,7 @@ tbody tr.games-row:hover td { background: var(--page); }
   border-radius: 4px; padding: 0 3px;
 }
 .lane-won, .lane-stomp { color: var(--good-text); background: color-mix(in srgb, var(--good-text) 15%, transparent); }
+.lane-mostly { color: var(--good-text); background: color-mix(in srgb, var(--good-text) 8%, transparent); opacity: .85; }
 .lane-lost, .lane-stomped { color: var(--critical); background: color-mix(in srgb, var(--critical) 15%, transparent); }
 .lane-even { color: var(--text-secondary); background: var(--grid); }
 .lane-stomp { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--good-text) 55%, transparent); }
@@ -443,6 +444,12 @@ tbody tr.games-row:hover td { background: var(--page); }
 .wc-checklist { margin-top: 12px; }
 .wc-check-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .wc-check-row .wc-check-text { flex: 1; padding: 4px 8px; }
+.wc-conds { margin: 10px 0 6px; }
+.wc-cond-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.wc-cond-row .wc-cond-metric { flex: 1; min-width: 120px; padding: 4px 6px; }
+.wc-cond-row .wc-cond-op { padding: 4px 4px; }
+.wc-cond-row .wc-cond-value { width: 5.5em; padding: 4px 6px; }
+.wc-cond-hint { font-size: 11px; white-space: nowrap; min-width: 48px; }
 .wc-display { margin-top: 14px; }
 .wc-summary-line { margin: 4px 0; font-size: 13px; }
 .wc-check-list { list-style: none; padding: 0; margin: 6px 0 0; }

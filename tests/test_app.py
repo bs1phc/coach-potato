@@ -955,28 +955,35 @@ def test_skill_order_endpoint_roundtrip_and_partial_update(client):
 
 
 def test_lane_goal_win_conditions_roundtrip(client):
-    # numeric targets + mode + checklist round-trip via GET, partial (doesn't
-    # touch notes), and are exposed in the lane-baselines goals map
+    # rich conditions (any per-game metric + op) + checklist round-trip via GET,
+    # partial (doesn't touch notes), exposed in the lane-baselines goals map
+    put = lambda g: client.put("/api/matchups/notes/Gwen/Darius", json={"lane_goal": g})
+    get = lambda: client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]
     client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "keep me"})
-    goal = {"gold_14": 300, "cs_7": 12, "mode": "any",
+    goal = {"conditions": [{"metric": "gold_diff_14", "op": ">=", "value": 300},
+                           {"metric": "plates", "op": ">=", "value": 2},
+                           {"metric": "deaths", "op": "<=", "value": 3}],
             "checklist": [{"text": "reach 8 CS/min", "done": True},
                           {"text": "  ", "done": False}]}  # blank text dropped
-    assert client.put("/api/matchups/notes/Gwen/Darius",
-                      json={"lane_goal": goal}).status_code == 200
-    row = client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]
+    assert put(goal).status_code == 200
+    row = get()
     assert row["notes"] == "keep me"          # partial update kept notes
-    assert row["lane_goal"] == {"gold_14": 300.0, "cs_7": 12.0, "mode": "any",
-                                "checklist": [{"text": "reach 8 CS/min", "done": True}]}
-    goals = client.get("/api/stats/lane-baselines").json()["goals"]
-    assert goals["Gwen|Darius"]["gold_14"] == 300.0
-    # only-a-mode / empty clears the whole lane_goal
-    client.put("/api/matchups/notes/Gwen/Darius", json={"lane_goal": {"mode": "all"}})
-    assert client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]["lane_goal"] is None
-    # bad mode / shape rejected
-    assert client.put("/api/matchups/notes/Gwen/Darius",
-                      json={"lane_goal": {"mode": "sometimes"}}).status_code == 400
-    assert client.put("/api/matchups/notes/Gwen/Darius",
-                      json={"lane_goal": {"gold_14": "lots"}}).status_code == 400
+    assert row["lane_goal"] == {
+        "conditions": [{"metric": "gold_diff_14", "op": ">=", "value": 300.0},
+                       {"metric": "plates", "op": ">=", "value": 2.0},
+                       {"metric": "deaths", "op": "<=", "value": 3.0}],
+        "checklist": [{"text": "reach 8 CS/min", "done": True}]}
+    assert client.get("/api/stats/lane-baselines").json()["goals"]["Gwen|Darius"]["conditions"]
+    # legacy <metric>_<mark> shape is still accepted → folded into conditions (>=)
+    put({"gold_14": 250})
+    assert {"metric": "gold_diff_14", "op": ">=", "value": 250.0} in get()["lane_goal"]["conditions"]
+    # empty clears the whole lane_goal
+    put({})
+    assert get()["lane_goal"] is None
+    # bad metric / op / value rejected
+    assert put({"conditions": [{"metric": "bogus", "value": 1}]}).status_code == 400
+    assert put({"conditions": [{"metric": "plates", "op": "==", "value": 1}]}).status_code == 400
+    assert put({"conditions": [{"metric": "plates", "value": "lots"}]}).status_code == 400
 
 
 def test_skill_order_validation(client):

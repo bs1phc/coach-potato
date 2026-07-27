@@ -670,29 +670,78 @@ function laneBaseline(g, metricBase, mark) {
   return bv != null ? bv : 0;
 }
 
-// Win-condition verdict at a mark: did the game meet the user's explicit targets
-// (ΔmetricAtMark >= target) for that mark, per ALL/ANY? Unknown deltas (no
-// timeline / no opponent) are ignored, not counted against. Returns null if none
-// of the mark's targets can be evaluated.
-function laneConditionOutcome(g, mark, targets, mode) {
-  const evals = targets.map((tt) => {
-    const val = laneDeltaFor(g, tt.metric, mark);
-    return { ...tt, val, met: val == null ? null : val >= tt.target };
+// Per-game stats a win condition can grade on (label + default op + input step).
+// Order = the editor's dropdown order.
+const LANE_CONDITION_METRICS = [
+  { key: "gold_diff_14", label: "ΔGold @14", op: ">=", step: 50, dec: 0 },
+  { key: "gold_diff_7", label: "ΔGold @7", op: ">=", step: 50, dec: 0 },
+  { key: "cs_diff_14", label: "ΔCS @14", op: ">=", step: 1, dec: 1 },
+  { key: "cs_diff_7", label: "ΔCS @7", op: ">=", step: 1, dec: 1 },
+  { key: "xp_diff_14", label: "ΔXP @14", op: ">=", step: 50, dec: 0 },
+  { key: "xp_diff_7", label: "ΔXP @7", op: ">=", step: 50, dec: 0 },
+  { key: "level_diff_14", label: "ΔLevel @14", op: ">=", step: 1, dec: 0 },
+  { key: "cs_at_10", label: "CS @10", op: ">=", step: 1, dec: 0 },
+  { key: "plates", label: "Turret plates", op: ">=", step: 1, dec: 0 },
+  { key: "solo_kills", label: "Solo kills", op: ">=", step: 1, dec: 0 },
+  { key: "max_cs_lead", label: "Max CS lead", op: ">=", step: 1, dec: 0 },
+  { key: "max_level_lead", label: "Max level lead", op: ">=", step: 1, dec: 0 },
+  { key: "early_takedowns", label: "Takedowns <15m", op: ">=", step: 1, dec: 0 },
+  { key: "kills", label: "Kills", op: ">=", step: 1, dec: 0 },
+  { key: "deaths", label: "Deaths", op: "<=", step: 1, dec: 0 },
+  { key: "assists", label: "Assists", op: ">=", step: 1, dec: 0 },
+];
+const LANE_CONDITION_META = Object.fromEntries(LANE_CONDITION_METRICS.map((m) => [m.key, m]));
+function conditionMetricLabel(key) { return (LANE_CONDITION_META[key] || {}).label || key; }
+function conditionFmt(key, v) {
+  const dec = (LANE_CONDITION_META[key] || {}).dec || 0;
+  const s = v > 0 && String(key).includes("_diff_") ? "+" : "";
+  return v == null ? "—" : s + Number(v).toFixed(dec);
+}
+// verdict tiers for condition grading (adds a softer "mostly" between won/partial)
+const CONDITION_TIERS = {
+  won: { symbol: "✓", cls: "lane-won" },
+  mostly: { symbol: "↗", cls: "lane-mostly" },
+  partial: { symbol: "=", cls: "lane-even" },
+  lost: { symbol: "✗", cls: "lane-lost" },
+};
+// the win conditions for a matchup, tolerant of the legacy <metric>_<mark> shape
+function goalConditions(goal) {
+  if (!goal) return [];
+  if (Array.isArray(goal.conditions)) return goal.conditions;
+  const map = { gold: "gold_diff", cs: "cs_diff", xp: "xp_diff" };
+  const out = [];
+  for (const base of ["gold", "cs", "xp"]) {
+    for (const mk of [7, 14]) {
+      const v = goal[`${base}_${mk}`];
+      if (v != null) out.push({ metric: `${map[base]}_${mk}`, op: ">=", value: v });
+    }
+  }
+  return out;
+}
+
+// Game-level win-condition verdict: fraction of the (evaluable) conditions the
+// game met, graded softly — Won (all) / Mostly (≥⅔) / Partial (≥⅓) / Lost.
+// Unknown stats (metric missing on this game) are ignored, not counted against.
+// Returns null when none of the conditions can be evaluated.
+function laneConditionOutcome(g, conditions) {
+  const evals = conditions.map((c) => {
+    const val = g[c.metric];
+    const met = val == null ? null : (c.op === "<=" ? val <= c.value : val >= c.value);
+    return { ...c, val, met };
   });
   const known = evals.filter((e) => e.met !== null);
   if (!known.length) return null;
   const metCount = known.filter((e) => e.met).length;
-  const won = mode === "any" ? metCount >= 1 : metCount === known.length;
-  const name = won ? "won" : (metCount ? "even" : "lost");
-  const label = won ? "Won" : (metCount ? "Partial" : "Lost");
-  const sign = (v) => (v > 0 ? "+" : "");
+  const frac = metCount / known.length;
+  let name = metCount === known.length ? "won"
+    : frac >= 2 / 3 ? "mostly" : frac >= 1 / 3 ? "partial" : "lost";
+  const label = `${{ won: "Won", mostly: "Mostly", partial: "Partial", lost: "Lost" }[name]} (${metCount}/${known.length})`;
   const parts = evals.map((e) => {
-    const mark2 = e.met === null ? "?" : (e.met ? "✓" : "✗");
-    const vtxt = e.val == null ? "—" : `${sign(e.val)}${e.metric === "cs" ? e.val.toFixed(1) : Math.round(e.val)}`;
-    return `${mark2} Δ${e.metric === "cs" ? "CS" : e.metric === "xp" ? "XP" : "Gold"} ≥ ${sign(e.target)}${Math.round(e.target)} (${vtxt})`;
+    const m = e.met === null ? "?" : (e.met ? "✓" : "✗");
+    return `${m} ${conditionMetricLabel(e.metric)} ${e.op} ${e.value} (${conditionFmt(e.metric, e.val)})`;
   });
-  return { tier: name, symbol: LANE_TIERS[name].symbol, cls: LANE_TIERS[name].cls, label,
-           tooltip: `Win conditions @${mark}m (need ${mode}): ${parts.join(" · ")}` };
+  return { tier: name, symbol: CONDITION_TIERS[name].symbol, cls: CONDITION_TIERS[name].cls,
+           label, tooltip: `Win conditions: ${parts.join(" · ")}` };
 }
 
 // Returns {tier, symbol, label, cls, tooltip, ...} or null when this mark's
@@ -700,16 +749,13 @@ function laneConditionOutcome(g, mark, targets, mode) {
 // this mark, grade by those (all/any); otherwise grade the picked method's delta
 // vs 0 (absolute) or vs the matchup baseline (relative).
 function laneOutcome(g, mark, method = laneWinMethod(), mode = laneGradeMode()) {
-  // explicit win conditions for this matchup at this mark take priority
-  const goal = laneGoalFor(g);
-  if (goal) {
-    const targets = LANE_METRIC_BASES
-      .filter((mb) => goal[`${mb}_${mark}`] != null)
-      .map((mb) => ({ metric: mb, target: goal[`${mb}_${mark}`] }));
-    if (targets.length) {
-      const r = laneConditionOutcome(g, mark, targets, goal.mode === "any" ? "any" : "all");
-      if (r) return r;
-    }
+  // explicit win conditions grade per lane column: a *_7 delta condition lands
+  // on the 7m pill, everything else (14m deltas + game stats like plates/deaths)
+  // on the 14m pill — so the two columns match their labels.
+  const conds = goalConditions(laneGoalFor(g));
+  if (conds.length) {
+    const sub = conds.filter((c) => (String(c.metric).endsWith("_7") ? mark === 7 : mark === 14));
+    return sub.length ? laneConditionOutcome(g, sub) : null;
   }
   let t = LANE_THRESHOLDS[method][mark];
   const xp = g[`xp_diff_${mark}`], lvl = g[`level_diff_${mark}`];

@@ -979,35 +979,61 @@ def _validate_patch(patch_version: str):
 R_POINT_LEVELS = (6, 11, 16)
 
 
-_LANE_GOAL_KEYS = ("cs_7", "cs_14", "xp_7", "xp_14", "gold_7", "gold_14")
+_LANE_GOAL_KEYS = ("cs_7", "cs_14", "xp_7", "xp_14", "gold_7", "gold_14")  # legacy
+_LANE_LEGACY_METRIC = {"gold": "gold_diff", "cs": "cs_diff", "xp": "xp_diff"}
+# per-game stats a win condition can be graded on: registry metrics + base stats
+_LANE_CONDITION_METRICS = frozenset({m["key"] for m in METRICS}
+                                    | {"kills", "deaths", "assists", "cs"})
+_MAX_LANE_CONDITIONS = 12
 
 
 def _validate_lane_goal(goal):
-    """Per-matchup 'win conditions'. A dict with optional parts, all cleared when
-    empty:
-      - numeric delta targets keyed <metric>_<mark> (cs/xp/gold x 7/14), each a
-        number — "lane won when Δ >= target" (each optional; the user picks which
-        marks/metrics matter);
-      - mode: 'all' | 'any' — whether winning needs every set target or just one;
+    """Per-matchup 'win conditions'. A dict with optional parts, cleared when empty:
+      - conditions: [{metric, op, value}] — metric is any per-game stat (lane Δs,
+        turret plates, solo kills, CS@10, deaths, …), op is '>=' or '<=', value a
+        number; the game meets a condition when the stat satisfies it. Graded by
+        fraction met (Won/Mostly/Partial/Lost), so a near-miss isn't a flat fail.
       - checklist: [{text, done}] — freeform reminders, shown but NOT auto-scored.
+    Legacy <metric>_<mark> delta keys (and any 'mode') are folded into conditions.
     Returns the cleaned dict (or {} to clear the whole thing)."""
     if goal in (None, "", {}):
         return {}
     if not isinstance(goal, dict):
         raise HTTPException(400, "lane_goal must be an object")
-    out = {}
+    out, conditions = {}, []
+    raw = goal.get("conditions")
+    if raw is not None:
+        if not isinstance(raw, list):
+            raise HTTPException(400, "conditions must be a list")
+        for c in raw:
+            if not isinstance(c, dict):
+                raise HTTPException(400, "each condition must be an object")
+            metric = str(c.get("metric") or "")
+            if metric not in _LANE_CONDITION_METRICS:
+                raise HTTPException(400, f"unknown condition metric {metric!r}")
+            op = c.get("op", ">=")
+            if op not in (">=", "<="):
+                raise HTTPException(400, "condition op must be '>=' or '<='")
+            v = c.get("value")
+            if v is None or v == "":
+                continue
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                raise HTTPException(400, f"condition value for {metric!r} must be a number")
+            conditions.append({"metric": metric, "op": op, "value": float(v)})
+    # back-compat: legacy delta targets -> conditions (>=)
     for k in _LANE_GOAL_KEYS:
         v = goal.get(k)
-        if v is None or v == "":
+        if v in (None, ""):
             continue
         if not isinstance(v, (int, float)) or isinstance(v, bool):
             raise HTTPException(400, f"lane_goal[{k}] must be a number")
-        out[k] = float(v)
-    mode = goal.get("mode")
-    if mode in ("all", "any"):
-        out["mode"] = mode
-    elif mode not in (None, ""):
-        raise HTTPException(400, "lane_goal mode must be 'all' or 'any'")
+        base, _, mark = k.partition("_")
+        conditions.append({"metric": f"{_LANE_LEGACY_METRIC[base]}_{mark}",
+                           "op": ">=", "value": float(v)})
+    if len(conditions) > _MAX_LANE_CONDITIONS:
+        raise HTTPException(400, f"at most {_MAX_LANE_CONDITIONS} win conditions")
+    if conditions:
+        out["conditions"] = conditions
     checklist = goal.get("checklist")
     if checklist is not None:
         if not isinstance(checklist, list):
@@ -1021,10 +1047,7 @@ def _validate_lane_goal(goal):
                 clean.append({"text": text, "done": bool(item.get("done"))})
         if clean:
             out["checklist"] = clean
-    # nothing meaningful set (e.g. only a mode) → treat as cleared
-    if not (set(out) - {"mode"}):
-        return {}
-    return out
+    return out if out else {}
 
 
 def _validate_skill_order(cells):

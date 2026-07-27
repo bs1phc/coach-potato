@@ -159,34 +159,18 @@ function guideFor(champ) {
   return g ? { ...emptyGuide(), ...g } : emptyGuide();
 }
 
-// data baseline (rounded expected Δ) for my champion vs champ at metric/mark,
-// if loaded — shown as the placeholder hint in the win-conditions editor.
-function laneBaselineVal(champ, metric, mark) {
-  const b = state.laneBaselines && state.laneBaselines[`${guideState.myChampion}|${champ}`];
-  const v = b && b[`${metric}_diff_${mark}`];
-  return v != null ? Math.round(v) : null;
-}
-// true when a matchup has any win condition set (a numeric target or a checklist)
+// true when a matchup has any win condition set (a target or a checklist)
 function hasWinConditions(goal) {
   if (!goal) return false;
-  if ((goal.checklist || []).length) return true;
-  return ["gold", "cs", "xp"].some((m) => goal[`${m}_7`] != null || goal[`${m}_14`] != null);
+  return (goal.checklist || []).length > 0 || goalConditions(goal).length > 0;
 }
 // read-only summary of a matchup's win conditions, shown in the guide row
 function winConditionsDisplay(champ, goal) {
   if (!hasWinConditions(goal)) return "";
-  const sgn = (v) => (v > 0 ? "+" : "");
-  const label = { gold: "Gold", cs: "CS", xp: "XP" };
-  const targets = [];
-  for (const m of ["gold", "cs", "xp"]) {
-    for (const k of [7, 14]) {
-      if (goal[`${m}_${k}`] != null) {
-        targets.push(`Δ${label[m]}@${k} ≥ ${sgn(goal[`${m}_${k}`])}${Math.round(goal[`${m}_${k}`])}`);
-      }
-    }
-  }
-  const targetLine = targets.length
-    ? `<p class="wc-summary-line">Lane won when <strong>${goal.mode === "any" ? "any" : "all"}</strong> met: ${targets.join(" · ")}</p>`
+  const conds = goalConditions(goal);
+  const targetLine = conds.length
+    ? `<p class="wc-summary-line">Lane won by hitting: ${conds.map((c) =>
+        `${conditionMetricLabel(c.metric)} ${c.op === "<=" ? "≤" : "≥"} ${c.value}`).join(" · ")}</p>`
     : "";
   const checks = (goal.checklist || []).map((c) =>
     `<li class="${c.done ? "wc-done" : ""}">${c.done ? "☑" : "☐"} ${escapeHtml(c.text)}</li>`).join("");
@@ -1771,57 +1755,55 @@ function openWinConditions(opp) {
   const goal = guideFor(opp).lane_goal || {};
   wcState = {
     opp,
-    targets: {},
-    mode: goal.mode === "any" ? "any" : "all",
+    conditions: goalConditions(goal).map((c) => ({ metric: c.metric, op: c.op || ">=", value: c.value })),
     checklist: (goal.checklist || []).map((c) => ({ text: c.text, done: !!c.done })),
   };
-  for (const m of ["gold", "cs", "xp"]) {
-    for (const k of [7, 14]) {
-      if (goal[`${m}_${k}`] != null) wcState.targets[`${m}_${k}`] = goal[`${m}_${k}`];
-    }
-  }
   renderWinConditions();
   $("#winconditions-overlay").classList.remove("hidden");
 }
 
-// pull current DOM values into wcState (so a checklist add/remove re-render
-// doesn't drop typed-but-unsaved numbers)
+// pull current DOM values into wcState (so an add/remove re-render doesn't drop
+// typed-but-unsaved rows)
 function wcReadInputs() {
   const box = $("#winconditions-box");
   if (!box) return;
-  wcState.targets = {};
-  box.querySelectorAll(".wc-target").forEach((inp) => {
-    const v = inp.value.trim();
-    if (v !== "" && !Number.isNaN(Number(v))) wcState.targets[inp.dataset.key] = Number(v);
-  });
-  const mode = box.querySelector('input[name="wc-mode"]:checked');
-  wcState.mode = mode && mode.value === "any" ? "any" : "all";
-  const items = [];
+  wcState.conditions = [...box.querySelectorAll(".wc-cond-row")].map((row) => ({
+    metric: row.querySelector(".wc-cond-metric").value,
+    op: row.querySelector(".wc-cond-op").value,
+    value: row.querySelector(".wc-cond-value").value.trim(),
+  }));
+  wcState.checklist = [];
   box.querySelectorAll(".wc-check-row").forEach((row) => {
     const text = row.querySelector(".wc-check-text").value.trim();
-    if (text) items.push({ text, done: row.querySelector(".wc-check-done").checked });
+    if (text) wcState.checklist.push({ text, done: row.querySelector(".wc-check-done").checked });
   });
-  wcState.checklist = items;
+}
+
+// the matchup's data baseline for a delta metric key (e.g. gold_diff_14), if any
+function conditionBaseline(opp, metric) {
+  const b = state.laneBaselines && state.laneBaselines[`${guideState.myChampion}|${opp}`];
+  return b && b[metric] != null ? Math.round(b[metric]) : null;
 }
 
 function renderWinConditions() {
   const opp = wcState.opp, my = guideState.myChampion;
-  const sgn = (v) => (v > 0 ? "+" : "");
-  const targetInput = (metric, mark) => {
-    const key = `${metric}_${mark}`;
-    const base = laneBaselineVal(opp, metric, mark);
-    const cur = wcState.targets[key] != null ? wcState.targets[key] : "";
-    return `<input type="number" class="wc-target" data-key="${key}" step="${metric === "gold" ? 50 : 1}"
-      placeholder="${base != null ? sgn(base) + base : "—"}" value="${cur}" aria-label="${key} target">`;
+  const condRow = (c, i) => {
+    const meta = LANE_CONDITION_META[c.metric] || {};
+    const base = conditionBaseline(opp, c.metric);
+    const hint = base != null ? `typ. ${base > 0 ? "+" : ""}${base}` : "";
+    return `<div class="wc-cond-row" data-i="${i}">
+      <select class="wc-cond-metric">${LANE_CONDITION_METRICS.map((m) =>
+        `<option value="${m.key}"${m.key === c.metric ? " selected" : ""}>${m.label}</option>`).join("")}</select>
+      <select class="wc-cond-op">
+        <option value=">="${c.op !== "<=" ? " selected" : ""}>≥</option>
+        <option value="<="${c.op === "<=" ? " selected" : ""}>≤</option>
+      </select>
+      <input type="number" class="wc-cond-value" step="${meta.step || 1}"
+        value="${c.value ?? ""}" placeholder="value" aria-label="value">
+      <span class="muted wc-cond-hint">${hint}</span>
+      <button type="button" class="preset icon-btn-sm wc-cond-del" title="Remove" aria-label="Remove">🗑</button>
+    </div>`;
   };
-  const avg = (metric) => {
-    const b7 = laneBaselineVal(opp, metric, 7), b14 = laneBaselineVal(opp, metric, 14);
-    const f = (v) => (v == null ? "—" : sgn(v) + v);
-    return `avg ${f(b7)} / ${f(b14)}`;
-  };
-  const row = (metric, label) =>
-    `<tr><th>Δ${label}</th><td>${targetInput(metric, 7)}</td><td>${targetInput(metric, 14)}</td>
-       <td class="muted wc-avg">${avg(metric)}</td></tr>`;
   const checkRows = wcState.checklist.map((c, i) => `
     <div class="wc-check-row">
       <input type="checkbox" class="wc-check-done" ${c.done ? "checked" : ""}>
@@ -1839,33 +1821,47 @@ function renderWinConditions() {
       <span class="wc-vs">vs</span>
       <div class="wc-champ">${champIcon(opp)}<span>${displayName(opp)}</span></div>
     </div>
-    <p class="muted">Lane counts as <strong>won</strong> when a game beats these Δ-vs-opponent
-      targets. Leave a cell blank to ignore it. Auto-graded in Blocks &amp; the comparison pop-out.</p>
-    <table class="wc-table">
-      <thead><tr><th></th><th>@7 min</th><th>@14 min</th><th></th></tr></thead>
-      <tbody>${row("gold", "Gold")}${row("cs", "CS")}${row("xp", "XP")}</tbody>
-    </table>
-    <div class="wc-mode">Winning needs:
-      <label><input type="radio" name="wc-mode" value="all" ${wcState.mode !== "any" ? "checked" : ""}> all set targets</label>
-      <label><input type="radio" name="wc-mode" value="any" ${wcState.mode === "any" ? "checked" : ""}> any one</label>
-    </div>
+    <p class="muted">A game grades <strong>Won / Mostly / Partial / Lost</strong> by how many of
+      these it hits (all → Won, most → Mostly, …). Pick any stat we track — deltas vs opponent,
+      turret plates, solo kills, deaths… Auto-graded in Blocks &amp; the comparison pop-out.</p>
+    <div class="wc-conds">${wcState.conditions.map(condRow).join("")
+      || `<p class="muted">No conditions yet.</p>`}</div>
+    <button type="button" class="preset" id="wc-add-cond">+ Add condition</button>
     <div class="wc-checklist">
-      <div class="settings-subhead">Checklist <span class="muted">— your matchup exam, not auto-scored</span></div>
+      <div class="settings-subhead">Checklist <span class="muted">— reminders, not auto-scored</span></div>
       ${checkRows}
-      <button type="button" class="preset" id="wc-add-check">+ Add condition</button>
+      <button type="button" class="preset" id="wc-add-check">+ Add reminder</button>
     </div>
     <div class="session-actions">
       <button class="preset btn-primary" id="wc-save">Save</button>
       <button class="preset" id="wc-clear">Clear all</button>
       <span class="muted" id="wc-status"></span>
     </div>`;
+  const box = $("#winconditions-box");
   $("#wc-close").addEventListener("click", closeWinConditions);
+  $("#wc-add-cond").addEventListener("click", () => {
+    wcReadInputs();
+    wcState.conditions.push({ metric: LANE_CONDITION_METRICS[0].key, op: ">=", value: "" });
+    renderWinConditions();
+  });
   $("#wc-add-check").addEventListener("click", () => {
     wcReadInputs(); wcState.checklist.push({ text: "", done: false }); renderWinConditions();
-    const last = $("#winconditions-box").querySelector(".wc-check-row:last-child .wc-check-text");
+    const last = box.querySelector(".wc-check-row:last-child .wc-check-text");
     if (last) last.focus();
   });
-  $("#winconditions-box").querySelectorAll(".wc-check-del").forEach((btn) =>
+  box.querySelectorAll(".wc-cond-del").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      wcReadInputs(); wcState.conditions.splice(+btn.closest(".wc-cond-row").dataset.i, 1); renderWinConditions();
+    }));
+  // picking a metric refreshes its default operator + baseline hint
+  box.querySelectorAll(".wc-cond-metric").forEach((sel) =>
+    sel.addEventListener("change", () => {
+      wcReadInputs();
+      const row = wcState.conditions[+sel.closest(".wc-cond-row").dataset.i];
+      if (row) row.op = (LANE_CONDITION_META[sel.value] || {}).op || ">=";
+      renderWinConditions();
+    }));
+  box.querySelectorAll(".wc-check-del").forEach((btn) =>
     btn.addEventListener("click", () => {
       wcReadInputs(); wcState.checklist.splice(+btn.dataset.i, 1); renderWinConditions();
     }));
@@ -1874,9 +1870,13 @@ function renderWinConditions() {
 }
 
 async function saveWinConditions(clear = false) {
-  if (clear) { wcState.targets = {}; wcState.checklist = []; }
+  if (clear) { wcState.conditions = []; wcState.checklist = []; }
   else wcReadInputs();
-  const goal = { ...wcState.targets, mode: wcState.mode };
+  const conditions = wcState.conditions
+    .filter((c) => c.value !== "" && c.value != null && !Number.isNaN(Number(c.value)))
+    .map((c) => ({ metric: c.metric, op: c.op, value: Number(c.value) }));
+  const goal = {};
+  if (conditions.length) goal.conditions = conditions;
   if (wcState.checklist.length) goal.checklist = wcState.checklist;
   const opp = wcState.opp;
   const resp = await fetch(
@@ -1889,8 +1889,7 @@ async function saveWinConditions(clear = false) {
     $("#wc-status").textContent = `Save failed — ${b.detail || `error ${resp.status}`}`;
     return;
   }
-  // server clears lane_goal when only a mode (no targets/checklist) is left
-  const cleaned = (Object.keys(wcState.targets).length || wcState.checklist.length) ? goal : null;
+  const cleaned = (conditions.length || wcState.checklist.length) ? goal : null;
   const existing = guideState.guide[opp];
   if (cleaned) guideState.guide[opp] = { ...emptyGuide(), ...(existing || {}), lane_goal: cleaned };
   else if (existing) existing.lane_goal = null;
