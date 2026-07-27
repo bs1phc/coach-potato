@@ -457,6 +457,19 @@ def api_summary(request: Request):
         conn.close()
 
 
+@app.get("/api/stats/review-queue")
+def api_review_queue(request: Request):
+    """'Review before queue' nudge: matchups played recently whose guide
+    notes are missing or stale. See stats.review_queue for the ranking."""
+    conn = get_conn()
+    try:
+        puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
+        limit = int(request.query_params.get("limit", 8))
+        return stats.review_queue(conn, puuids, limit=limit)
+    finally:
+        conn.close()
+
+
 @app.get("/api/filters")
 def api_filters(request: Request):
     conn = get_conn()

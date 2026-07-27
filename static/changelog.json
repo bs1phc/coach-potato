@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.49.0",
+      "date": "2026-07-27",
+      "items": [
+        "New 'Matchups to review' nudge on the Overview page: surfaces matchups you've recently played whose Matchup-guide notes are missing or stale (played more than 14 days after the notes were last touched), like a spaced-repetition reminder to review before you queue again — click through to jump straight into that matchup's guide"
+      ]
+    },
+    {
       "version": "1.48.0",
       "date": "2026-07-24",
       "items": [

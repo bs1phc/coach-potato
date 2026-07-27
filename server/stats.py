@@ -554,6 +554,62 @@ def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues
     return [_decode_game_runes(r) for r in conn.execute(sql, params)]
 
 
+# "Review before queue" nudge: a matchup counts as stale once you've played
+# it more than this long after the guide notes were last touched. Kept as a
+# simple constant rather than a setting for v1 — see review_queue().
+REVIEW_STALE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000  # 14 days
+
+
+def review_queue(conn, puuid, limit=8, stale_window_ms=REVIEW_STALE_WINDOW_MS):
+    """Matchups you've actually played whose Matchup-guide notes are missing
+    or stale — a "review before you queue" nudge (like spaced repetition).
+
+    Per (my_champion, opp_champion) pair with at least one played game:
+    last_played_ms (max game_creation_ms) is compared against
+    matchup_notes.updated_at_ms (NULL = notes were never written for that
+    pair, always flagged). A pair is included when notes are missing, or when
+    it's been played more than `stale_window_ms` after the notes were last
+    touched (a game played, then notes promptly updated, doesn't count —
+    only a gap bigger than the window does).
+
+    Ranked never-reviewed pairs first, then by games_since_review (most
+    game activity since the notes were last touched) descending, with
+    last_played_ms descending as a tiebreak. Returns the top `limit`."""
+    base, params = _filtered_base(puuid)
+    sql = f"""
+        SELECT b.my_champion, b.opp_champion,
+               MAX(b.game_creation_ms) AS last_played_ms,
+               mn.updated_at_ms AS notes_updated_ms,
+               SUM(CASE WHEN b.game_creation_ms > COALESCE(mn.updated_at_ms, 0)
+                        THEN 1 ELSE 0 END) AS games_since_review
+        FROM ({base}) b
+        LEFT JOIN matchup_notes mn
+            ON mn.my_champion = b.my_champion AND mn.opp_champion = b.opp_champion
+        GROUP BY b.my_champion, b.opp_champion
+    """
+    candidates = []
+    for r in conn.execute(sql, params):
+        row = dict(r)
+        notes_updated_ms = row["notes_updated_ms"]
+        never_reviewed = notes_updated_ms is None
+        stale = never_reviewed or (row["last_played_ms"] - notes_updated_ms > stale_window_ms)
+        if not stale:
+            continue
+        candidates.append({
+            "my_champion": row["my_champion"],
+            "opp_champion": row["opp_champion"],
+            "last_played_ms": row["last_played_ms"],
+            "notes_updated_ms": notes_updated_ms,
+            "games_since_review": row["games_since_review"],
+            "_never_reviewed": never_reviewed,
+        })
+    candidates.sort(key=lambda c: (
+        not c["_never_reviewed"], -c["games_since_review"], -c["last_played_ms"]))
+    for c in candidates:
+        del c["_never_reviewed"]
+    return candidates[:limit]
+
+
 def filter_options(conn, puuid):
     base, params = _filtered_base(puuid, require_opponent=False)
     champions = [r[0] for r in conn.execute(
