@@ -624,11 +624,22 @@ const LANE_THRESHOLDS = {
 // fallback when a game predates ΔXP capture (run ./crawl.sh --recompute-lane-deltas)
 const LANE_LEVEL_THRESHOLDS = { 7: { won: 1, stomp: 2 }, 14: { won: 1, stomp: 2 } };
 const LANE_TIERS = {
-  stomp:   { symbol: "⇈", label: "Stomp",   cls: "lane-stomp",   rank: 2 },
-  won:     { symbol: "✓", label: "Won",     cls: "lane-won",     rank: 1 },
-  even:    { symbol: "=", label: "Even",    cls: "lane-even",    rank: 0 },
-  lost:    { symbol: "✗", label: "Lost",    cls: "lane-lost",    rank: -1 },
-  stomped: { symbol: "⇊", label: "Stomped", cls: "lane-stomped", rank: -2 },
+  stomp:   { symbol: "⇈", cls: "lane-stomp",   rank: 2 },
+  won:     { symbol: "✓", cls: "lane-won",     rank: 1 },
+  even:    { symbol: "=", cls: "lane-even",    rank: 0 },
+  lost:    { symbol: "✗", cls: "lane-lost",    rank: -1 },
+  stomped: { symbol: "⇊", cls: "lane-stomped", rank: -2 },
+};
+// Two grading modes. "absolute" = ahead/behind vs 0 (a raw lead). "relative" =
+// ahead/behind vs what THIS matchup normally produces (the coach's definition:
+// winning lane = beating your champion's expected outcome in the pairing, so a
+// scaler playing even vs a bully can still be "ahead of curve"). Tiers get
+// matchup-aware labels in relative mode; "on plan" (met expectation) is neutral,
+// not a loss.
+const LANE_TIER_LABELS = {
+  absolute: { stomp: "Stomp", won: "Won", even: "Even", lost: "Lost", stomped: "Stomped" },
+  relative: { stomp: "Crushed", won: "Ahead of curve", even: "On plan",
+              lost: "Behind curve", stomped: "Well behind" },
 };
 
 function laneWinMethod() {
@@ -638,14 +649,34 @@ function laneWinMethod() {
 function setLaneWinMethod(m) {
   if (LANE_THRESHOLDS[m]) localStorage.setItem("cp-lane-metric", m);
 }
+function laneGradeMode() {
+  return localStorage.getItem("cp-lane-grade") === "absolute" ? "absolute" : "relative";
+}
+function setLaneGradeMode(m) {
+  localStorage.setItem("cp-lane-grade", m === "absolute" ? "absolute" : "relative");
+}
 
-// Returns {tier, symbol, label, cls, value, unit} or null when the deltas for
-// this mark aren't available (no lane opponent / timeline not fetched yet).
-function laneOutcome(g, mark, method = laneWinMethod()) {
+// Expected delta for a game's matchup: a user-set per-matchup goal overrides the
+// data-driven baseline (stats.lane_baselines, shrunk toward 0 by sample size);
+// 0 when neither is known (→ behaves like absolute). state.laneBaselines /
+// state.laneGoals are loaded by loadLaneBaselines().
+function laneExpected(g, metricBase, mark) {
+  const key = `${g.my_champion}|${g.opp_champion}`;
+  const goal = state.laneGoals && state.laneGoals[key];
+  if (goal && goal[`${metricBase}_${mark}`] != null) return goal[`${metricBase}_${mark}`];
+  const base = state.laneBaselines && state.laneBaselines[key];
+  const bv = base && base[`${metricBase}_diff_${mark}`];
+  return bv != null ? bv : 0;
+}
+
+// Returns {tier, symbol, label, cls, value, unit, expected, residual} or null
+// when the deltas for this mark aren't available (no lane opponent / timeline
+// not fetched yet). In relative mode the verdict is on value-minus-expected.
+function laneOutcome(g, mark, method = laneWinMethod(), mode = laneGradeMode()) {
   let t = LANE_THRESHOLDS[method][mark];
   const gold = g[`gold_diff_${mark}`], cs = g[`cs_diff_${mark}`];
   const xp = g[`xp_diff_${mark}`], lvl = g[`level_diff_${mark}`];
-  let value, unit;
+  let value, unit, metricBase = method === "cs" ? "cs" : method === "xp" ? "xp" : "gold";
   if (method === "cs") { value = cs; unit = "CS"; }
   else if (method === "xp") {
     // prefer raw XP; fall back to whole levels for games captured before ΔXP
@@ -653,26 +684,42 @@ function laneOutcome(g, mark, method = laneWinMethod()) {
     else { value = lvl; unit = "lvl"; t = LANE_LEVEL_THRESHOLDS[mark]; }
   } else { value = gold; unit = "g"; }        // gold + combined
   if (value == null) return null;
-  const mag = Math.abs(value);
+  // level-fallback games have no baseline in level units → grade absolute
+  const relative = mode === "relative" && !(method === "xp" && xp == null);
+  const expected = relative ? laneExpected(g, metricBase, mark) : 0;
+  const residual = value - expected;
+  const mag = Math.abs(residual);
   let name = mag >= t.stomp ? "stomp" : mag >= t.won ? "won" : "even";
-  if (name !== "even" && value < 0) name = name === "stomp" ? "stomped" : "lost";
-  // "combined" gates a gold win/loss on XP agreeing in sign — a gold lead while
-  // XP-starved (or vice versa) is only "even", not a clean win. Prefer raw XP,
-  // fall back to level for older games.
+  if (name !== "even" && residual < 0) name = name === "stomp" ? "stomped" : "lost";
+  // "combined" gates a gold win/loss on XP agreeing with the residual's sign —
+  // a gold edge with XP going the other way is only "even". Prefer raw XP.
   if (method === "combined" && name !== "even") {
     const agree = xp != null ? xp : lvl;
-    if (agree != null && Math.sign(agree) !== 0 && Math.sign(agree) !== Math.sign(value)) name = "even";
+    if (agree != null && Math.sign(agree) !== 0 && Math.sign(agree) !== Math.sign(residual)) name = "even";
   }
-  return { tier: name, value, unit, ...LANE_TIERS[name] };
+  return { tier: name, value, unit, expected, residual,
+           symbol: LANE_TIERS[name].symbol, cls: LANE_TIERS[name].cls,
+           label: LANE_TIER_LABELS[relative ? "relative" : "absolute"][name] };
+}
+async function loadLaneBaselines() {
+  try {
+    const d = await getJSON("/api/stats/lane-baselines");
+    state.laneBaselines = d.baselines || {};
+    state.laneGoals = d.goals || {};
+  } catch { state.laneBaselines = state.laneBaselines || {}; state.laneGoals = state.laneGoals || {}; }
 }
 
-// A little "= method: thresholds" legend for the current method.
-function laneLegendText(method = laneWinMethod()) {
+// A little "method: thresholds" legend for the current method + grade mode.
+function laneLegendText(method = laneWinMethod(), mode = laneGradeMode()) {
   const u = method === "cs" ? "CS" : method === "xp" ? "XP" : "gold";
+  const g = u === "gold" ? "g" : " " + u;
   const t7 = LANE_THRESHOLDS[method][7], t14 = LANE_THRESHOLDS[method][14];
-  return `vs your lane opponent · Won = ±${t7.won}${u === "gold" ? "g" : ""} @7 / `
-    + `±${t14.won}${u === "gold" ? "g" : ""} @14 ${u === "gold" ? "" : u + " "}`
-    + `· Stomp = ±${t7.stomp}/${t14.stomp}`
+  const basis = mode === "relative"
+    ? "vs this matchup's expected outcome (your goal, else the data baseline)"
+    : "vs your lane opponent (a raw lead)";
+  const win = mode === "relative" ? "Ahead" : "Won";
+  return `${basis} · ${win} = ±${t7.won}${g} @7 / ±${t14.won}${g} @14 `
+    + `· big = ±${t7.stomp}/${t14.stomp}`
     + (method === "combined" ? " · needs XP to agree" : "");
 }
 
@@ -2173,6 +2220,7 @@ async function init(firstLoad = true) {
   if (firstLoad) {
     await loadDdragonVersion();
     await ensureMetricsMeta(); // metric column pickers (wired below) need it
+    loadLaneBaselines();       // matchup-relative lane grading (Blocks); async
     wireFilters();
     wireProgress();
     wireChangelog();

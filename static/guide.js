@@ -144,7 +144,7 @@ function runeIcon(name, tree) {
   return rune ? rune.icon : "";
 }
 
-function emptyGuide() { return { notes: "", runes: [], patch_version: "", skill_order: [] }; }
+function emptyGuide() { return { notes: "", runes: [], patch_version: "", skill_order: [], lane_goal: null }; }
 function emptyRunePage() {
   return { label: "", primary_tree: "", keystone: "", primary_runes: ["", "", ""],
            secondary_tree: "", secondary_runes: [], shards: ["", "", ""] };
@@ -157,6 +157,27 @@ function pageHasContent(p) {
 function guideFor(champ) {
   const g = guideState.guide[champ];
   return g ? { ...emptyGuide(), ...g } : emptyGuide();
+}
+
+// The data baseline (expected ΔGold @14) for my champion vs `champ`, if loaded.
+function laneGoalBaseline(champ) {
+  const b = state.laneBaselines && state.laneBaselines[`${guideState.myChampion}|${champ}`];
+  return b && b.gold_diff_14 != null ? Math.round(b.gold_diff_14) : null;
+}
+// Edit-mode control: the "winning lane = ΔGold@14 ≥ X" target for this matchup.
+// Blank means "use the data baseline". This is the coach's-definition override.
+function laneGoalEditor(champ, draft) {
+  const base = laneGoalBaseline(champ);
+  const cur = draft.lane_goal && draft.lane_goal.gold_14 != null ? draft.lane_goal.gold_14 : "";
+  const hint = base != null
+    ? `Blank = use the matchup average (${base > 0 ? "+" : ""}${base} gold).`
+    : "Blank = use the matchup average (not enough games yet).";
+  return `<label class="filter-label" for="guide-lane-goal">Won-lane target — ΔGold @14 vs your lane opponent</label>
+    <div class="guide-lane-goal-row">
+      <input type="number" id="guide-lane-goal" step="50" style="max-width:9em"
+        placeholder="${base != null ? base : "e.g. 300"}" value="${cur}">
+      <span class="muted">${hint} Blocks &amp; comparison judge "won lane" as beating this in this matchup.</span>
+    </div>`;
 }
 
 // ---------- init / load ----------
@@ -245,6 +266,7 @@ async function loadGuide() {
     getJSON(`/api/matchups/notes?my_champion=${encodeURIComponent(guideState.myChampion)}`),
     getJSON(`/api/champions/notes/${encodeURIComponent(guideState.myChampion)}`),
     getJSON(`/api/champions/item-build/${encodeURIComponent(guideState.myChampion)}`),
+    loadLaneBaselines(),  // for the per-matchup lane-goal editor's baseline hint
   ]);
   // a guide can exist for an opponent this champion has never faced (added
   // by hand, imported, or migrated from pre-champ-guide notes) — give it a
@@ -580,9 +602,10 @@ function guideRow(m) {
   const champ = m.opp_champion;
   const expanded = guideState.expanded.has(champ);
   const editing = guideState.editing === champ;
-  const { notes, runes, patch_version, skill_order } = guideFor(champ);
+  const { notes, runes, patch_version, skill_order, lane_goal } = guideFor(champ);
   const hasBuild = skill_order && skill_order.some(Boolean);
-  const hasAny = notes || (runes && runes.length) || patch_version || hasBuild;
+  const hasAny = notes || (runes && runes.length) || patch_version || hasBuild
+    || (lane_goal && lane_goal.gold_14 != null);
   const statLine = m.games
     ? `<span class="muted guide-stat">${m.games} games · ${wrCell(m.winrate)}</span>`
     : `<span class="muted guide-stat">Not played yet</span>`;
@@ -618,6 +641,7 @@ function guideRow(m) {
       </div>
       <label class="filter-label" for="guide-patch">Patch</label>
       ${patchPicker(draft.patch_version)}
+      ${laneGoalEditor(champ, draft)}
       <label class="filter-label" for="guide-notes">How to play this matchup (Markdown)</label>
       <textarea id="guide-notes" rows="8"
         placeholder="Game plan, power spikes, bans…">${escapeHtml(draft.notes)}</textarea>
@@ -638,6 +662,8 @@ function guideRow(m) {
   }
   const patchBadge = !editing && patch_version
     ? `<span class="guide-patch-badge" title="Written for this patch">Patch ${escapeHtml(patch_version)}</span>` : "";
+  const goalBadge = !editing && lane_goal && lane_goal.gold_14 != null
+    ? `<span class="guide-patch-badge" title="Won-lane target — beat this ΔGold @14 to have won lane">🎯 Lane ≥ ${lane_goal.gold_14 > 0 ? "+" : ""}${lane_goal.gold_14}g</span>` : "";
   const gamesSide = m.games > 0
     ? `<div class="guide-row-side">${recentGamesColumn(champ)}</div>` : "";
   return `<div class="mu-notes mu-guide guide-row" data-opp="${escapeHtml(champ)}">
@@ -645,6 +671,7 @@ function guideRow(m) {
       ${toggleBtn}
       <h4>${champIcon(champ)}${displayName(champ)}</h4>
       ${patchBadge}
+      ${goalBadge}
       ${statLine}
       ${guideRowActions(champ, editing, hasAny)}
     </div>
@@ -830,10 +857,15 @@ function wireGuideHandlers(target) {
   target.querySelectorAll(".guide-save").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const opp = btn.dataset.opp;
+      const lgInput = $("#guide-lane-goal");
+      const lgVal = lgInput && lgInput.value.trim();
+      const laneGoal = lgVal !== "" && lgVal != null && !Number.isNaN(Number(lgVal))
+        ? { gold_14: Number(lgVal) } : {};   // {} clears the goal (back to baseline)
       const payload = {
         notes: $("#guide-notes").value,
         patch_version: $("#guide-patch").value,
         runes: guideState.draft.runes.filter(pageHasContent),
+        lane_goal: laneGoal,
       };
       const response = await fetch(
         `/api/matchups/notes/${encodeURIComponent(guideState.myChampion)}/${encodeURIComponent(opp)}`, {
@@ -851,13 +883,15 @@ function wireGuideHandlers(target) {
       // the editor doesn't touch skill_order (saved from the cooldown popup)
       // — the server keeps it (partial update), so keep it client-side too
       const keptBuild = guideFor(opp).skill_order;
+      const goalOrNull = Object.keys(laneGoal).length ? laneGoal : null;
       const hasAny = payload.notes.trim() || payload.runes.length
-        || payload.patch_version.trim() || keptBuild.some(Boolean);
-      if (hasAny) guideState.guide[opp] = { ...payload, skill_order: keptBuild };
+        || payload.patch_version.trim() || keptBuild.some(Boolean) || goalOrNull;
+      if (hasAny) guideState.guide[opp] = { ...payload, skill_order: keptBuild, lane_goal: goalOrNull };
       else delete guideState.guide[opp];
       guideState.editing = null;
       guideState.draft = null;
       guideState.openRuneIndex = null;
+      loadLaneBaselines();  // refresh goals so Blocks/comparison grade against the new target
       renderGuide();
       updateGuideAddOptions();
     }));

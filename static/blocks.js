@@ -123,9 +123,16 @@ async function initBlocks() {
       e.target.title = laneLegendText();
       renderBlocks();
     });
+    const gradeSel = $("#blocks-lane-grade");
+    gradeSel.value = laneGradeMode();
+    gradeSel.addEventListener("change", (e) => {
+      setLaneGradeMode(e.target.value);
+      laneSel.title = laneLegendText();
+      renderBlocks();
+    });
     await loadChampionRoster();
   }
-  await Promise.all([loadPool(), loadBlocks()]);
+  await Promise.all([loadPool(), loadBlocks(), loadLaneBaselines()]);
 }
 
 // Discord renders bold/lists/inline-code but not tables, so this uses
@@ -396,10 +403,11 @@ function laneCell(game, mark) {
   if (game.has_timeline !== 1) return `<td class="muted" title="Fetching deeper stats…">⏳</td>`;
   const o = laneOutcome(game, mark);
   if (!o) return `<td class="muted" title="No lane opponent / data">–</td>`;
-  const sign = o.value > 0 ? "+" : "";
-  const val = o.unit === "CS" ? o.value.toFixed(1) : Math.round(o.value);
+  const fmt = (v) => (o.unit === "CS" ? v.toFixed(1) : Math.round(v));
+  const sign = (v) => (v > 0 ? "+" : "");
+  const exp = o.expected ? ` (matchup usually ${sign(o.expected)}${fmt(o.expected)})` : "";
   return `<td><span class="lane-pill ${o.cls}" `
-    + `title="${o.label} lane @${mark}m · ${sign}${val} ${o.unit} vs opponent">${o.symbol}</span></td>`;
+    + `title="${o.label} @${mark}m · ${sign(o.value)}${fmt(o.value)} ${o.unit} vs opponent${exp}">${o.symbol}</span></td>`;
 }
 
 // signed lane-delta cell. Until the game's timeline has been fetched

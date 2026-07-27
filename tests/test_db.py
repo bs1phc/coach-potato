@@ -475,14 +475,15 @@ def test_matchup_notes_roundtrip(conn):
     db.set_matchup_note(conn, "Gwen", "Teemo", notes="ban it")
     assert db.get_matchup_notes(conn, "Gwen") == {
         "Darius": {"notes": "- care ghost timings", "runes": [CONQ_PAGE],
-                    "patch_version": "14.14", "skill_order": []},
-        "Teemo": {"notes": "ban it", "runes": [], "patch_version": "", "skill_order": []},
+                    "patch_version": "14.14", "skill_order": [], "lane_goal": None},
+        "Teemo": {"notes": "ban it", "runes": [], "patch_version": "",
+                    "skill_order": [], "lane_goal": None},
     }
     # a different "my champion" has its own, independent guide for the same opponent
     db.set_matchup_note(conn, "Camille", "Darius", notes="camille vs darius is easier")
     assert db.get_matchup_notes(conn, "Camille") == {
         "Darius": {"notes": "camille vs darius is easier", "runes": [],
-                    "patch_version": "", "skill_order": []}}
+                    "patch_version": "", "skill_order": [], "lane_goal": None}}
     assert db.get_matchup_notes(conn, "Gwen")["Darius"]["notes"] == "- care ghost timings"
     # partial update: fields not passed keep their stored value
     db.set_matchup_note(conn, "Gwen", "Darius", notes="updated")
@@ -757,7 +758,7 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     assert c.execute("SELECT learnings FROM blocks").fetchone()["learnings"] == "learned things"
     assert db.get_matchup_notes(c, "Gwen") == {"Darius": {
         "notes": "matchup note", "runes": [CONQ_PAGE], "patch_version": "",
-        "skill_order": []}}
+        "skill_order": [], "lane_goal": None}}
     assert db.get_champion_note(c, "Gwen") == "general champion note"
     # the old core list folds in as a leading "Core build" section, keeping
     # both its items and the situational sections that followed it

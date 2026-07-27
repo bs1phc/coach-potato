@@ -68,7 +68,13 @@
   <label class="cmp-patch-label">Patch
     <select id="patch-filter" class="cmp-toggle"><option value="">All</option></select>
   </label>
-  <label class="cmp-patch-label">Lane won by
+  <label class="cmp-patch-label">Lane
+    <select id="lane-grade" class="cmp-toggle">
+      <option value="relative">vs matchup</option>
+      <option value="absolute">raw lead</option>
+    </select>
+  </label>
+  <label class="cmp-patch-label">by
     <select id="lane-method" class="cmp-toggle"></select>
   </label>
 </div>
@@ -221,42 +227,64 @@ const LANE_THRESHOLDS = {
 };
 const LANE_LEVEL_THRESHOLDS = { 7: { won: 1, stomp: 2 }, 14: { won: 1, stomp: 2 } };
 const LANE_TIERS = {
-  stomp:   { symbol: "⇈", label: "Stomp",   cls: "lane-stomp" },
-  won:     { symbol: "✓", label: "Won",     cls: "lane-won" },
-  even:    { symbol: "=", label: "Even",    cls: "lane-even" },
-  lost:    { symbol: "✗", label: "Lost",    cls: "lane-lost" },
-  stomped: { symbol: "⇊", label: "Stomped", cls: "lane-stomped" },
+  stomp:   { symbol: "⇈", cls: "lane-stomp" },
+  won:     { symbol: "✓", cls: "lane-won" },
+  even:    { symbol: "=", cls: "lane-even" },
+  lost:    { symbol: "✗", cls: "lane-lost" },
+  stomped: { symbol: "⇊", cls: "lane-stomped" },
 };
+const LANE_TIER_LABELS = {
+  absolute: { stomp: "Stomp", won: "Won", even: "Even", lost: "Lost", stomped: "Stomped" },
+  relative: { stomp: "Crushed", won: "Ahead of curve", even: "On plan",
+              lost: "Behind curve", stomped: "Well behind" },
+};
+// this matchup's expected deltas (goal overrides the data baseline), set from
+// the comparison payload; used only in relative grade mode.
+let LANE_BASELINE = null, LANE_GOAL = null;
 function laneWinMethod() {
   const m = localStorage.getItem("cp-lane-metric");
   return LANE_THRESHOLDS[m] ? m : "combined";
 }
-function laneOutcome(g, mark, method = laneWinMethod()) {
+function laneGradeMode() {
+  return localStorage.getItem("cp-lane-grade") === "absolute" ? "absolute" : "relative";
+}
+function laneExpected(metricBase, mark) {
+  if (LANE_GOAL && LANE_GOAL[`${metricBase}_${mark}`] != null) return LANE_GOAL[`${metricBase}_${mark}`];
+  const bv = LANE_BASELINE && LANE_BASELINE[`${metricBase}_diff_${mark}`];
+  return bv != null ? bv : 0;
+}
+function laneOutcome(g, mark, method = laneWinMethod(), mode = laneGradeMode()) {
   let t = LANE_THRESHOLDS[method][mark];
   const gold = g[`gold_diff_${mark}`], cs = g[`cs_diff_${mark}`];
   const xp = g[`xp_diff_${mark}`], lvl = g[`level_diff_${mark}`];
-  let value, unit;
+  let value, unit, metricBase = method === "cs" ? "cs" : method === "xp" ? "xp" : "gold";
   if (method === "cs") { value = cs; unit = "CS"; }
   else if (method === "xp") {
     if (xp != null) { value = xp; unit = "XP"; }
     else { value = lvl; unit = "lvl"; t = LANE_LEVEL_THRESHOLDS[mark]; }
   } else { value = gold; unit = "g"; }
   if (value == null) return null;
-  const mag = Math.abs(value);
+  const relative = mode === "relative" && !(method === "xp" && xp == null);
+  const expected = relative ? laneExpected(metricBase, mark) : 0;
+  const residual = value - expected;
+  const mag = Math.abs(residual);
   let name = mag >= t.stomp ? "stomp" : mag >= t.won ? "won" : "even";
-  if (name !== "even" && value < 0) name = name === "stomp" ? "stomped" : "lost";
+  if (name !== "even" && residual < 0) name = name === "stomp" ? "stomped" : "lost";
   if (method === "combined" && name !== "even") {
     const agree = xp != null ? xp : lvl;
-    if (agree != null && Math.sign(agree) !== 0 && Math.sign(agree) !== Math.sign(value)) name = "even";
+    if (agree != null && Math.sign(agree) !== 0 && Math.sign(agree) !== Math.sign(residual)) name = "even";
   }
-  return { tier: name, value, unit, ...LANE_TIERS[name] };
+  return { tier: name, value, unit, expected,
+           symbol: LANE_TIERS[name].symbol, cls: LANE_TIERS[name].cls,
+           label: LANE_TIER_LABELS[relative ? "relative" : "absolute"][name] };
 }
 function laneVerdictPill(g, mark) {
   const o = laneOutcome(g, mark);
   if (!o) return `<span class="lane-pill lane-even" title="No lane data @${mark}m">–</span>`;
-  const sign = o.value > 0 ? "+" : "";
-  const val = o.unit === "CS" ? o.value.toFixed(1) : Math.round(o.value);
-  return `<span class="lane-pill ${o.cls}" title="${o.label} lane @${mark}m · ${sign}${val} ${o.unit}">${o.symbol}</span>`;
+  const fmt = (v) => (o.unit === "CS" ? v.toFixed(1) : Math.round(v));
+  const sg = (v) => (v > 0 ? "+" : "");
+  const exp = o.expected ? ` (matchup usually ${sg(o.expected)}${fmt(o.expected)})` : "";
+  return `<span class="lane-pill ${o.cls}" title="${o.label} @${mark}m · ${sg(o.value)}${fmt(o.value)} ${o.unit}${exp}">${o.symbol}</span>`;
 }
 // Won/lost record across a set of games at a mark, using the current method.
 function laneRecord(games, mark) {
@@ -273,15 +301,20 @@ function laneRecord(games, mark) {
   return `${won}W-${lost}L${even ? `-${even}E` : ""} (${Math.round(100 * won / n)}%)`;
 }
 function renderLaneLegend() {
-  const method = laneWinMethod();
+  const method = laneWinMethod(), mode = laneGradeMode();
   const u = method === "cs" ? " CS" : method === "xp" ? " XP" : "g";
   const t7 = LANE_THRESHOLDS[method][7], t14 = LANE_THRESHOLDS[method][14];
-  const chip = (k) => `<span class="lane-pill ${LANE_TIERS[k].cls}">${LANE_TIERS[k].symbol}</span> ${LANE_TIERS[k].label}`;
+  const lbl = LANE_TIER_LABELS[mode];
+  const chip = (k) => `<span class="lane-pill ${LANE_TIERS[k].cls}">${LANE_TIERS[k].symbol}</span> ${lbl[k]}`;
+  const basis = mode === "relative"
+    ? "<strong>Winning lane</strong> = beating what this matchup usually produces (your goal, else the data baseline)."
+    : "<strong>Winning lane</strong> = ahead vs your direct lane opponent (a raw lead).";
   document.getElementById("lane-legend").innerHTML =
-    `<strong>Winning lane</strong> = ahead vs your direct lane opponent. `
+    `${basis} `
     + `${chip("won")} ≥ ${t7.won}${u} @7 / ${t14.won}${u} @14 · `
     + `${chip("stomp")} ≥ ${t7.stomp}${u} / ${t14.stomp}${u} · ${chip("even")} in between · `
     + `${chip("lost")} / ${chip("stomped")} the same behind`
+    + (mode === "relative" && LANE_BASELINE ? ` · this matchup: ${LANE_BASELINE.games} games sampled` : "")
     + (method === "combined" ? " · a gold lead only counts if XP agrees." : ".");
 }
 
@@ -383,6 +416,13 @@ function syncToggle() {
     renderLaneLegend();
     renderCards();
   });
+  const gradeSel = document.getElementById("lane-grade");
+  gradeSel.value = laneGradeMode();
+  gradeSel.addEventListener("change", (e) => {
+    localStorage.setItem("cp-lane-grade", e.target.value);
+    renderLaneLegend();
+    renderCards();
+  });
   renderLaneLegend();
   syncToggle();
   await Promise.all([loadRunes(), loadDdragon()]);
@@ -395,6 +435,9 @@ function syncToggle() {
     return;
   }
   CMP_PLAYERS = data.players || [];
+  LANE_BASELINE = data.lane_baseline || null;
+  LANE_GOAL = data.lane_goal || null;
+  renderLaneLegend();
   // populate the patch dropdown from the patches present across all players' games
   // sort numerically (major then minor) so 16.14 > 16.9, newest first
   const patches = [...new Set(CMP_PLAYERS.flatMap((p) => (p.recent || []).map(patchOf))

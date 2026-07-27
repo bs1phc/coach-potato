@@ -555,7 +555,7 @@ def test_matchup_notes_endpoints(client):
     assert r.status_code == 200
     assert client.get("/api/matchups/notes?my_champion=Gwen").json() == {"Darius": {
         "notes": "- respect level 2", "runes": [CONQ_PAGE, GRASP_PAGE],
-        "patch_version": "14.14", "skill_order": []}}
+        "patch_version": "14.14", "skill_order": [], "lane_goal": None}}
     # a different "my champion" has its own, independent guide
     assert client.get("/api/matchups/notes?my_champion=Camille").json() == {}
     assert client.get("/api/matchups/notes").status_code == 422  # my_champion required

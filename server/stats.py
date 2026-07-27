@@ -317,6 +317,75 @@ def comparison_for_matchup(conn, puuid, my_champion, opp_champion, queues=None):
     return {"matchup": matchup, "overall": overall, "recent": recent}
 
 
+_LANE_DELTA_KEYS = ("cs_diff_7", "cs_diff_14", "xp_diff_7", "xp_diff_14",
+                    "gold_diff_7", "gold_diff_14")
+LANE_BASELINE_SHRINK = 4  # pull expected toward 0 when a matchup has few games
+
+
+def _shrunk_baseline(row):
+    """Turn an aggregate row (games + AVG(delta)s) into the shrunk expected dict."""
+    if not row or not row["games"]:
+        return None
+    n = row["games"]
+    shrink = n / (n + LANE_BASELINE_SHRINK)
+    out = {"games": n}
+    for k in _LANE_DELTA_KEYS:
+        out[k] = (row[k] * shrink) if row[k] is not None else None
+    return out
+
+
+def lane_baseline_for(conn, my_champion, opp_champion):
+    """The single-matchup expected-delta baseline (see lane_baselines), for the
+    comparison pop-out which is scoped to one pairing. None if no games."""
+    avg = ", ".join(f"AVG(pm.{k}) AS {k}" for k in _LANE_DELTA_KEYS)
+    row = conn.execute(
+        f"""SELECT COUNT(*) AS games, {avg}
+            FROM participants me
+            JOIN matches m ON m.match_id = me.match_id
+            JOIN participants opp ON opp.match_id = me.match_id
+                AND opp.team_id != me.team_id AND opp.team_position = me.team_position
+            JOIN participant_metrics pm ON pm.match_id = me.match_id AND pm.puuid = me.puuid
+            WHERE me.champion_name = ? AND opp.champion_name = ?
+              AND me.team_position != '' AND m.game_duration_s >= ? AND pm.has_timeline = 1""",
+        (my_champion, opp_champion, REMAKE_S)).fetchone()
+    return _shrunk_baseline(row)
+
+
+def lane_baselines(conn):
+    """Per (my_champion, opp_champion) EXPECTED lane deltas — the "what this
+    matchup normally produces" baseline used to grade a game relative to the
+    matchup instead of against an absolute bar (winning lane = beating what the
+    pairing usually yields, e.g. a scaler being only slightly behind a lane
+    bully). Pooled across every stored game with a lane opponent and a processed
+    timeline — tracked players AND comparison/research players, since both carry
+    participant_metrics. Each expected value is the mean shrunk toward 0 by
+    sample size (mean * n/(n+K)), so a 1-game matchup barely leaves absolute
+    grading while a well-sampled one fully re-centers. Returns
+    {"my|opp": {games, <delta key>: expected, ...}}."""
+    avg = ", ".join(f"AVG(pm.{k}) AS {k}" for k in _LANE_DELTA_KEYS)
+    rows = conn.execute(
+        f"""SELECT me.champion_name AS my_champion, opp.champion_name AS opp_champion,
+                   COUNT(*) AS games, {avg}
+            FROM participants me
+            JOIN matches m ON m.match_id = me.match_id
+            JOIN participants opp ON opp.match_id = me.match_id
+                AND opp.team_id != me.team_id AND opp.team_position = me.team_position
+            JOIN participant_metrics pm ON pm.match_id = me.match_id AND pm.puuid = me.puuid
+            WHERE me.team_position != '' AND m.game_duration_s >= ?
+              AND pm.has_timeline = 1
+            GROUP BY me.champion_name, opp.champion_name""",
+        (REMAKE_S,)).fetchall()
+    out = {}
+    for r in rows:
+        n = r["games"]
+        shrink = n / (n + LANE_BASELINE_SHRINK)
+        entry = {"games": n}
+        for k in _LANE_DELTA_KEYS:
+            entry[k] = (r[k] * shrink) if r[k] is not None else None
+        out[f"{r['my_champion']}|{r['opp_champion']}"] = entry
+    return out
+
+
 def _rune_breakdown(conn, base, params, field):
     """Games + win rate grouped by a rune-page field (keystone/secondary_tree)
     extracted from the runes actually played. Skips games with no recorded

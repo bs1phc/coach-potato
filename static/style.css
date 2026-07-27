@@ -400,6 +400,8 @@ tbody tr.games-row:hover td { background: var(--page); }
 .lane-stomped { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--critical) 55%, transparent); }
 .lane-method-sel { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
 .lane-method-sel select { padding: 3px 6px; }
+.guide-lane-goal-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.guide-lane-goal-row .muted { flex: 1; min-width: 200px; font-size: 12px; }
 
 .metric-groups {
   display: grid;

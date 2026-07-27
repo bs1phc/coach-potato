@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS matchup_notes (
     runes TEXT NOT NULL DEFAULT '',
     patch_version TEXT NOT NULL DEFAULT '',
     skill_order TEXT NOT NULL DEFAULT '',
+    lane_goal TEXT NOT NULL DEFAULT '',
     updated_at_ms INTEGER,
     PRIMARY KEY (my_champion, opp_champion)
 );
@@ -314,6 +315,7 @@ def _migrate(conn):
                 runes TEXT NOT NULL DEFAULT '',
                 patch_version TEXT NOT NULL DEFAULT '',
                 skill_order TEXT NOT NULL DEFAULT '',
+                lane_goal TEXT NOT NULL DEFAULT '',
                 updated_at_ms INTEGER,
                 PRIMARY KEY (my_champion, opp_champion)
             )""")
@@ -336,6 +338,13 @@ def _migrate(conn):
         # v1.14.0..v1.31.x shape — saved skill-order builds added in v1.32.0
         conn.execute(
             "ALTER TABLE matchup_notes ADD COLUMN skill_order TEXT NOT NULL DEFAULT ''")
+    # per-matchup lane goal (expected-delta overrides) added later — additive,
+    # independent of the rebuild/skill_order branches above (re-read post-rebuild).
+    # Empty set = table not created yet (fresh DB); SCHEMA already includes the
+    # column, so only ALTER an existing table that lacks it.
+    mn_cols = {r["name"] for r in conn.execute("PRAGMA table_info(matchup_notes)")}
+    if mn_cols and "lane_goal" not in mn_cols:
+        conn.execute("ALTER TABLE matchup_notes ADD COLUMN lane_goal TEXT NOT NULL DEFAULT ''")
     item_build_columns = {r["name"] for r in conn.execute("PRAGMA table_info(champion_item_builds)")}
     if item_build_columns and "sections" not in item_build_columns:
         # Pre-v1.39.0 item builds had a privileged, unlabeled "core" list plus
@@ -601,30 +610,50 @@ def get_matchup_notes(conn, my_champion):
     list — a matchup can carry more than one rune page; `skill_order` is up
     to 18 entries of ''/Q/W/E/R (index = level - 1)."""
     rows = conn.execute(
-        """SELECT opp_champion, notes, runes, patch_version, skill_order
+        """SELECT opp_champion, notes, runes, patch_version, skill_order, lane_goal
            FROM matchup_notes
            WHERE my_champion=? AND (notes != '' OR runes != ''
-                                    OR patch_version != '' OR skill_order != '')""",
+                                    OR patch_version != '' OR skill_order != ''
+                                    OR lane_goal != '')""",
         (my_champion,))
     return {r["opp_champion"]: {
         "notes": r["notes"], "runes": json.loads(r["runes"]) if r["runes"] else [],
         "patch_version": r["patch_version"],
         "skill_order": json.loads(r["skill_order"]) if r["skill_order"] else [],
+        "lane_goal": json.loads(r["lane_goal"]) if r["lane_goal"] else None,
     } for r in rows}
+
+
+def get_lane_goals(conn):
+    """All user-set per-matchup lane goals: {"my|opp": {<metric>_<mark>: expected}}.
+    Feeds the relative lane-grading override across the app (Blocks, comparison)."""
+    rows = conn.execute(
+        "SELECT my_champion, opp_champion, lane_goal FROM matchup_notes WHERE lane_goal != ''")
+    out = {}
+    for r in rows:
+        try:
+            goal = json.loads(r["lane_goal"])
+        except (ValueError, TypeError):
+            continue
+        if goal:
+            out[f"{r['my_champion']}|{r['opp_champion']}"] = goal
+    return out
 
 
 _KEEP = object()  # set_matchup_note sentinel: leave the stored value alone
 
 
 def set_matchup_note(conn, my_champion, opp_champion, notes=_KEEP, runes=_KEEP,
-                     patch_version=_KEEP, skill_order=_KEEP):
+                     patch_version=_KEEP, skill_order=_KEEP, lane_goal=_KEEP):
     """Upsert the champ guide for a (my_champion, opp_champion) matchup.
     Fields not passed keep their stored value (so the cooldown popup can save
     just skill_order without touching notes, and vice versa); pass explicit
     blanks to clear. A row whose fields all end up blank is deleted.
-    runes: list of rune-page dicts. skill_order: list of ''/Q/W/E/R per level."""
+    runes: list of rune-page dicts. skill_order: list of ''/Q/W/E/R per level.
+    lane_goal: dict of expected-delta overrides (e.g. {"gold_14": -150}) or
+    None/{} to clear."""
     row = conn.execute(
-        """SELECT notes, runes, patch_version, skill_order FROM matchup_notes
+        """SELECT notes, runes, patch_version, skill_order, lane_goal FROM matchup_notes
            WHERE my_champion=? AND opp_champion=?""",
         (my_champion, opp_champion)).fetchone()
     notes = (row["notes"] if row else "") if notes is _KEEP else (notes or "")
@@ -634,9 +663,11 @@ def set_matchup_note(conn, my_champion, opp_champion, notes=_KEEP, runes=_KEEP,
         else (patch_version or "")
     skill_json = (row["skill_order"] if row else "") if skill_order is _KEEP \
         else (json.dumps(skill_order) if skill_order and any(skill_order) else "")
+    goal_json = (row["lane_goal"] if row else "") if lane_goal is _KEEP \
+        else (json.dumps(lane_goal) if lane_goal else "")
     with conn:
         if (not notes.strip() and not runes_json and not patch_version.strip()
-                and not skill_json):
+                and not skill_json and not goal_json):
             conn.execute(
                 "DELETE FROM matchup_notes WHERE my_champion=? AND opp_champion=?",
                 (my_champion, opp_champion))
@@ -644,15 +675,17 @@ def set_matchup_note(conn, my_champion, opp_champion, notes=_KEEP, runes=_KEEP,
         conn.execute(
             f"""INSERT INTO matchup_notes
                 (my_champion, opp_champion, notes, runes, patch_version, skill_order,
-                 updated_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, {_now_expr()})
+                 lane_goal, updated_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, {_now_expr()})
                 ON CONFLICT(my_champion, opp_champion) DO UPDATE SET
                   notes=excluded.notes,
                   runes=excluded.runes,
                   patch_version=excluded.patch_version,
                   skill_order=excluded.skill_order,
+                  lane_goal=excluded.lane_goal,
                   updated_at_ms=excluded.updated_at_ms""",
-            (my_champion, opp_champion, notes, runes_json, patch_version, skill_json))
+            (my_champion, opp_champion, notes, runes_json, patch_version, skill_json,
+             goal_json))
 
 
 def get_champion_note(conn, champion):

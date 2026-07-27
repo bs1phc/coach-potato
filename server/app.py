@@ -556,9 +556,10 @@ def api_export_all():
                FROM block_games ORDER BY id""")]
         matchup_notes_rows = [dict(r) for r in conn.execute(
             """SELECT my_champion, opp_champion, notes, runes, patch_version,
-                      skill_order, updated_at_ms
+                      skill_order, lane_goal, updated_at_ms
                FROM matchup_notes
-               WHERE notes != '' OR runes != '' OR patch_version != '' OR skill_order != ''
+               WHERE notes != '' OR runes != '' OR patch_version != ''
+                     OR skill_order != '' OR lane_goal != ''
                ORDER BY my_champion, opp_champion""")]
         champion_notes_rows = [dict(r) for r in conn.execute(
             "SELECT champion, notes, updated_at_ms FROM champion_notes ORDER BY champion")]
@@ -582,6 +583,7 @@ def api_export_all():
     for row in matchup_notes_rows:
         row["runes"] = json.loads(row["runes"]) if row["runes"] else []
         row["skill_order"] = json.loads(row["skill_order"]) if row["skill_order"] else []
+        row["lane_goal"] = json.loads(row["lane_goal"]) if row["lane_goal"] else None
     for row in item_build_rows:
         row["sections"] = json.loads(row["sections"])
     for row in blocks_rows:
@@ -752,14 +754,16 @@ async def api_import_all(file: UploadFile = File(...)):
                      row.get("notes", ""), row.get("added_at_ms")))
             for row in payload.get("matchup_notes") or []:
                 skill_order = row.get("skill_order") or []
+                lane_goal = row.get("lane_goal") or None
                 conn.execute(
                     """INSERT INTO matchup_notes
                        (my_champion, opp_champion, notes, runes, patch_version,
-                        skill_order, updated_at_ms)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        skill_order, lane_goal, updated_at_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (row["my_champion"], row["opp_champion"], row.get("notes", ""),
                      json.dumps(row.get("runes") or []), row.get("patch_version", ""),
                      json.dumps(skill_order) if any(skill_order) else "",
+                     json.dumps(lane_goal) if lane_goal else "",
                      row.get("updated_at_ms")))
             for row in payload.get("champion_notes") or []:
                 conn.execute(
@@ -873,6 +877,19 @@ def _tracked_puuids(conn):
             conn.execute("SELECT puuid FROM players WHERE is_tracked=1")]
 
 
+@app.get("/api/stats/lane-baselines")
+def api_lane_baselines():
+    """Expected lane deltas per matchup (pooled across tracked + comparison
+    games), for grading a game relative to the matchup rather than an absolute
+    bar. See stats.lane_baselines."""
+    conn = get_conn()
+    try:
+        return {"baselines": stats.lane_baselines(conn),
+                "goals": db.get_lane_goals(conn)}
+    finally:
+        conn.close()
+
+
 @app.get("/api/metrics/meta")
 def api_metrics_meta():
     """The metric registry (labels/groups/decimals/default_hidden/…) on its
@@ -961,6 +978,30 @@ def _validate_patch(patch_version: str):
 R_POINT_LEVELS = (6, 11, 16)
 
 
+_LANE_GOAL_KEYS = ("cs_7", "cs_14", "xp_7", "xp_14", "gold_7", "gold_14")
+
+
+def _validate_lane_goal(goal):
+    """Per-matchup lane goal: a dict of expected-delta overrides keyed by
+    <metric>_<mark> (e.g. {"gold_14": -150}), each a number, or None/{} to
+    clear. Overrides the data-driven baseline when grading lane outcome
+    relative to the matchup. Returns the cleaned dict (or {} to clear)."""
+    if goal in (None, "", {}):
+        return {}
+    if not isinstance(goal, dict):
+        raise HTTPException(400, "lane_goal must be an object of expected deltas")
+    out = {}
+    for k, v in goal.items():
+        if k not in _LANE_GOAL_KEYS:
+            raise HTTPException(400, f"lane_goal key must be one of {_LANE_GOAL_KEYS}: {k!r}")
+        if v is None or v == "":
+            continue
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            raise HTTPException(400, f"lane_goal[{k}] must be a number")
+        out[k] = float(v)
+    return out
+
+
 def _validate_skill_order(cells):
     """skill_order: up to 18 entries of ''/Q/W/E/R, index = level-1. Enforces
     the in-game rules: one point per level (list shape), basics max 5 points
@@ -1011,7 +1052,7 @@ def api_put_matchup_note(my_champion: str, opp_champion: str, body: dict):
     the cooldown popup saves skill_order without touching notes/runes and
     the guide editor saves notes/runes/patch without touching skill_order."""
     body = body or {}
-    known = ("notes", "runes", "patch_version", "skill_order")
+    known = ("notes", "runes", "patch_version", "skill_order", "lane_goal")
     if not any(k in body for k in known):
         raise HTTPException(400, f"provide at least one of: {', '.join(known)}")
     _validate_champion(my_champion)
@@ -1034,6 +1075,8 @@ def api_put_matchup_note(my_champion: str, opp_champion: str, body: dict):
         skill_order = body.get("skill_order") or []
         _validate_skill_order(skill_order)
         fields["skill_order"] = skill_order
+    if "lane_goal" in body:
+        fields["lane_goal"] = _validate_lane_goal(body.get("lane_goal"))
     conn = get_conn()
     try:
         db.set_matchup_note(conn, my_champion, opp_champion, **fields)
@@ -1788,7 +1831,13 @@ def api_matchup_comparison(my_champion: str, opp_champion: str):
             data = stats.comparison_for_matchup(conn, p["puuid"], my_champion, opp_champion)
             out.append({"puuid": p["puuid"], "game_name": p["game_name"],
                         "tag_line": p["tag_line"], **data})
-        return {"players": out}
+        goal_row = conn.execute(
+            "SELECT lane_goal FROM matchup_notes WHERE my_champion=? AND opp_champion=?",
+            (my_champion, opp_champion)).fetchone()
+        return {"players": out,
+                "lane_baseline": stats.lane_baseline_for(conn, my_champion, opp_champion),
+                "lane_goal": (json.loads(goal_row["lane_goal"])
+                              if goal_row and goal_row["lane_goal"] else None)}
     finally:
         conn.close()
 
