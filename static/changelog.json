@@ -20,6 +20,7 @@
       "version": "1.48.0",
       "date": "2026-07-24",
       "items": [
+        "New Tier list maker (own tab): drag any champion from the full roster into S/A/B/C/D tiers (rename/recolour tiers, add/remove rows), keep multiple named lists, and it all auto-saves and rides along in your backups",
         "Research (comparison) players are now scoped to a champion instead of a profile: add a player 'for Fiora' (or blank = shown for every matchup), manage them grouped by champion in Settings, and the Matchup guide auto-loads the players for your selected 'My champion'. Existing players carry over as their profile's champion (or 'all'); profiles now just hold a role/champion focus and no longer own players",
         "Blocks: mark each game as Strongside / Weakside in its stats panel — a manual note of whether you were the sacrificial/scaling lane, so a lane deficit reads in context. Shows as a scannable 'Side' column (in the column picker)",
         "Per-matchup Win conditions (🎯 button on each Matchup-guide row): define what 'won lane' means for that pairing — Δ-vs-opponent targets for Gold/CS/XP at 7 & 14 min (each optional; winning needs ALL or ANY of the ones you set), plus a freeform checklist ('reach 8 CS/min', 'don't die pre-6') shown as your matchup exam. Games in Blocks & the comparison pop-out are graded Won/Partial/Lost against those targets",

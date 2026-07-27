@@ -20,6 +20,7 @@
     <button id="nav-guide" role="tab">Matchup guide</button>
     <button id="nav-research" role="tab">Research</button>
     <button id="nav-macros" role="tab">Macros</button>
+    <button id="nav-tiers" role="tab">Tier list</button>
   </div>
   <select id="profile-select" class="preset" title="Active profile — role/champion focus + research players"
     aria-label="Active profile" style="max-width:13em"></select>
@@ -273,6 +274,7 @@
           <label><input type="checkbox" class="view-toggle-cb" value="guide" checked> Matchup guide</label>
           <label><input type="checkbox" class="view-toggle-cb" value="research" checked> Research</label>
           <label><input type="checkbox" class="view-toggle-cb" value="macros" checked> Macros</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="tiers" checked> Tier list</label>
         </div>
         <p class="muted">Untick tabs you don't use to hide them from the top bar (data
           collection is unaffected).</p>
@@ -563,6 +565,33 @@
 </section>
 </div>
 
+<div id="tiers-view" class="hidden">
+  <section class="filter-row" aria-label="Tier list controls">
+    <div class="filter-group">
+      <label class="filter-label" for="tier-list-select">Tier list</label>
+      <select id="tier-list-select"></select>
+    </div>
+    <div class="head-actions">
+      <input id="tier-new-name" class="chip-input" placeholder="New list name…"
+        spellcheck="false" autocomplete="off" style="max-width:150px">
+      <button id="tier-new" class="preset" type="button">+ New</button>
+      <button id="tier-rename" class="preset" type="button" title="Rename this list">✎ Rename</button>
+      <button id="tier-add-row" class="preset" type="button" title="Add a tier row">+ Tier</button>
+      <button id="tier-delete" class="preset" type="button" title="Delete this list">🗑 Delete</button>
+      <span id="tier-status" class="muted"></span>
+    </div>
+  </section>
+  <div id="tier-rows"></div>
+  <section class="panel tier-pool-panel">
+    <div class="tier-pool-head">
+      <h3>Champions <span class="muted" id="tier-pool-count"></span></h3>
+      <input id="tier-search" class="chip-input" placeholder="search champion…"
+        spellcheck="false" autocomplete="off" style="max-width:180px">
+    </div>
+    <div id="tier-pool" class="tier-pool"></div>
+  </section>
+</div>
+
 <div id="trends-view" class="hidden">
   <section class="filter-row" aria-label="Trend filters">
     <div class="filter-group" id="trend-range-presets">
@@ -727,5 +756,6 @@
 <script src="cooldowns.js"></script>
 <script src="research.js"></script>
 <script src="macros.js"></script>
+<script src="tierlist.js"></script>
 </body>
 </html>

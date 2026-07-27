@@ -1830,10 +1830,10 @@ function setMainView(view) {
   if (history.replaceState) {
     const hash = { matchups: "#matchups", progress: "#progress", trends: "#trends",
                    blocks: "#blocks", guide: "#guide", research: "#research",
-                   macros: "#macros" }[view] || "#";
+                   macros: "#macros", tiers: "#tiers" }[view] || "#";
     history.replaceState(null, "", hash);
   }
-  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "settings"]) {
+  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers", "settings"]) {
     $(`#nav-${v}`).classList.toggle("active", view === v);
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
@@ -1844,6 +1844,7 @@ function setMainView(view) {
   if (view === "guide") initGuide();
   if (view === "research") initResearch();
   if (view === "macros") initMacros();
+  if (view === "tiers") initTiers();
   if (view === "settings") initSettings();
 }
 
@@ -1932,11 +1933,11 @@ function applyAppearance(data) {
 
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
-  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros"]) {
+  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers"]) {
     $(`#nav-${view}`).classList.toggle("hidden", state.hiddenViews.includes(view));
   }
   if (state.hiddenViews.includes(state.mainView)) {
-    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros"]
+    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers"]
       .find((view) => !state.hiddenViews.includes(view));
     setMainView(fallback || "settings");
   }
@@ -2431,6 +2432,7 @@ function wireProgress() {
   $("#nav-guide").addEventListener("click", () => setMainView("guide"));
   $("#nav-research").addEventListener("click", () => setMainView("research"));
   $("#nav-macros").addEventListener("click", () => setMainView("macros"));
+  $("#nav-tiers").addEventListener("click", () => setMainView("tiers"));
   $("#nav-settings").addEventListener("click", () => setMainView("settings"));
   $("#coaching-nudge").addEventListener("click", () => setMainView("progress"));
   $("#progress-champion").addEventListener("change", (e) => {

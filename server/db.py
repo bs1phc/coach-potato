@@ -230,6 +230,17 @@ CREATE TABLE IF NOT EXISTS macro_sections (
     updated_at_ms INTEGER
 );
 
+-- Champion tier lists. `data` is a JSON object with a "tiers" array; each tier
+-- has label, color and a champions array of ddragon ids. Champions not in any
+-- tier are the "unranked" pool (derived client-side from the full roster).
+CREATE TABLE IF NOT EXISTS tier_lists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL DEFAULT '',
+    data TEXT NOT NULL DEFAULT '{{}}',
+    created_at_ms INTEGER,
+    updated_at_ms INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS game_reflections (
     match_id TEXT NOT NULL,
     puuid TEXT NOT NULL,
@@ -1596,4 +1607,47 @@ def update_macro_section(conn, section_id, title, notes):
 def delete_macro_section(conn, section_id):
     with conn:
         cursor = conn.execute("DELETE FROM macro_sections WHERE id=?", (section_id,))
+    return cursor.rowcount > 0
+
+
+# ---------- tier lists ----------
+
+def list_tier_lists(conn):
+    """All tier lists (id, title, data, timestamps), oldest first. `data` is the
+    raw JSON string — callers decode it."""
+    return conn.execute("SELECT * FROM tier_lists ORDER BY id").fetchall()
+
+
+def get_tier_list(conn, tier_list_id):
+    return conn.execute("SELECT * FROM tier_lists WHERE id=?", (tier_list_id,)).fetchone()
+
+
+def create_tier_list(conn, title, data):
+    """data: a dict {"tiers": [...]}, stored as JSON."""
+    with conn:
+        cursor = conn.execute(
+            f"""INSERT INTO tier_lists (title, data, created_at_ms, updated_at_ms)
+                VALUES (?, ?, {_now_expr()}, {_now_expr()})""",
+            (title, json.dumps(data)))
+    return cursor.lastrowid
+
+
+def update_tier_list(conn, tier_list_id, title=None, data=None):
+    sets, params = [], []
+    if title is not None:
+        sets.append("title=?"); params.append(title)
+    if data is not None:
+        sets.append("data=?"); params.append(json.dumps(data))
+    if not sets:
+        return False
+    sets.append(f"updated_at_ms={_now_expr()}")
+    with conn:
+        cursor = conn.execute(
+            f"UPDATE tier_lists SET {', '.join(sets)} WHERE id=?", (*params, tier_list_id))
+    return cursor.rowcount > 0
+
+
+def delete_tier_list(conn, tier_list_id):
+    with conn:
+        cursor = conn.execute("DELETE FROM tier_lists WHERE id=?", (tier_list_id,))
     return cursor.rowcount > 0
