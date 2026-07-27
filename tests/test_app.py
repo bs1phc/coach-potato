@@ -954,6 +954,31 @@ def test_skill_order_endpoint_roundtrip_and_partial_update(client):
                       json={"skill_order": ["Q", "", "W"]}).status_code == 200
 
 
+def test_lane_goal_win_conditions_roundtrip(client):
+    # numeric targets + mode + checklist round-trip via GET, partial (doesn't
+    # touch notes), and are exposed in the lane-baselines goals map
+    client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "keep me"})
+    goal = {"gold_14": 300, "cs_7": 12, "mode": "any",
+            "checklist": [{"text": "reach 8 CS/min", "done": True},
+                          {"text": "  ", "done": False}]}  # blank text dropped
+    assert client.put("/api/matchups/notes/Gwen/Darius",
+                      json={"lane_goal": goal}).status_code == 200
+    row = client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]
+    assert row["notes"] == "keep me"          # partial update kept notes
+    assert row["lane_goal"] == {"gold_14": 300.0, "cs_7": 12.0, "mode": "any",
+                                "checklist": [{"text": "reach 8 CS/min", "done": True}]}
+    goals = client.get("/api/stats/lane-baselines").json()["goals"]
+    assert goals["Gwen|Darius"]["gold_14"] == 300.0
+    # only-a-mode / empty clears the whole lane_goal
+    client.put("/api/matchups/notes/Gwen/Darius", json={"lane_goal": {"mode": "all"}})
+    assert client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]["lane_goal"] is None
+    # bad mode / shape rejected
+    assert client.put("/api/matchups/notes/Gwen/Darius",
+                      json={"lane_goal": {"mode": "sometimes"}}).status_code == 400
+    assert client.put("/api/matchups/notes/Gwen/Darius",
+                      json={"lane_goal": {"gold_14": "lots"}}).status_code == 400
+
+
 def test_skill_order_validation(client):
     put = lambda so: client.put("/api/matchups/notes/Gwen/Darius",
                                 json={"skill_order": so}).status_code

@@ -422,11 +422,7 @@ function laneCell(game, mark) {
   if (game.has_timeline !== 1) return `<td class="muted" title="Fetching deeper stats…">⏳</td>`;
   const o = laneOutcome(game, mark);
   if (!o) return `<td class="muted" title="No lane opponent / data">–</td>`;
-  const fmt = (v) => (o.unit === "CS" ? v.toFixed(1) : Math.round(v));
-  const sign = (v) => (v > 0 ? "+" : "");
-  const exp = o.expected ? ` (matchup usually ${sign(o.expected)}${fmt(o.expected)})` : "";
-  return `<td><span class="lane-pill ${o.cls}" `
-    + `title="${o.label} @${mark}m · ${sign(o.value)}${fmt(o.value)} ${o.unit} vs opponent${exp}">${o.symbol}</span></td>`;
+  return `<td><span class="lane-pill ${o.cls}" title="${escapeHtml(o.tooltip)}">${o.symbol}</span></td>`;
 }
 
 // manual weakside/strongside flag (set in the expanded per-game panel)

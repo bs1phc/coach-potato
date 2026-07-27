@@ -159,25 +159,42 @@ function guideFor(champ) {
   return g ? { ...emptyGuide(), ...g } : emptyGuide();
 }
 
-// The data baseline (expected ΔGold @14) for my champion vs `champ`, if loaded.
-function laneGoalBaseline(champ) {
+// data baseline (rounded expected Δ) for my champion vs champ at metric/mark,
+// if loaded — shown as the placeholder hint in the win-conditions editor.
+function laneBaselineVal(champ, metric, mark) {
   const b = state.laneBaselines && state.laneBaselines[`${guideState.myChampion}|${champ}`];
-  return b && b.gold_diff_14 != null ? Math.round(b.gold_diff_14) : null;
+  const v = b && b[`${metric}_diff_${mark}`];
+  return v != null ? Math.round(v) : null;
 }
-// Edit-mode control: the "winning lane = ΔGold@14 ≥ X" target for this matchup.
-// Blank means "use the data baseline". This is the coach's-definition override.
-function laneGoalEditor(champ, draft) {
-  const base = laneGoalBaseline(champ);
-  const cur = draft.lane_goal && draft.lane_goal.gold_14 != null ? draft.lane_goal.gold_14 : "";
-  const hint = base != null
-    ? `Blank = use the matchup average (${base > 0 ? "+" : ""}${base} gold).`
-    : "Blank = use the matchup average (not enough games yet).";
-  return `<label class="filter-label" for="guide-lane-goal">Won-lane target — ΔGold @14 vs your lane opponent</label>
-    <div class="guide-lane-goal-row">
-      <input type="number" id="guide-lane-goal" step="50" style="max-width:9em"
-        placeholder="${base != null ? base : "e.g. 300"}" value="${cur}">
-      <span class="muted">${hint} Blocks &amp; comparison judge "won lane" as beating this in this matchup.</span>
-    </div>`;
+// true when a matchup has any win condition set (a numeric target or a checklist)
+function hasWinConditions(goal) {
+  if (!goal) return false;
+  if ((goal.checklist || []).length) return true;
+  return ["gold", "cs", "xp"].some((m) => goal[`${m}_7`] != null || goal[`${m}_14`] != null);
+}
+// read-only summary of a matchup's win conditions, shown in the guide row
+function winConditionsDisplay(champ, goal) {
+  if (!hasWinConditions(goal)) return "";
+  const sgn = (v) => (v > 0 ? "+" : "");
+  const label = { gold: "Gold", cs: "CS", xp: "XP" };
+  const targets = [];
+  for (const m of ["gold", "cs", "xp"]) {
+    for (const k of [7, 14]) {
+      if (goal[`${m}_${k}`] != null) {
+        targets.push(`Δ${label[m]}@${k} ≥ ${sgn(goal[`${m}_${k}`])}${Math.round(goal[`${m}_${k}`])}`);
+      }
+    }
+  }
+  const targetLine = targets.length
+    ? `<p class="wc-summary-line">Lane won when <strong>${goal.mode === "any" ? "any" : "all"}</strong> met: ${targets.join(" · ")}</p>`
+    : "";
+  const checks = (goal.checklist || []).map((c) =>
+    `<li class="${c.done ? "wc-done" : ""}">${c.done ? "☑" : "☐"} ${escapeHtml(c.text)}</li>`).join("");
+  return `<div class="wc-display">
+    <div class="guide-build-head"><h5>🎯 Win conditions</h5>
+      <button type="button" class="preset icon-btn-sm guide-wc-link" data-opp="${escapeHtml(champ)}"
+        title="Edit win conditions">✎ Edit</button></div>
+    ${targetLine}${checks ? `<ul class="wc-check-list">${checks}</ul>` : ""}</div>`;
 }
 
 // ---------- init / load ----------
@@ -591,6 +608,8 @@ function guideRowActions(champ, editing, hasAny) {
       title="One Pager — full-screen quick reference" aria-label="One Pager">📄</button>
     <button class="preset icon-btn guide-cd-link" data-opp="${escapeHtml(champ)}"
       title="Compare ability cooldowns" aria-label="Compare ability cooldowns">⏱</button>
+    <button class="preset icon-btn guide-wc-link" data-opp="${escapeHtml(champ)}"
+      title="Win conditions — set what 'won lane' means for this matchup" aria-label="Win conditions">🎯</button>
     ${state.enableComparison ? `<button class="preset icon-btn guide-compare-link" data-opp="${escapeHtml(champ)}"
       title="Compare vs other players — opens a side-by-side window" aria-label="Compare vs other players">⧉</button>` : ""}
     ${editing || !hasAny ? "" : `<button class="preset icon-btn guide-edit" data-opp="${escapeHtml(champ)}"
@@ -641,7 +660,6 @@ function guideRow(m) {
       </div>
       <label class="filter-label" for="guide-patch">Patch</label>
       ${patchPicker(draft.patch_version)}
-      ${laneGoalEditor(champ, draft)}
       <label class="filter-label" for="guide-notes">How to play this matchup (Markdown)</label>
       <textarea id="guide-notes" rows="8"
         placeholder="Game plan, power spikes, bans…">${escapeHtml(draft.notes)}</textarea>
@@ -655,6 +673,7 @@ function guideRow(m) {
       ? `<div class="guide-build"><h5>Skill order</h5>${skillGridMini(skill_order)}</div>` : "";
     body = `${state.runesMode === "general" ? "" : runePagesDisplay(runes, champ)}${buildBlock}${
       notes ? `<div class="md-body">${renderNotes(notes)}</div>` : ""}${
+      winConditionsDisplay(champ, lane_goal)}${
       m.games ? `<div class="rune-analysis" data-ra-opp="${escapeHtml(champ)}"></div>` : ""}`;
   } else {
     body = `<p class="muted">No guide yet —
@@ -662,8 +681,8 @@ function guideRow(m) {
   }
   const patchBadge = !editing && patch_version
     ? `<span class="guide-patch-badge" title="Written for this patch">Patch ${escapeHtml(patch_version)}</span>` : "";
-  const goalBadge = !editing && lane_goal && lane_goal.gold_14 != null
-    ? `<span class="guide-patch-badge" title="Won-lane target — beat this ΔGold @14 to have won lane">🎯 Lane ≥ ${lane_goal.gold_14 > 0 ? "+" : ""}${lane_goal.gold_14}g</span>` : "";
+  const goalBadge = !editing && hasWinConditions(lane_goal)
+    ? `<span class="guide-patch-badge" title="This matchup has custom win conditions — click 🎯 to view/edit">🎯 Win conditions</span>` : "";
   const gamesSide = m.games > 0
     ? `<div class="guide-row-side">${recentGamesColumn(champ)}</div>` : "";
   return `<div class="mu-notes mu-guide guide-row" data-opp="${escapeHtml(champ)}">
@@ -857,15 +876,12 @@ function wireGuideHandlers(target) {
   target.querySelectorAll(".guide-save").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const opp = btn.dataset.opp;
-      const lgInput = $("#guide-lane-goal");
-      const lgVal = lgInput && lgInput.value.trim();
-      const laneGoal = lgVal !== "" && lgVal != null && !Number.isNaN(Number(lgVal))
-        ? { gold_14: Number(lgVal) } : {};   // {} clears the goal (back to baseline)
+      // lane_goal (win conditions) is owned by the 🎯 editor — a partial PUT here
+      // that omits it leaves it untouched.
       const payload = {
         notes: $("#guide-notes").value,
         patch_version: $("#guide-patch").value,
         runes: guideState.draft.runes.filter(pageHasContent),
-        lane_goal: laneGoal,
       };
       const response = await fetch(
         `/api/matchups/notes/${encodeURIComponent(guideState.myChampion)}/${encodeURIComponent(opp)}`, {
@@ -882,16 +898,17 @@ function wireGuideHandlers(target) {
       }
       // the editor doesn't touch skill_order (saved from the cooldown popup)
       // — the server keeps it (partial update), so keep it client-side too
-      const keptBuild = guideFor(opp).skill_order;
-      const goalOrNull = Object.keys(laneGoal).length ? laneGoal : null;
+      // skill_order (cooldown popup) and lane_goal (🎯 editor) aren't in this
+      // form — the server keeps them (partial update), so keep them client-side
+      const kept = guideFor(opp);
+      const keptGoal = kept.lane_goal || null;
       const hasAny = payload.notes.trim() || payload.runes.length
-        || payload.patch_version.trim() || keptBuild.some(Boolean) || goalOrNull;
-      if (hasAny) guideState.guide[opp] = { ...payload, skill_order: keptBuild, lane_goal: goalOrNull };
+        || payload.patch_version.trim() || kept.skill_order.some(Boolean) || keptGoal;
+      if (hasAny) guideState.guide[opp] = { ...payload, skill_order: kept.skill_order, lane_goal: keptGoal };
       else delete guideState.guide[opp];
       guideState.editing = null;
       guideState.draft = null;
       guideState.openRuneIndex = null;
-      loadLaneBaselines();  // refresh goals so Blocks/comparison grade against the new target
       renderGuide();
       updateGuideAddOptions();
     }));
@@ -900,6 +917,8 @@ function wireGuideHandlers(target) {
       openCooldowns(guideState.myChampion, btn.dataset.opp))); // cooldowns.js
   target.querySelectorAll(".guide-op-link").forEach((btn) =>
     btn.addEventListener("click", () => openOnePager(btn.dataset.opp)));
+  target.querySelectorAll(".guide-wc-link").forEach((btn) =>
+    btn.addEventListener("click", () => openWinConditions(btn.dataset.opp)));
   target.querySelectorAll(".guide-compare-link").forEach((btn) =>
     btn.addEventListener("click", () => openComparisonWindow(btn.dataset.opp)));
   target.querySelectorAll(".general-runes-edit").forEach((btn) =>
@@ -1742,6 +1761,147 @@ function closeOnePager() {
   $("#onepager-overlay").classList.add("hidden");
 }
 
+// ---------- 🎯 win-conditions editor ----------
+// Per-matchup definition of what "won lane" means: optional Δ-vs-opponent
+// targets (Gold/CS/XP at 7 & 14, ALL or ANY) that auto-grade the lane in Blocks
+// & comparison, plus a freeform checklist shown for reference (not scored).
+let wcState = null; // working copy while the modal is open
+
+function openWinConditions(opp) {
+  const goal = guideFor(opp).lane_goal || {};
+  wcState = {
+    opp,
+    targets: {},
+    mode: goal.mode === "any" ? "any" : "all",
+    checklist: (goal.checklist || []).map((c) => ({ text: c.text, done: !!c.done })),
+  };
+  for (const m of ["gold", "cs", "xp"]) {
+    for (const k of [7, 14]) {
+      if (goal[`${m}_${k}`] != null) wcState.targets[`${m}_${k}`] = goal[`${m}_${k}`];
+    }
+  }
+  renderWinConditions();
+  $("#winconditions-overlay").classList.remove("hidden");
+}
+
+// pull current DOM values into wcState (so a checklist add/remove re-render
+// doesn't drop typed-but-unsaved numbers)
+function wcReadInputs() {
+  const box = $("#winconditions-box");
+  if (!box) return;
+  wcState.targets = {};
+  box.querySelectorAll(".wc-target").forEach((inp) => {
+    const v = inp.value.trim();
+    if (v !== "" && !Number.isNaN(Number(v))) wcState.targets[inp.dataset.key] = Number(v);
+  });
+  const mode = box.querySelector('input[name="wc-mode"]:checked');
+  wcState.mode = mode && mode.value === "any" ? "any" : "all";
+  const items = [];
+  box.querySelectorAll(".wc-check-row").forEach((row) => {
+    const text = row.querySelector(".wc-check-text").value.trim();
+    if (text) items.push({ text, done: row.querySelector(".wc-check-done").checked });
+  });
+  wcState.checklist = items;
+}
+
+function renderWinConditions() {
+  const opp = wcState.opp, my = guideState.myChampion;
+  const sgn = (v) => (v > 0 ? "+" : "");
+  const targetInput = (metric, mark) => {
+    const key = `${metric}_${mark}`;
+    const base = laneBaselineVal(opp, metric, mark);
+    const cur = wcState.targets[key] != null ? wcState.targets[key] : "";
+    return `<input type="number" class="wc-target" data-key="${key}" step="${metric === "gold" ? 50 : 1}"
+      placeholder="${base != null ? sgn(base) + base : "—"}" value="${cur}" aria-label="${key} target">`;
+  };
+  const avg = (metric) => {
+    const b7 = laneBaselineVal(opp, metric, 7), b14 = laneBaselineVal(opp, metric, 14);
+    const f = (v) => (v == null ? "—" : sgn(v) + v);
+    return `avg ${f(b7)} / ${f(b14)}`;
+  };
+  const row = (metric, label) =>
+    `<tr><th>Δ${label}</th><td>${targetInput(metric, 7)}</td><td>${targetInput(metric, 14)}</td>
+       <td class="muted wc-avg">${avg(metric)}</td></tr>`;
+  const checkRows = wcState.checklist.map((c, i) => `
+    <div class="wc-check-row">
+      <input type="checkbox" class="wc-check-done" ${c.done ? "checked" : ""}>
+      <input type="text" class="wc-check-text" value="${escapeHtml(c.text)}" placeholder="e.g. reach 8 CS/min">
+      <button type="button" class="preset icon-btn-sm wc-check-del" data-i="${i}"
+        title="Remove" aria-label="Remove condition">🗑</button>
+    </div>`).join("");
+  $("#winconditions-box").innerHTML = `
+    <div class="wc-head">
+      <h3>🎯 Win conditions — ${champIcon(my)}${displayName(my)}
+        <span class="muted">vs</span> ${champIcon(opp)}${displayName(opp)}</h3>
+      <button type="button" class="preset icon-btn" id="wc-close" title="Close (Esc)" aria-label="Close">✕</button>
+    </div>
+    <p class="muted">Lane counts as <strong>won</strong> when a game beats these Δ-vs-opponent
+      targets. Leave a cell blank to ignore it. Auto-graded in Blocks &amp; the comparison pop-out.</p>
+    <table class="wc-table">
+      <thead><tr><th></th><th>@7 min</th><th>@14 min</th><th></th></tr></thead>
+      <tbody>${row("gold", "Gold")}${row("cs", "CS")}${row("xp", "XP")}</tbody>
+    </table>
+    <div class="wc-mode">Winning needs:
+      <label><input type="radio" name="wc-mode" value="all" ${wcState.mode !== "any" ? "checked" : ""}> all set targets</label>
+      <label><input type="radio" name="wc-mode" value="any" ${wcState.mode === "any" ? "checked" : ""}> any one</label>
+    </div>
+    <div class="wc-checklist">
+      <div class="settings-subhead">Checklist <span class="muted">— your matchup exam, not auto-scored</span></div>
+      ${checkRows}
+      <button type="button" class="preset" id="wc-add-check">+ Add condition</button>
+    </div>
+    <div class="session-actions">
+      <button class="preset btn-primary" id="wc-save">Save</button>
+      <button class="preset" id="wc-clear">Clear all</button>
+      <span class="muted" id="wc-status"></span>
+    </div>`;
+  $("#wc-close").addEventListener("click", closeWinConditions);
+  $("#wc-add-check").addEventListener("click", () => {
+    wcReadInputs(); wcState.checklist.push({ text: "", done: false }); renderWinConditions();
+    const last = $("#winconditions-box").querySelector(".wc-check-row:last-child .wc-check-text");
+    if (last) last.focus();
+  });
+  $("#winconditions-box").querySelectorAll(".wc-check-del").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      wcReadInputs(); wcState.checklist.splice(+btn.dataset.i, 1); renderWinConditions();
+    }));
+  $("#wc-save").addEventListener("click", () => saveWinConditions());
+  $("#wc-clear").addEventListener("click", () => saveWinConditions(true));
+}
+
+async function saveWinConditions(clear = false) {
+  if (clear) { wcState.targets = {}; wcState.checklist = []; }
+  else wcReadInputs();
+  const goal = { ...wcState.targets, mode: wcState.mode };
+  if (wcState.checklist.length) goal.checklist = wcState.checklist;
+  const opp = wcState.opp;
+  const resp = await fetch(
+    `/api/matchups/notes/${encodeURIComponent(guideState.myChampion)}/${encodeURIComponent(opp)}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lane_goal: goal }),
+    });
+  if (!resp.ok) {
+    const b = await resp.json().catch(() => ({}));
+    $("#wc-status").textContent = `Save failed — ${b.detail || `error ${resp.status}`}`;
+    return;
+  }
+  // server clears lane_goal when only a mode (no targets/checklist) is left
+  const cleaned = (Object.keys(wcState.targets).length || wcState.checklist.length) ? goal : null;
+  const existing = guideState.guide[opp];
+  if (cleaned) guideState.guide[opp] = { ...emptyGuide(), ...(existing || {}), lane_goal: cleaned };
+  else if (existing) existing.lane_goal = null;
+  await loadLaneBaselines();  // refresh goals so Blocks/comparison grade against them
+  closeWinConditions();
+  renderGuide();
+}
+
+function closeWinConditions() {
+  $("#winconditions-overlay").classList.add("hidden");
+  wcState = null;
+}
+
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !$("#onepager-overlay").classList.contains("hidden")) closeOnePager();
+  if (e.key !== "Escape") return;
+  if (!$("#onepager-overlay").classList.contains("hidden")) closeOnePager();
+  else if (!$("#winconditions-overlay").classList.contains("hidden")) closeWinConditions();
 });

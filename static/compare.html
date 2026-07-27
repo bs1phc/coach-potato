@@ -248,24 +248,52 @@ function laneWinMethod() {
 function laneGradeMode() {
   return localStorage.getItem("cp-lane-grade") === "absolute" ? "absolute" : "relative";
 }
-function laneExpected(metricBase, mark) {
-  if (LANE_GOAL && LANE_GOAL[`${metricBase}_${mark}`] != null) return LANE_GOAL[`${metricBase}_${mark}`];
+const LANE_METRIC_BASES = ["gold", "cs", "xp"];
+function laneBaseline(metricBase, mark) {
   const bv = LANE_BASELINE && LANE_BASELINE[`${metricBase}_diff_${mark}`];
   return bv != null ? bv : 0;
 }
+function laneConditionOutcome(g, mark, targets, mode) {
+  const evals = targets.map((tt) => {
+    const val = g[`${tt.metric}_diff_${mark}`];
+    return { ...tt, val, met: val == null ? null : val >= tt.target };
+  });
+  const known = evals.filter((e) => e.met !== null);
+  if (!known.length) return null;
+  const metCount = known.filter((e) => e.met).length;
+  const won = mode === "any" ? metCount >= 1 : metCount === known.length;
+  const name = won ? "won" : (metCount ? "even" : "lost");
+  const label = won ? "Won" : (metCount ? "Partial" : "Lost");
+  const sg = (v) => (v > 0 ? "+" : "");
+  const parts = evals.map((e) => {
+    const m = e.met === null ? "?" : (e.met ? "✓" : "✗");
+    const vtxt = e.val == null ? "—" : `${sg(e.val)}${e.metric === "cs" ? e.val.toFixed(1) : Math.round(e.val)}`;
+    return `${m} Δ${e.metric === "cs" ? "CS" : e.metric === "xp" ? "XP" : "Gold"} ≥ ${sg(e.target)}${Math.round(e.target)} (${vtxt})`;
+  });
+  return { tier: name, symbol: LANE_TIERS[name].symbol, cls: LANE_TIERS[name].cls, label,
+           tooltip: `Win conditions @${mark}m (need ${mode}): ${parts.join(" · ")}` };
+}
 function laneOutcome(g, mark, method = laneWinMethod(), mode = laneGradeMode()) {
+  if (LANE_GOAL) {
+    const targets = LANE_METRIC_BASES
+      .filter((mb) => LANE_GOAL[`${mb}_${mark}`] != null)
+      .map((mb) => ({ metric: mb, target: LANE_GOAL[`${mb}_${mark}`] }));
+    if (targets.length) {
+      const r = laneConditionOutcome(g, mark, targets, LANE_GOAL.mode === "any" ? "any" : "all");
+      if (r) return r;
+    }
+  }
   let t = LANE_THRESHOLDS[method][mark];
-  const gold = g[`gold_diff_${mark}`], cs = g[`cs_diff_${mark}`];
   const xp = g[`xp_diff_${mark}`], lvl = g[`level_diff_${mark}`];
   let value, unit, metricBase = method === "cs" ? "cs" : method === "xp" ? "xp" : "gold";
-  if (method === "cs") { value = cs; unit = "CS"; }
+  if (method === "cs") { value = g[`cs_diff_${mark}`]; unit = "CS"; }
   else if (method === "xp") {
     if (xp != null) { value = xp; unit = "XP"; }
     else { value = lvl; unit = "lvl"; t = LANE_LEVEL_THRESHOLDS[mark]; }
-  } else { value = gold; unit = "g"; }
+  } else { value = g[`gold_diff_${mark}`]; unit = "g"; }
   if (value == null) return null;
   const relative = mode === "relative" && !(method === "xp" && xp == null);
-  const expected = relative ? laneExpected(metricBase, mark) : 0;
+  const expected = relative ? laneBaseline(metricBase, mark) : 0;
   const residual = value - expected;
   const mag = Math.abs(residual);
   let name = mag >= t.stomp ? "stomp" : mag >= t.won ? "won" : "even";
@@ -274,17 +302,20 @@ function laneOutcome(g, mark, method = laneWinMethod(), mode = laneGradeMode()) 
     const agree = xp != null ? xp : lvl;
     if (agree != null && Math.sign(agree) !== 0 && Math.sign(agree) !== Math.sign(residual)) name = "even";
   }
+  const hasBaseline = relative && expected !== 0;
+  const sg = value > 0 ? "+" : "";
+  const val = unit === "CS" ? value.toFixed(1) : Math.round(value);
+  const exp = hasBaseline ? ` (matchup usually ${expected > 0 ? "+" : ""}${Math.round(expected)})`
+    : (relative ? " · no matchup data yet" : "");
+  const label = LANE_TIER_LABELS[hasBaseline ? "relative" : "absolute"][name];
   return { tier: name, value, unit, expected,
-           symbol: LANE_TIERS[name].symbol, cls: LANE_TIERS[name].cls,
-           label: LANE_TIER_LABELS[relative ? "relative" : "absolute"][name] };
+           symbol: LANE_TIERS[name].symbol, cls: LANE_TIERS[name].cls, label,
+           tooltip: `${label} @${mark}m · ${sg}${val} ${unit}${exp}` };
 }
 function laneVerdictPill(g, mark) {
   const o = laneOutcome(g, mark);
   if (!o) return `<span class="lane-pill lane-even" title="No lane data @${mark}m">–</span>`;
-  const fmt = (v) => (o.unit === "CS" ? v.toFixed(1) : Math.round(v));
-  const sg = (v) => (v > 0 ? "+" : "");
-  const exp = o.expected ? ` (matchup usually ${sg(o.expected)}${fmt(o.expected)})` : "";
-  return `<span class="lane-pill ${o.cls}" title="${o.label} @${mark}m · ${sg(o.value)}${fmt(o.value)} ${o.unit}${exp}">${o.symbol}</span>`;
+  return `<span class="lane-pill ${o.cls}" title="${esc(o.tooltip)}">${o.symbol}</span>`;
 }
 // Won/lost record across a set of games at a mark, using the current method.
 function laneRecord(games, mark) {

@@ -656,37 +656,74 @@ function setLaneGradeMode(m) {
   localStorage.setItem("cp-lane-grade", m === "absolute" ? "absolute" : "relative");
 }
 
-// Expected delta for a game's matchup: a user-set per-matchup goal overrides the
-// data-driven baseline (stats.lane_baselines, shrunk toward 0 by sample size);
-// 0 when neither is known (→ behaves like absolute). state.laneBaselines /
-// state.laneGoals are loaded by loadLaneBaselines().
-function laneExpected(g, metricBase, mark) {
-  const key = `${g.my_champion}|${g.opp_champion}`;
-  const goal = state.laneGoals && state.laneGoals[key];
-  if (goal && goal[`${metricBase}_${mark}`] != null) return goal[`${metricBase}_${mark}`];
-  const base = state.laneBaselines && state.laneBaselines[key];
+const LANE_METRIC_BASES = ["gold", "cs", "xp"];
+const LANE_UNIT = { gold: "g", cs: "CS", xp: "XP" };
+const laneDeltaFor = (g, metric, mark) => g[`${metric}_diff_${mark}`];
+function laneGoalFor(g) {
+  return (state.laneGoals && state.laneGoals[`${g.my_champion}|${g.opp_champion}`]) || null;
+}
+// The data baseline (expected delta, shrunk toward 0 by sample size) for a
+// game's matchup — used to re-center in relative mode; 0 when unknown.
+function laneBaseline(g, metricBase, mark) {
+  const base = state.laneBaselines && state.laneBaselines[`${g.my_champion}|${g.opp_champion}`];
   const bv = base && base[`${metricBase}_diff_${mark}`];
   return bv != null ? bv : 0;
 }
 
-// Returns {tier, symbol, label, cls, value, unit, expected, residual} or null
-// when the deltas for this mark aren't available (no lane opponent / timeline
-// not fetched yet). In relative mode the verdict is on value-minus-expected.
+// Win-condition verdict at a mark: did the game meet the user's explicit targets
+// (ΔmetricAtMark >= target) for that mark, per ALL/ANY? Unknown deltas (no
+// timeline / no opponent) are ignored, not counted against. Returns null if none
+// of the mark's targets can be evaluated.
+function laneConditionOutcome(g, mark, targets, mode) {
+  const evals = targets.map((tt) => {
+    const val = laneDeltaFor(g, tt.metric, mark);
+    return { ...tt, val, met: val == null ? null : val >= tt.target };
+  });
+  const known = evals.filter((e) => e.met !== null);
+  if (!known.length) return null;
+  const metCount = known.filter((e) => e.met).length;
+  const won = mode === "any" ? metCount >= 1 : metCount === known.length;
+  const name = won ? "won" : (metCount ? "even" : "lost");
+  const label = won ? "Won" : (metCount ? "Partial" : "Lost");
+  const sign = (v) => (v > 0 ? "+" : "");
+  const parts = evals.map((e) => {
+    const mark2 = e.met === null ? "?" : (e.met ? "✓" : "✗");
+    const vtxt = e.val == null ? "—" : `${sign(e.val)}${e.metric === "cs" ? e.val.toFixed(1) : Math.round(e.val)}`;
+    return `${mark2} Δ${e.metric === "cs" ? "CS" : e.metric === "xp" ? "XP" : "Gold"} ≥ ${sign(e.target)}${Math.round(e.target)} (${vtxt})`;
+  });
+  return { tier: name, symbol: LANE_TIERS[name].symbol, cls: LANE_TIERS[name].cls, label,
+           tooltip: `Win conditions @${mark}m (need ${mode}): ${parts.join(" · ")}` };
+}
+
+// Returns {tier, symbol, label, cls, tooltip, ...} or null when this mark's
+// deltas aren't available. If the matchup has explicit win-condition targets at
+// this mark, grade by those (all/any); otherwise grade the picked method's delta
+// vs 0 (absolute) or vs the matchup baseline (relative).
 function laneOutcome(g, mark, method = laneWinMethod(), mode = laneGradeMode()) {
+  // explicit win conditions for this matchup at this mark take priority
+  const goal = laneGoalFor(g);
+  if (goal) {
+    const targets = LANE_METRIC_BASES
+      .filter((mb) => goal[`${mb}_${mark}`] != null)
+      .map((mb) => ({ metric: mb, target: goal[`${mb}_${mark}`] }));
+    if (targets.length) {
+      const r = laneConditionOutcome(g, mark, targets, goal.mode === "any" ? "any" : "all");
+      if (r) return r;
+    }
+  }
   let t = LANE_THRESHOLDS[method][mark];
-  const gold = g[`gold_diff_${mark}`], cs = g[`cs_diff_${mark}`];
   const xp = g[`xp_diff_${mark}`], lvl = g[`level_diff_${mark}`];
   let value, unit, metricBase = method === "cs" ? "cs" : method === "xp" ? "xp" : "gold";
-  if (method === "cs") { value = cs; unit = "CS"; }
+  if (method === "cs") { value = g[`cs_diff_${mark}`]; unit = "CS"; }
   else if (method === "xp") {
     // prefer raw XP; fall back to whole levels for games captured before ΔXP
     if (xp != null) { value = xp; unit = "XP"; }
     else { value = lvl; unit = "lvl"; t = LANE_LEVEL_THRESHOLDS[mark]; }
-  } else { value = gold; unit = "g"; }        // gold + combined
+  } else { value = g[`gold_diff_${mark}`]; unit = "g"; }   // gold + combined
   if (value == null) return null;
   // level-fallback games have no baseline in level units → grade absolute
   const relative = mode === "relative" && !(method === "xp" && xp == null);
-  const expected = relative ? laneExpected(g, metricBase, mark) : 0;
+  const expected = relative ? laneBaseline(g, metricBase, mark) : 0;
   const residual = value - expected;
   const mag = Math.abs(residual);
   let name = mag >= t.stomp ? "stomp" : mag >= t.won ? "won" : "even";
@@ -697,9 +734,17 @@ function laneOutcome(g, mark, method = laneWinMethod(), mode = laneGradeMode()) 
     const agree = xp != null ? xp : lvl;
     if (agree != null && Math.sign(agree) !== 0 && Math.sign(agree) !== Math.sign(residual)) name = "even";
   }
+  // relative labels only make sense when we actually have a baseline to beat
+  const hasBaseline = relative && expected !== 0;
+  const sign = value > 0 ? "+" : "";
+  const val = unit === "CS" ? value.toFixed(1) : Math.round(value);
+  const exp = hasBaseline
+    ? ` (matchup usually ${expected > 0 ? "+" : ""}${Math.round(expected)})`
+    : (relative ? " · no matchup data yet" : "");
+  const label = LANE_TIER_LABELS[hasBaseline ? "relative" : "absolute"][name];
   return { tier: name, value, unit, expected, residual,
-           symbol: LANE_TIERS[name].symbol, cls: LANE_TIERS[name].cls,
-           label: LANE_TIER_LABELS[relative ? "relative" : "absolute"][name] };
+           symbol: LANE_TIERS[name].symbol, cls: LANE_TIERS[name].cls, label,
+           tooltip: `${label} @${mark}m · ${sign}${val} ${unit} vs opponent${exp}` };
 }
 async function loadLaneBaselines() {
   try {

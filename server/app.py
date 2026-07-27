@@ -983,23 +983,47 @@ _LANE_GOAL_KEYS = ("cs_7", "cs_14", "xp_7", "xp_14", "gold_7", "gold_14")
 
 
 def _validate_lane_goal(goal):
-    """Per-matchup lane goal: a dict of expected-delta overrides keyed by
-    <metric>_<mark> (e.g. {"gold_14": -150}), each a number, or None/{} to
-    clear. Overrides the data-driven baseline when grading lane outcome
-    relative to the matchup. Returns the cleaned dict (or {} to clear)."""
+    """Per-matchup 'win conditions'. A dict with optional parts, all cleared when
+    empty:
+      - numeric delta targets keyed <metric>_<mark> (cs/xp/gold x 7/14), each a
+        number — "lane won when Δ >= target" (each optional; the user picks which
+        marks/metrics matter);
+      - mode: 'all' | 'any' — whether winning needs every set target or just one;
+      - checklist: [{text, done}] — freeform reminders, shown but NOT auto-scored.
+    Returns the cleaned dict (or {} to clear the whole thing)."""
     if goal in (None, "", {}):
         return {}
     if not isinstance(goal, dict):
-        raise HTTPException(400, "lane_goal must be an object of expected deltas")
+        raise HTTPException(400, "lane_goal must be an object")
     out = {}
-    for k, v in goal.items():
-        if k not in _LANE_GOAL_KEYS:
-            raise HTTPException(400, f"lane_goal key must be one of {_LANE_GOAL_KEYS}: {k!r}")
+    for k in _LANE_GOAL_KEYS:
+        v = goal.get(k)
         if v is None or v == "":
             continue
         if not isinstance(v, (int, float)) or isinstance(v, bool):
             raise HTTPException(400, f"lane_goal[{k}] must be a number")
         out[k] = float(v)
+    mode = goal.get("mode")
+    if mode in ("all", "any"):
+        out["mode"] = mode
+    elif mode not in (None, ""):
+        raise HTTPException(400, "lane_goal mode must be 'all' or 'any'")
+    checklist = goal.get("checklist")
+    if checklist is not None:
+        if not isinstance(checklist, list):
+            raise HTTPException(400, "lane_goal checklist must be a list")
+        clean = []
+        for item in checklist:
+            if not isinstance(item, dict):
+                raise HTTPException(400, "checklist items must be objects")
+            text = str(item.get("text") or "").strip()[:200]
+            if text:
+                clean.append({"text": text, "done": bool(item.get("done"))})
+        if clean:
+            out["checklist"] = clean
+    # nothing meaningful set (e.g. only a mode) → treat as cleared
+    if not (set(out) - {"mode"}):
+        return {}
     return out
 
 
