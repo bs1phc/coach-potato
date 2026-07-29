@@ -22,7 +22,7 @@
     <button id="nav-macros" role="tab">Macros</button>
     <button id="nav-tiers" role="tab">Tier list</button>
   </div>
-  <select id="profile-select" class="preset" title="Active profile — role/champion focus + research players"
+  <select id="profile-select" class="preset" title="Active profile — a saved focus you switch between"
     aria-label="Active profile" style="max-width:13em"></select>
   <details id="account-select" class="col-picker hidden" aria-label="Accounts">
     <summary id="account-select-btn" class="preset">All accounts ▾</summary>
@@ -234,9 +234,10 @@
       </div>
       <div id="comparison-card" class="hidden">
         <div class="settings-subhead">Profiles</div>
-        <p class="muted">A <strong>profile</strong> is a saved role/champion focus you switch between
-          from the <strong>top-bar dropdown</strong> — e.g. one for "Fiora / Top" and another for
-          "Mid + Bot". Research players are scoped to a champion (below), not to a profile.</p>
+        <p class="muted">A <strong>profile</strong> is a saved focus you switch between from the
+          <strong>top-bar dropdown</strong> — an optional role and/or champion the app pre-selects
+          across the views. Use it however suits you: a lane, a champion pool, a smurf, a goal —
+          both fields are optional.</p>
         <div id="profiles-list"></div>
         <div class="key-row" style="margin-top:8px">
           <input class="chip-input" id="profile-new-name" placeholder="New profile name…"
