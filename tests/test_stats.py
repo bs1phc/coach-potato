@@ -870,3 +870,13 @@ def test_review_queue_respects_limit(conn):
         add_match(conn, my_champ="Garen", opp_champ=f"Opp{i}", when=BASE, in_block=True)
     rows = stats.review_queue(conn, ME, limit=3)
     assert len(rows) == 3
+
+
+def test_champion_roles_dominant_and_secondary(conn):
+    add_match(conn, my_champ="Malphite", my_pos="TOP")
+    add_match(conn, my_champ="Malphite", my_pos="TOP")
+    add_match(conn, my_champ="Malphite", my_pos="MIDDLE")  # 67% top / 33% mid
+    roles = stats.champion_roles(conn)
+    assert roles["Malphite"] == ["TOP", "MIDDLE"]          # secondary >= 20% share
+    add_match(conn, my_champ="Sion", my_pos="TOP")
+    assert stats.champion_roles(conn)["Sion"] == ["TOP"]   # seen once = that lane only
