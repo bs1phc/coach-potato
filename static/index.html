@@ -90,6 +90,17 @@
         <label class="filter-label" for="session-title">Title</label>
         <input type="text" id="session-title" placeholder="e.g. wave management" style="width:100%">
       </div>
+      <div class="filter-group">
+        <label class="filter-label" for="session-coach">Coach</label>
+        <input type="text" id="session-coach" placeholder="e.g. Coach name">
+      </div>
+      <div class="filter-group session-type-checks" id="session-type-checks">
+        <span class="filter-label">Type</span>
+        <label><input type="checkbox" value="theory"> Theory</label>
+        <label><input type="checkbox" value="live_coaching"> Live coaching</label>
+        <label><input type="checkbox" value="vod_review"> VOD review</label>
+        <label><input type="checkbox" value="matchup_training"> Matchup training</label>
+      </div>
       <button type="submit" class="preset">Add session</button>
       <span id="session-error" class="muted"></span>
     </form>
@@ -701,7 +712,7 @@
 <section id="summary-tiles" class="tiles" aria-label="Summary"></section>
 
 <section id="review-queue-section" class="panel hidden">
-  <h2>🔔 Matchups to review</h2>
+  <h2>🔔 Block games missing notes</h2>
   <div id="review-queue-list"></div>
 </section>
 

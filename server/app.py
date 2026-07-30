@@ -465,8 +465,8 @@ def api_summary(request: Request):
 
 @app.get("/api/stats/review-queue")
 def api_review_queue(request: Request):
-    """'Review before queue' nudge: matchups played recently whose guide
-    notes are missing or stale. See stats.review_queue for the ranking."""
+    """'Review before queue' nudge: block games with no per-game notes yet.
+    See stats.review_queue."""
     conn = get_conn()
     try:
         puuids = request.query_params.getlist("puuid") or _tracked_puuids(conn)
@@ -495,10 +495,19 @@ def api_sessions():
             record = dict(row)
             raw = record.pop("start_ranks", None)
             record["start_ranks"] = json.loads(raw) if raw else None
+            record["session_types"] = json.loads(record["session_types"] or "[]")
             sessions.append(record)
         return sessions
     finally:
         conn.close()
+
+
+def _validate_session_types(session_types):
+    if session_types is None:
+        return
+    if not isinstance(session_types, list) or any(
+            t not in db.SESSION_TYPES for t in session_types):
+        raise HTTPException(400, f"session_types must be a list of {', '.join(db.SESSION_TYPES)}")
 
 
 @app.post("/api/sessions")
@@ -508,11 +517,15 @@ def api_add_session(body: dict):
         datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(400, "date must be YYYY-MM-DD")
+    session_types = body.get("session_types") or []
+    _validate_session_types(session_types)
     conn = get_conn()
     try:
         session_id = db.add_session(conn, date_str,
                                     title=(body.get("title") or "").strip(),
-                                    notes=body.get("notes") or "")
+                                    notes=body.get("notes") or "",
+                                    coach_name=(body.get("coach_name") or "").strip(),
+                                    session_types=session_types)
         return {"id": session_id}
     except sqlite3.IntegrityError:
         raise HTTPException(409, f"a session on {date_str} already exists")
@@ -524,11 +537,15 @@ def api_add_session(body: dict):
 def api_update_session(session_id: int, body: dict):
     title = body.get("title")
     notes = body.get("notes")
-    if title is None and notes is None:
-        raise HTTPException(400, "provide title and/or notes")
+    coach_name = body.get("coach_name")
+    session_types = body.get("session_types")
+    if title is None and notes is None and coach_name is None and session_types is None:
+        raise HTTPException(400, "provide title, notes, coach_name and/or session_types")
+    _validate_session_types(session_types)
     conn = get_conn()
     try:
-        if not db.update_session(conn, session_id, title=title, notes=notes):
+        if not db.update_session(conn, session_id, title=title, notes=notes,
+                                  coach_name=coach_name, session_types=session_types):
             raise HTTPException(404, "no such session")
         return {"updated": True}
     finally:
@@ -546,6 +563,15 @@ def api_export_sessions():
     for row in reversed(rows):  # newest first
         title = row["title"] or "Session"
         parts.append(f"\n## {row['session_date']} — {title}\n")
+        meta = []
+        session_types = json.loads(row["session_types"] or "[]")
+        if session_types:
+            labels = ", ".join(db.SESSION_TYPES.get(t, t) for t in session_types)
+            meta.append(f"Type: {labels}")
+        if row["coach_name"]:
+            meta.append(f"Coach: {row['coach_name']}")
+        if meta:
+            parts.append(f"\n*{' · '.join(meta)}*\n")
         if row["notes"]:
             parts.append(f"\n{row['notes']}\n")
     return Response(
@@ -565,7 +591,8 @@ def api_export_all():
     conn = get_conn()
     try:
         sessions = [dict(r) for r in conn.execute(
-            """SELECT session_date, title, notes, start_ranks, created_at_ms
+            """SELECT id, session_date, title, notes, coach_name, session_types,
+                      start_ranks, created_at_ms
                FROM coaching_sessions ORDER BY session_date""")]
         blocks_rows = [dict(r) for r in conn.execute(
             """SELECT id, title, learnings, pool_snapshot, start_ranks, end_ranks,
@@ -574,6 +601,9 @@ def api_export_all():
             """SELECT id, block_id, match_id, puuid, notes, weakside,
                       lane_result_7, lane_result_14, added_at_ms
                FROM block_games ORDER BY id""")]
+        session_games_rows = [dict(r) for r in conn.execute(
+            """SELECT id, session_id, match_id, puuid, added_at_ms
+               FROM session_games ORDER BY id""")]
         matchup_notes_rows = [dict(r) for r in conn.execute(
             """SELECT my_champion, opp_champion, notes, runes, patch_version,
                       skill_order, lane_goal, updated_at_ms
@@ -615,6 +645,7 @@ def api_export_all():
             row[key] = json.loads(row[key]) if row[key] else None
     for row in sessions:
         row["start_ranks"] = json.loads(row["start_ranks"]) if row["start_ranks"] else None
+        row["session_types"] = json.loads(row["session_types"] or "[]")
 
     payload = {
         "app": "coach-potato", "kind": "full-export", "version": 1,
@@ -622,6 +653,7 @@ def api_export_all():
         "sessions": sessions,
         "blocks": blocks_rows,
         "block_games": block_games_rows,
+        "session_games": session_games_rows,
         "matchup_notes": matchup_notes_rows,
         "champion_notes": champion_notes_rows,
         "item_builds": item_build_rows,
@@ -675,8 +707,8 @@ def _import_conflicts(conn, payload):
     is written) rather than silently overwriting or merging."""
     conflicts = []
     for row in payload.get("sessions") or []:
-        if conn.execute("SELECT 1 FROM coaching_sessions WHERE session_date=?",
-                         (row["session_date"],)).fetchone():
+        if conn.execute("SELECT 1 FROM coaching_sessions WHERE session_date=? OR id=?",
+                         (row["session_date"], row["id"])).fetchone():
             conflicts.append(f"session on {row['session_date']}")
     for row in payload.get("blocks") or []:
         if conn.execute("SELECT 1 FROM blocks WHERE id=?", (row["id"],)).fetchone():
@@ -684,6 +716,9 @@ def _import_conflicts(conn, payload):
     for row in payload.get("block_games") or []:
         if conn.execute("SELECT 1 FROM block_games WHERE id=?", (row["id"],)).fetchone():
             conflicts.append(f"block game #{row['id']}")
+    for row in payload.get("session_games") or []:
+        if conn.execute("SELECT 1 FROM session_games WHERE id=?", (row["id"],)).fetchone():
+            conflicts.append(f"session game #{row['id']}")
     for row in payload.get("matchup_notes") or []:
         if conn.execute(
                 "SELECT 1 FROM matchup_notes WHERE my_champion=? AND opp_champion=?",
@@ -718,6 +753,7 @@ def _import_conflicts(conn, payload):
 def _import_counts(payload):
     return {
         "sessions": len(payload.get("sessions") or []),
+        "session_games": len(payload.get("session_games") or []),
         "blocks": len(payload.get("blocks") or []),
         "matchup_notes": len(payload.get("matchup_notes") or []),
         "champion_notes": len(payload.get("champion_notes") or []),
@@ -759,9 +795,11 @@ async def api_import_all(file: UploadFile = File(...)):
             for row in payload.get("sessions") or []:
                 conn.execute(
                     """INSERT INTO coaching_sessions
-                       (session_date, title, notes, start_ranks, created_at_ms)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (row["session_date"], row.get("title", ""), row.get("notes", ""),
+                       (id, session_date, title, notes, coach_name, session_types,
+                        start_ranks, created_at_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (row["id"], row["session_date"], row.get("title", ""), row.get("notes", ""),
+                     row.get("coach_name", ""), json.dumps(row.get("session_types") or []),
                      json.dumps(row["start_ranks"]) if row.get("start_ranks") else None,
                      row.get("created_at_ms")))
             for row in payload.get("blocks") or []:
@@ -784,6 +822,12 @@ async def api_import_all(file: UploadFile = File(...)):
                     (row["id"], row["block_id"], row["match_id"], row["puuid"],
                      row.get("notes", ""), row.get("weakside"),
                      row.get("lane_result_7"), row.get("lane_result_14"),
+                     row.get("added_at_ms")))
+            for row in payload.get("session_games") or []:
+                conn.execute(
+                    """INSERT INTO session_games (id, session_id, match_id, puuid, added_at_ms)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (row["id"], row["session_id"], row["match_id"], row["puuid"],
                      row.get("added_at_ms")))
             for row in payload.get("matchup_notes") or []:
                 skill_order = row.get("skill_order") or []
@@ -862,9 +906,55 @@ def api_delete_session(session_id: int):
     conn = get_conn()
     try:
         freed = db.delete_clips_for_owner(conn, "session", session_id)
+        db.delete_games_for_session(conn, session_id)
         if not db.delete_session(conn, session_id):
             raise HTTPException(404, "no such session")
         _unlink_clip_files(freed)
+        return {"deleted": True}
+    finally:
+        conn.close()
+
+
+@app.get("/api/sessions/{session_id}/games")
+def api_list_session_games(session_id: int):
+    conn = get_conn()
+    try:
+        return stats.session_games_detailed(conn, session_id)
+    finally:
+        conn.close()
+
+
+@app.post("/api/sessions/{session_id}/games")
+def api_add_session_game(session_id: int, body: dict):
+    match_id = (body or {}).get("match_id")
+    puuid = (body or {}).get("puuid")
+    if not match_id or not puuid:
+        raise HTTPException(400, "match_id and puuid are required")
+    conn = get_conn()
+    try:
+        session = conn.execute(
+            "SELECT session_types FROM coaching_sessions WHERE id=?", (session_id,)).fetchone()
+        if not session:
+            raise HTTPException(404, "no such session")
+        session_types = json.loads(session["session_types"] or "[]")
+        if not (set(session_types) & db.SESSION_GAME_TYPES):
+            raise HTTPException(
+                400, "games can only be added to a Live coaching or VOD review session")
+        try:
+            session_game_id = db.add_game_to_session(conn, session_id, match_id, puuid)
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, "this game is already attached to the session")
+        return {"id": session_game_id}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/session-games/{session_game_id}")
+def api_remove_session_game(session_game_id: int):
+    conn = get_conn()
+    try:
+        if not db.remove_game_from_session(conn, session_game_id):
+            raise HTTPException(404, "no such session game")
         return {"deleted": True}
     finally:
         conn.close()

@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.50.0",
+      "date": "2026-07-30",
+      "items": [
+        "Coaching sessions gained a 'Coach' field and a 'Type' checkbox group (Theory / Live coaching / VOD review / Matchup training) — a session can be more than one type at once (e.g. theory + live coaching), editable any time, not just when the session is first created",
+        "Live coaching / VOD review sessions can now have specific games attached via a searchable '+ Add game' picker on the session card",
+        "The Overview's review nudge is now '🔔 Block games missing notes' — it flags any individual block game whose per-game notes are still blank, across every block, instead of comparing Matchup guide notes against a staleness window"
+      ]
+    },
+    {
       "version": "1.49.0",
       "date": "2026-07-27",
       "items": [

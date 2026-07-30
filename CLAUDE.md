@@ -104,19 +104,22 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   segment_metrics/trend_buckets/games_in_range; endpoints read `?side=` (in
   `stat_filters` for matchups/summary, explicit elsewhere). Frontend: a Side
   select in the Overview/Matchups/Trends/Progress filter rows.
-  `stats.review_queue(conn, puuid, limit=8)` powers the Overview's "🔔
-  Matchups to review" nudge, scoped to games you put in a BLOCK (the
+  `stats.review_queue(conn, puuid, limit=8)` powers the Overview's "🔔 Block
+  games missing notes" nudge, scoped to games you put in a BLOCK (the
   `_filtered_base` is INNER-JOINed to `block_games` on match_id+puuid) — the
-  matchups you're actively practising, not every game ever played: per
-  (my_champion, opp_champion) block-game pair, compares `last_played_ms` (max
-  `game_creation_ms`) against that pair's `matchup_notes.updated_at_ms` (NULL
-  = never reviewed, always flagged); otherwise flagged when played more than
-  `REVIEW_STALE_WINDOW_MS` (14 days, a constant, not a setting) after the
-  notes were last touched. Ranked never-reviewed first, then by
-  `games_since_review` (games played after the notes' `updated_at_ms`, or
-  all games if none) descending. `GET /api/stats/review-queue` (`?limit=`);
+  games you're actively practising, not every game ever played. One row per
+  `block_games` entry whose own per-game `notes` column is still blank
+  (`WHERE bg.notes = ''`) — a plain "you played this, you haven't written
+  anything down" check, not a staleness/spaced-repetition heuristic against
+  the Matchup guide (an earlier version compared against
+  `matchup_notes.updated_at_ms` per champion pair; this one is per-game and
+  champion-pair-agnostic — the same matchup can appear more than once if
+  multiple of its games are un-annotated). Newest game first, across EVERY
+  block (not just the current one — an unreviewed game from an old,
+  finalized block still surfaces). `GET /api/stats/review-queue` (`?limit=`);
   frontend hides the panel entirely when the queue is empty, each row's
-  "Review in guide →" link calls the existing `openGuide()`.
+  "Open block →" link calls `focusBlock(block_id)` (blocks.js) to jump to
+  and expand that game's block.
 - `server/app.py` — FastAPI; per-request sqlite connections; crawl runs in a
   daemon thread with module-level `CRAWL_STATE`; db path override via
   `LOL_DB_PATH` env (used by tests). "Hide my rank / LP" setting
@@ -152,13 +155,56 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   init and again after a settings save, so it applies without a reload.
   Session CRUD at `/api/sessions`;
   `/api/stats/progress` aggregates across ALL tracked puuids (no puuid param).
-- Sessions have `title` + Markdown `notes` (legacy `note` column auto-migrates
-  in `db._migrate`). `PATCH /api/sessions/{id}` edits them;
-  `GET /api/sessions/export.md` produces the all-sessions Markdown export.
-  Markdown renders client-side via vendored `static/vendor/marked.min.js`
-  (no CDN at runtime; update by re-downloading from jsdelivr). A session
-  card's Clips section (see `clips` table below) only loads when the card
-  is expanded.
+- Sessions have `title` + Markdown `notes` + a freeform `coach_name` + zero
+  or more `session_types` (legacy `note` column auto-migrates in
+  `db._migrate`). `session_types` is a JSON array of `db.SESSION_TYPES` keys
+  (theory / live_coaching / vod_review / matchup_training — a session can be
+  more than one at once, e.g. theory + live coaching), rendered as a
+  checkbox group (not a `<select>`, since more than one can be checked),
+  editable any time after creation (not just at add-time); content still
+  goes in the one general `notes` field rather than being split per type.
+  Superseded a briefly-unreleased single-value `session_type` column
+  (`db._migrate` folds any already-set value forward as a one-element list)
+  and, before that, an even briefer `session_sections` table of typed
+  sub-notes with their own separate note bodies (dropped by `db._migrate`
+  if a dev build already created it — no user content was ever stored in
+  it). `PATCH /api/sessions/{id}` edits any of title/notes/coach_name/
+  session_types (partial; each independently omittable; `session_types`
+  fully replaces the stored list, like re-saving a checkbox group's current
+  state); `GET /api/sessions/export.md` produces the all-sessions Markdown
+  export (Type/Coach as an italic meta line under the heading, types
+  comma-joined). Markdown renders client-side via vendored
+  `static/vendor/marked.min.js` (no CDN at runtime; update by
+  re-downloading from jsdelivr). A session card's Clips section (see
+  `clips` table below) only loads when the card is expanded.
+  `coaching_sessions.id` is preserved explicitly on full-backup import
+  (`INSERT INTO coaching_sessions (id, ...)`, matching every other owned/
+  linked table's convention) rather than left to autoincrement
+  renumbering: clips (and `session_games`, below) key off a session's own
+  id, and SQLite's `AUTOINCREMENT` keyword does NOT restart from a wiped
+  table's low water mark, so re-running an import after wiping tables would
+  otherwise silently mint a new, mismatched id and orphan those rows.
+  A session whose `session_types` includes `live_coaching` and/or
+  `vod_review` (checked via `set(session_types) & db.SESSION_GAME_TYPES`,
+  gated in `api_add_session_game` — `matchup_training`/`theory` alone don't
+  unlock it) can have specific played games attached, via `session_games`
+  (`id`, `session_id`, `match_id`, `puuid`, `added_at_ms`; `UNIQUE(session_id,
+  match_id, puuid)` — the same game CAN be attached to more than one
+  session, e.g. reviewed again later, unlike `block_games` which is
+  exclusive to one block). `GET`/`POST /api/sessions/{session_id}/games`
+  (create validates the session's type, 404s if the session doesn't exist);
+  `DELETE /api/session-games/{id}` (no PATCH — an attachment has no
+  editable fields of its own; remove and re-add to change it).
+  `stats.session_games_detailed(conn, session_id)`
+  hydrates the attachment with champion/win/KDA/runes from the stored match
+  (same lane-opponent join pattern as `block_games_detailed`), newest first.
+  Deleting a session cascades its `session_games`
+  (`db.delete_games_for_session`, alongside the existing clips cleanup).
+  UI in `app.js`: a "Games" section on the session card (only rendered when
+  the type check above passes) lists attached games with a remove button,
+  plus a "+ Add game" search panel (champion select populated from
+  `/api/filters`, a range preset, hits the existing
+  `GET /api/stats/games?champion=&range=`) to find and attach more.
 - Segment rows expand to per-game lists: `stats.games_in_range(conn, puuids,
   from_ms, to_ms, ...)` behind `GET /api/stats/games?from_ms=&to_ms=` (ms
   bounds; client passes `to_ms-1` for half-open segments); frontend caches

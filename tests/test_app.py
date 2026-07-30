@@ -84,25 +84,26 @@ def _put_all_games_in_block(conn):
     conn.commit()
 
 
-def test_review_queue_endpoint_flags_never_reviewed_matchups(client):
-    # the client fixture's two matchups (Garen/Darius x2, Kled/Teemo x1) have
-    # no matchup_notes rows at all, so both should come back never-reviewed,
-    # Garen/Darius ranked first (2 games since review vs 1)
+def test_review_queue_endpoint_flags_block_games_without_notes(client):
+    # the client fixture's 3 games (Garen/Darius win, Garen/Darius loss, Kled/Teemo)
+    # all land in one block with blank per-game notes — every game is flagged,
+    # newest first
     conn = db.connect(app_module.get_db_path()); _put_all_games_in_block(conn); conn.close()
     rows = client.get(f"/api/stats/review-queue?puuid={ME}").json()
-    assert [(r["my_champion"], r["opp_champion"]) for r in rows] == [
-        ("Garen", "Darius"), ("Kled", "Teemo")]
-    assert rows[0]["notes_updated_ms"] is None
-    assert rows[0]["games_since_review"] == 2
+    assert [r["game_creation_ms"] for r in rows] == sorted(
+        (r["game_creation_ms"] for r in rows), reverse=True)
+    assert len(rows) == 3
 
 
-def test_review_queue_endpoint_excludes_freshly_reviewed_matchup(client):
+def test_review_queue_endpoint_excludes_games_with_notes(client):
     conn = db.connect(app_module.get_db_path())
     _put_all_games_in_block(conn)
-    db.set_matchup_note(conn, "Garen", "Darius", notes="reviewed just now")
+    entry_id = conn.execute("SELECT id FROM block_games ORDER BY id LIMIT 1").fetchone()["id"]
+    db.update_block_game(conn, entry_id, "wrote something down")
     conn.close()
+
     rows = client.get(f"/api/stats/review-queue?puuid={ME}").json()
-    assert [(r["my_champion"], r["opp_champion"]) for r in rows] == [("Kled", "Teemo")]
+    assert len(rows) == 2
 
 
 def test_review_queue_endpoint_respects_limit(client):
@@ -161,6 +162,109 @@ def test_patch_session_errors(client):
     assert client.patch(f"/api/sessions/{session_id}", json={}).status_code == 400
 
 
+def test_session_coach_name_roundtrip(client):
+    response = client.post(
+        "/api/sessions", json={"date": "2026-06-28", "coach_name": "Coach Riven"})
+    session_id = response.json()["id"]
+    assert client.get("/api/sessions").json()[0]["coach_name"] == "Coach Riven"
+    client.patch(f"/api/sessions/{session_id}", json={"coach_name": "New Coach"})
+    assert client.get("/api/sessions").json()[0]["coach_name"] == "New Coach"
+
+
+def test_session_types_roundtrip(client):
+    response = client.post(
+        "/api/sessions", json={"date": "2026-06-28", "session_types": ["live_coaching"]})
+    session_id = response.json()["id"]
+    assert client.get("/api/sessions").json()[0]["session_types"] == ["live_coaching"]
+    client.patch(f"/api/sessions/{session_id}",
+                json={"session_types": ["vod_review", "theory"]})
+    assert client.get("/api/sessions").json()[0]["session_types"] == ["vod_review", "theory"]
+
+
+def test_session_types_validation(client):
+    assert client.post(
+        "/api/sessions", json={"date": "2026-06-28", "session_types": ["not_a_type"]}
+    ).status_code == 400
+    assert client.post(
+        "/api/sessions", json={"date": "2026-06-28", "session_types": "live_coaching"}
+    ).status_code == 400  # must be a list, not a bare string
+    session_id = client.post("/api/sessions", json={"date": "2026-06-29"}).json()["id"]
+    assert client.patch(
+        f"/api/sessions/{session_id}", json={"session_types": ["not_a_type"]}
+    ).status_code == 400
+    # empty list clears it back to unset
+    client.patch(f"/api/sessions/{session_id}", json={"session_types": ["matchup_training"]})
+    client.patch(f"/api/sessions/{session_id}", json={"session_types": []})
+    assert client.get("/api/sessions").json()[0]["session_types"] == []
+
+
+def test_session_games_requires_live_or_vod_type(client):
+    game = client.get("/api/stats/games").json()[0]
+    body = {"match_id": game["match_id"], "puuid": game["my_puuid"]}
+
+    blank_id = client.post("/api/sessions", json={"date": "2026-06-28"}).json()["id"]
+    assert client.post(f"/api/sessions/{blank_id}/games", json=body).status_code == 400
+
+    training_id = client.post(
+        "/api/sessions", json={"date": "2026-06-29", "session_types": ["matchup_training"]}).json()["id"]
+    assert client.post(f"/api/sessions/{training_id}/games", json=body).status_code == 400
+
+    live_id = client.post(
+        "/api/sessions", json={"date": "2026-06-30", "session_types": ["live_coaching"]}).json()["id"]
+    assert client.post(f"/api/sessions/{live_id}/games", json=body).status_code == 200
+
+    vod_id = client.post(
+        "/api/sessions", json={"date": "2026-07-01", "session_types": ["vod_review"]}).json()["id"]
+    assert client.post(f"/api/sessions/{vod_id}/games", json=body).status_code == 200
+
+
+def test_session_games_crud_round_trip(client):
+    session_id = client.post(
+        "/api/sessions", json={"date": "2026-06-28", "session_types": ["live_coaching"]}).json()["id"]
+    assert client.get(f"/api/sessions/{session_id}/games").json() == []
+
+    game = client.get("/api/stats/games").json()[0]
+    response = client.post(f"/api/sessions/{session_id}/games",
+                           json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
+    assert response.status_code == 200
+    session_game_id = response.json()["id"]
+
+    games = client.get(f"/api/sessions/{session_id}/games").json()
+    assert len(games) == 1
+    assert games[0]["match_id"] == game["match_id"]
+    assert games[0]["my_champion"] == game["my_champion"]
+
+    assert client.delete(f"/api/session-games/{session_game_id}").status_code == 200
+    assert client.get(f"/api/sessions/{session_id}/games").json() == []
+
+
+def test_session_games_duplicate_conflict(client):
+    session_id = client.post(
+        "/api/sessions", json={"date": "2026-06-28", "session_types": ["live_coaching"]}).json()["id"]
+    game = client.get("/api/stats/games").json()[0]
+    body = {"match_id": game["match_id"], "puuid": game["my_puuid"]}
+    assert client.post(f"/api/sessions/{session_id}/games", json=body).status_code == 200
+    assert client.post(f"/api/sessions/{session_id}/games", json=body).status_code == 409
+
+
+def test_session_games_404s(client):
+    game = client.get("/api/stats/games").json()[0]
+    body = {"match_id": game["match_id"], "puuid": game["my_puuid"]}
+    assert client.post("/api/sessions/999/games", json=body).status_code == 404
+    assert client.delete("/api/session-games/999").status_code == 404
+
+
+def test_deleting_session_cascades_its_games(client):
+    session_id = client.post(
+        "/api/sessions", json={"date": "2026-06-28", "session_types": ["live_coaching"]}).json()["id"]
+    game = client.get("/api/stats/games").json()[0]
+    session_game_id = client.post(
+        f"/api/sessions/{session_id}/games",
+        json={"match_id": game["match_id"], "puuid": game["my_puuid"]}).json()["id"]
+    assert client.delete(f"/api/sessions/{session_id}").status_code == 200
+    assert client.delete(f"/api/session-games/{session_game_id}").status_code == 404
+
+
 def test_export_markdown_document(client):
     client.post("/api/sessions", json={"date": "2026-06-28", "title": "a", "notes": "- worked on waves"})
     client.post("/api/sessions", json={"date": "2026-07-05", "title": "b", "notes": "- trading stance"})
@@ -172,6 +276,16 @@ def test_export_markdown_document(client):
     assert body.startswith("# Coaching sessions")
     assert body.index("## 2026-07-05 — b") < body.index("## 2026-06-28 — a")
     assert "- trading stance" in body
+
+
+def test_export_markdown_includes_coach_name_and_type(client):
+    client.post(
+        "/api/sessions",
+        json={"date": "2026-06-28", "title": "a", "coach_name": "Coach Riven",
+              "session_types": ["vod_review"], "notes": "watch the dive at 12 min"})
+    body = client.get("/api/sessions/export.md").text
+    assert "*Type: VOD review · Coach: Coach Riven*" in body
+    assert "watch the dive at 12 min" in body
 
 
 def test_export_untitled_session_and_empty_db(client):
@@ -1749,6 +1863,11 @@ def test_export_all_bundles_content_and_files(client):
     import zipfile
 
     session_id = _make_session(client)
+    client.patch(f"/api/sessions/{session_id}",
+                json={"coach_name": "Coach Riven", "session_types": ["vod_review"]})
+    game = client.get("/api/stats/games").json()[0]
+    client.post(f"/api/sessions/{session_id}/games",
+               json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
     client.put("/api/champions/notes/Gwen", json={"notes": "general Gwen tips"})
     client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "respect level 2"})
     client.put("/api/champions/item-build/Gwen", json={
@@ -1775,6 +1894,9 @@ def test_export_all_bundles_content_and_files(client):
     data = json_module.loads(zf.read("data.json"))
     assert data["kind"] == "full-export"
     assert len(data["sessions"]) == 1
+    assert data["sessions"][0]["coach_name"] == "Coach Riven"
+    assert data["sessions"][0]["session_types"] == ["vod_review"]
+    assert data["session_games"][0]["match_id"] == game["match_id"]
     assert data["champion_notes"][0]["notes"] == "general Gwen tips"
     assert data["matchup_notes"][0]["notes"] == "respect level 2"
     assert data["item_builds"][0]["sections"] == [{"label": "Core build", "items": ["Riftmaker"]}]
@@ -1793,6 +1915,11 @@ def test_import_all_round_trip_and_conflict_detection(client):
     import zipfile
 
     session_id = _make_session(client)
+    client.patch(f"/api/sessions/{session_id}",
+                json={"coach_name": "Coach Riven", "session_types": ["vod_review"]})
+    game = client.get("/api/stats/games").json()[0]
+    client.post(f"/api/sessions/{session_id}/games",
+               json={"match_id": game["match_id"], "puuid": game["my_puuid"]})
     client.put("/api/champions/notes/Gwen", json={"notes": "general Gwen tips"})
     client.put("/api/matchups/notes/Gwen/Darius", json={"notes": "respect level 2"})
     saved_order = ["Q", "W", "E", "Q", "Q", "R"] + [""] * 12
@@ -1821,9 +1948,9 @@ def test_import_all_round_trip_and_conflict_detection(client):
     # wipe the tables the backup covers to simulate a fresh/empty setup,
     # then the same backup should import cleanly
     conn = db.connect(os.environ["LOL_DB_PATH"])
-    for table in ("coaching_sessions", "blocks", "block_games", "matchup_notes",
-                  "champion_notes", "champion_item_builds", "research_entries",
-                  "research_screenshots", "clips", "macro_sections"):
+    for table in ("coaching_sessions", "session_games", "blocks", "block_games",
+                  "matchup_notes", "champion_notes", "champion_item_builds",
+                  "research_entries", "research_screenshots", "clips", "macro_sections"):
         conn.execute(f"DELETE FROM {table}")
     conn.commit()
     conn.close()
@@ -1837,6 +1964,11 @@ def test_import_all_round_trip_and_conflict_detection(client):
     assert result2.status_code == 200
     assert result2.json()["imported"]["sessions"] == 1
 
+    restored_session = client.get("/api/sessions").json()[0]
+    assert restored_session["coach_name"] == "Coach Riven"
+    assert restored_session["session_types"] == ["vod_review"]
+    restored_games = client.get(f"/api/sessions/{restored_session['id']}/games").json()
+    assert restored_games[0]["match_id"] == game["match_id"]
     assert client.get("/api/champions/notes/Gwen").json()["notes"] == "general Gwen tips"
     restored = client.get("/api/matchups/notes?my_champion=Gwen").json()["Darius"]
     assert restored["notes"] == "respect level 2"

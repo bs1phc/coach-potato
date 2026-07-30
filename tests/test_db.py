@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -140,6 +141,18 @@ def test_update_session_missing_id_returns_false(conn):
     assert db.update_session(conn, 999, title="x") is False
 
 
+def test_add_session_coach_name_default_empty(conn):
+    db.add_session(conn, "2026-06-28")
+    assert db.list_sessions(conn)[0]["coach_name"] == ""
+
+
+def test_update_session_coach_name(conn):
+    session_id = db.add_session(conn, "2026-06-28", coach_name="Coach Riven")
+    assert db.list_sessions(conn)[0]["coach_name"] == "Coach Riven"
+    db.update_session(conn, session_id, coach_name="New Coach")
+    assert db.list_sessions(conn)[0]["coach_name"] == "New Coach"
+
+
 def test_legacy_note_column_migrates_to_title_and_notes(tmp_path):
     import sqlite3
     path = tmp_path / "legacy.sqlite"
@@ -177,6 +190,53 @@ def test_delete_session(conn):
     assert db.delete_session(conn, session_id) is True
     assert db.list_sessions(conn) == []
     assert db.delete_session(conn, session_id) is False
+
+
+def test_add_session_types_default_empty(conn):
+    db.add_session(conn, "2026-06-28")
+    assert json.loads(db.list_sessions(conn)[0]["session_types"]) == []
+
+
+def test_add_and_update_session_types(conn):
+    session_id = db.add_session(conn, "2026-06-28", session_types=["live_coaching"])
+    assert json.loads(db.list_sessions(conn)[0]["session_types"]) == ["live_coaching"]
+    db.update_session(conn, session_id, session_types=["vod_review", "theory"])
+    assert json.loads(db.list_sessions(conn)[0]["session_types"]) == ["vod_review", "theory"]
+
+
+def test_session_games_crud(conn):
+    session_id = db.add_session(conn, "2026-06-28", session_types=["live_coaching"])
+    ids = _seed_block_matches(conn, 2)
+    game_id = db.add_game_to_session(conn, session_id, ids[0], "me")
+    games = db.list_session_games(conn, session_id)
+    assert len(games) == 1
+    assert games[0]["id"] == game_id
+    assert games[0]["match_id"] == ids[0]
+    db.add_game_to_session(conn, session_id, ids[1], "me")
+    assert len(db.list_session_games(conn, session_id)) == 2
+    assert db.remove_game_from_session(conn, game_id) is True
+    assert [g["match_id"] for g in db.list_session_games(conn, session_id)] == [ids[1]]
+    assert db.remove_game_from_session(conn, game_id) is False
+
+
+def test_session_games_duplicate_raises(conn):
+    import sqlite3
+    session_id = db.add_session(conn, "2026-06-28", session_types=["live_coaching"])
+    ids = _seed_block_matches(conn, 1)
+    db.add_game_to_session(conn, session_id, ids[0], "me")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.add_game_to_session(conn, session_id, ids[0], "me")
+
+
+def test_delete_games_for_session(conn):
+    session_id = db.add_session(conn, "2026-06-28", session_types=["live_coaching"])
+    other_id = db.add_session(conn, "2026-06-29", session_types=["vod_review"])
+    ids = _seed_block_matches(conn, 1)
+    db.add_game_to_session(conn, session_id, ids[0], "me")
+    other_game_id = db.add_game_to_session(conn, other_id, ids[0], "me")
+    db.delete_games_for_session(conn, session_id)
+    assert db.list_session_games(conn, session_id) == []
+    assert [g["id"] for g in db.list_session_games(conn, other_id)] == [other_game_id]
 
 
 def test_last_coaching_session_date_none_when_empty(conn):
@@ -890,6 +950,8 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     db.upsert_player(c, "p1", "PlayerOne", "EUW", is_tracked=True)
     db.add_session(c, "2026-07-01", "waves", notes="# keep me")
     ids = _seed_block_matches(c, 1)
+    session_game_id = db.add_game_to_session(
+        c, db.list_sessions(c)[0]["id"], ids[0], "me")
     db.add_game_to_block(c, ids[0], "me")
     entry = c.execute("SELECT id FROM block_games").fetchone()["id"]
     db.update_block_game(c, entry, "game note")
@@ -903,6 +965,19 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     c.execute("ALTER TABLE blocks DROP COLUMN closed_at_ms")
     c.execute("ALTER TABLE block_games DROP COLUMN lane_result_7")
     c.execute("ALTER TABLE block_games DROP COLUMN lane_result_14")
+    c.execute("ALTER TABLE coaching_sessions DROP COLUMN coach_name")
+    c.execute("ALTER TABLE coaching_sessions DROP COLUMN session_types")
+    # simulate a genuinely older schema: the earlier unreleased single-value
+    # session_type column, with a value already set, before it was replaced
+    # by the (multi-select) session_types JSON column
+    c.execute("ALTER TABLE coaching_sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT ''")
+    c.execute("UPDATE coaching_sessions SET session_type='live_coaching'")
+    # a session_sections table briefly existed in an even earlier unreleased
+    # dev build of this feature before being replaced by session_type/
+    # session_types; simulate that leftover artifact to confirm the
+    # migration cleans it up
+    c.execute(
+        "CREATE TABLE session_sections (id INTEGER PRIMARY KEY, session_id INTEGER)")
     # ...and put champion_item_builds back in its pre-v1.39.0 shape: a
     # privileged unlabeled "core" list alongside labeled situational sections
     c.execute("ALTER TABLE champion_item_builds DROP COLUMN sections")
@@ -915,6 +990,8 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     c.close()
     c = db.connect(path)  # "upgrade": _migrate + SCHEMA re-run
     assert db.list_sessions(c)[0]["notes"] == "# keep me"
+    assert [g["id"] for g in db.list_session_games(c, db.list_sessions(c)[0]["id"])] == [
+        session_game_id]
     assert c.execute("SELECT notes FROM block_games").fetchone()["notes"] == "game note"
     assert c.execute("SELECT learnings FROM blocks").fetchone()["learnings"] == "learned things"
     assert db.get_matchup_notes(c, "Gwen") == {"Darius": {
@@ -938,6 +1015,20 @@ def test_upgrade_from_older_db_preserves_all_notes(tmp_path):
     assert db.set_block_game_lane_result(c, entry, 14, "lost")
     assert c.execute(
         "SELECT lane_result_14 FROM block_games").fetchone()["lane_result_14"] == "lost"
+    # coach_name/session_types columns re-added by the migration; the old
+    # single-value session_type's already-set value folds forward into
+    # session_types as a one-element list; the leftover session_sections
+    # table gets dropped
+    session_id = db.list_sessions(c)[0]["id"]
+    row = db.list_sessions(c)[0]
+    assert row["coach_name"] == ""
+    assert json.loads(row["session_types"]) == ["live_coaching"]
+    db.update_session(c, session_id, coach_name="Coach Riven", session_types=["vod_review"])
+    row = db.list_sessions(c)[0]
+    assert row["coach_name"] == "Coach Riven"
+    assert json.loads(row["session_types"]) == ["vod_review"]
+    assert not c.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_sections'").fetchone()
     c.close()
 
 

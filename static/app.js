@@ -1142,19 +1142,15 @@ async function refresh() {
   renderReviewQueue(reviewQueue);
 }
 
-// ---------- "review before queue" nudge ----------
+// ---------- "block games missing notes" nudge ----------
 
 function reviewQueueRow(row) {
-  const badge = row.notes_updated_ms == null
-    ? `<span class="block-badge">never reviewed</span>`
-    : `<span class="block-badge block-closed">${row.games_since_review} game${row.games_since_review === 1 ? "" : "s"} since review</span>`;
   return `<div class="review-queue-row">
     <span class="champ-cell">${champIcon(row.my_champion)}${displayName(row.my_champion)}
       <span class="muted">vs</span> ${champIcon(row.opp_champion)}${displayName(row.opp_champion)}</span>
-    <span class="muted">last played ${fmtDate(row.last_played_ms)}</span>
-    ${badge}
-    <button class="link-btn review-queue-open" data-my="${escapeHtml(row.my_champion)}"
-      data-opp="${escapeHtml(row.opp_champion)}">Review in guide →</button>
+    <span class="muted">${row.win ? "Win" : "Loss"} · ${fmtDate(row.game_creation_ms)}</span>
+    <span class="block-badge">no notes</span>
+    <button class="link-btn review-queue-open" data-block="${row.block_id}">Open block →</button>
   </div>`;
 }
 
@@ -1167,7 +1163,7 @@ function renderReviewQueue(rows) {
   section.classList.remove("hidden");
   $("#review-queue-list").innerHTML = rows.map(reviewQueueRow).join("");
   section.querySelectorAll(".review-queue-open").forEach((btn) =>
-    btn.addEventListener("click", () => openGuide(btn.dataset.my, btn.dataset.opp)));
+    btn.addEventListener("click", () => focusBlock(+btn.dataset.block)));
 }
 
 // ---------- coaching progress ----------
@@ -1418,7 +1414,26 @@ function renderProgress(segments) {
   wirePromoteButtons(target);
 }
 
-const sessionUi = { expanded: new Set(), editing: null, clips: new Map() };
+const sessionUi = {
+  expanded: new Set(), editing: null, clips: new Map(),
+  games: new Map(),      // session_id -> attached games array (lazy, like clips)
+  gameSearch: new Map(), // session_id -> {champion, range, results} while the "+ Add game" panel is open
+};
+let sessionGameChampionsCache = null;
+
+async function loadSessionGameChampions() {
+  if (!sessionGameChampionsCache) {
+    sessionGameChampionsCache = (await unionFilterOptions()).champions;
+  }
+  return sessionGameChampionsCache;
+}
+
+const SESSION_TYPE_LABELS = {
+  theory: "Theory",
+  live_coaching: "Live coaching",
+  vod_review: "VOD review",
+  matchup_training: "Matchup training",
+};
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g,
@@ -1671,6 +1686,81 @@ function wireReflectionSection(container, reload, rerender) {
     }));
 }
 
+function sessionTypeChecksHtml(sessionId, selected) {
+  const chosen = new Set(selected || []);
+  return Object.entries(SESSION_TYPE_LABELS).map(([value, label]) =>
+    `<label><input type="checkbox" class="session-type-check" data-id="${sessionId}"
+       value="${value}" ${chosen.has(value) ? "checked" : ""}> ${label}</label>`
+  ).join("");
+}
+
+function sessionGameSummary(g) {
+  return `${champIcon(g.my_champion)} ${escapeHtml(displayName(g.my_champion))}
+    vs ${g.opp_champion ? escapeHtml(displayName(g.opp_champion)) : "?"}
+    · ${g.win ? "Win" : "Loss"} · ${fmtDate(g.game_creation_ms)}`;
+}
+
+function sessionGamesListHtml(sessionId) {
+  const games = sessionUi.games.get(sessionId);
+  if (games === undefined) return `<p class="muted">Loading…</p>`;
+  if (!games.length) return `<p class="muted">No games attached yet.</p>`;
+  return games.map((g) => `<div class="clip-item">
+    <div class="clip-item-head">
+      <span>${sessionGameSummary(g)} · ${g.kills}/${g.deaths}/${g.assists}</span>
+      <button class="preset icon-btn session-game-remove" data-id="${g.session_game_id}"
+        title="Remove game" aria-label="Remove game">🗑</button>
+    </div>
+  </div>`).join("");
+}
+
+function sessionGameSearchHtml(sessionId) {
+  const search = sessionUi.gameSearch.get(sessionId) || {};
+  const champions = search.champions || [];
+  const champOptions = champions.map((c) =>
+    `<option value="${c}" ${c === search.champion ? "selected" : ""}>${displayName(c)}</option>`
+  ).join("");
+  let resultsHtml = "";
+  if (search.results === undefined) {
+    resultsHtml = "";
+  } else if (!search.results.length) {
+    resultsHtml = `<p class="muted">No games found.</p>`;
+  } else {
+    resultsHtml = search.results.map((g) => `<div class="clip-item">
+      <div class="clip-item-head">
+        <span>${sessionGameSummary(g)}</span>
+        <button class="preset session-game-attach" data-match="${escapeHtml(g.match_id)}"
+          data-puuid="${escapeHtml(g.my_puuid)}">+ Add</button>
+      </div>
+    </div>`).join("");
+  }
+  return `<div class="session-game-search" data-id="${sessionId}">
+    <div class="filter-row">
+      <select class="session-game-champion">
+        <option value="">All champions</option>
+        ${champOptions}
+      </select>
+      <select class="session-game-range">
+        <option value="30d" ${(search.range || "30d") === "30d" ? "selected" : ""}>Last 30 days</option>
+        <option value="90d" ${search.range === "90d" ? "selected" : ""}>Last 90 days</option>
+        <option value="all" ${search.range === "all" ? "selected" : ""}>All time</option>
+      </select>
+      <button type="button" class="preset session-game-search-btn">Search</button>
+      <button type="button" class="preset session-game-search-cancel">Cancel</button>
+    </div>
+    <div class="session-game-results">${resultsHtml}</div>
+  </div>`;
+}
+
+function sessionGamesBlock(s) {
+  const searching = sessionUi.gameSearch.has(s.id);
+  return `<div class="session-games">
+    <h5>Games</h5>
+    <div class="session-games-list">${sessionGamesListHtml(s.id)}</div>
+    ${searching ? sessionGameSearchHtml(s.id)
+      : `<button type="button" class="preset session-game-add-open" data-id="${s.id}">+ Add game</button>`}
+  </div>`;
+}
+
 function sessionCard(s) {
   const expanded = sessionUi.expanded.has(s.id);
   const editing = sessionUi.editing === s.id;
@@ -1679,6 +1769,10 @@ function sessionCard(s) {
     body = `<div class="session-body">
       <label class="filter-label" for="edit-title-${s.id}">Title</label>
       <input type="text" id="edit-title-${s.id}" value="${escapeHtml(s.title)}" style="width:100%">
+      <label class="filter-label" for="edit-coach-${s.id}">Coach</label>
+      <input type="text" id="edit-coach-${s.id}" value="${escapeHtml(s.coach_name || "")}">
+      <span class="filter-label">Type</span>
+      <div class="session-type-checks">${sessionTypeChecksHtml(s.id, s.session_types)}</div>
       <label class="filter-label" for="edit-notes-${s.id}">Notes (Markdown)</label>
       <textarea id="edit-notes-${s.id}" rows="10">${escapeHtml(s.notes)}</textarea>
       <div class="session-actions">
@@ -1689,20 +1783,29 @@ function sessionCard(s) {
   } else if (expanded) {
     body = `<div class="session-body md-body">${renderNotes(s.notes)}</div>`;
   }
+  const types = s.session_types || [];
+  const canAddGames = types.includes("live_coaching") || types.includes("vod_review");
+  const games = (expanded || editing) && canAddGames ? sessionGamesBlock(s) : "";
   const clips = (expanded || editing)
     ? clipsSection("session", s.id, sessionUi.clips.get(s.id)) : "";
+  const typeBadges = types.map((t) =>
+    `<span class="muted session-type-badge">${escapeHtml(SESSION_TYPE_LABELS[t] || t)}</span>`
+  ).join("");
   return `<div class="session-card">
     <div class="session-head">
       <button class="preset session-toggle" data-id="${s.id}" aria-expanded="${expanded}">
         ${expanded || editing ? "▾" : "▸"}</button>
       <span class="session-date">${s.session_date}</span>
       <span class="session-title">${s.title ? escapeHtml(s.title) : "<span class='muted'>untitled</span>"}</span>
+      ${typeBadges}
+      ${s.coach_name ? `<span class="muted session-coach">Coach: ${escapeHtml(s.coach_name)}</span>` : ""}
       <span class="session-actions">
         <button class="preset icon-btn session-edit" data-id="${s.id}" title="Edit session" aria-label="Edit session">✎</button>
         <button class="preset icon-btn session-delete" data-id="${s.id}" title="Delete session" aria-label="Delete session">🗑</button>
       </span>
     </div>
     ${body}
+    ${games}
     ${clips}
   </div>`;
 }
@@ -1710,6 +1813,13 @@ function sessionCard(s) {
 async function ensureSessionClips(id) {
   if (sessionUi.clips.has(id)) return;
   sessionUi.clips.set(id, await getJSON(`/api/clips?owner_type=session&owner_id=${id}`));
+}
+
+async function ensureSessionGames(session) {
+  const types = session.session_types || [];
+  if (!types.includes("live_coaching") && !types.includes("vod_review")) return;
+  if (sessionUi.games.has(session.id)) return;
+  sessionUi.games.set(session.id, await getJSON(`/api/sessions/${session.id}/games`));
 }
 
 function renderSessions(sessionRows) {
@@ -1730,7 +1840,8 @@ function renderSessions(sessionRows) {
       }
       sessionUi.expanded.add(id);
       renderSessions(sessionRows); // show "Loading…" immediately
-      await ensureSessionClips(id);
+      const session = sessionRows.find((r) => r.id === id);
+      await Promise.all([ensureSessionClips(id), ensureSessionGames(session)]);
       renderSessions(sessionRows);
     }));
   target.querySelectorAll(".session-edit").forEach((btn) =>
@@ -1739,7 +1850,8 @@ function renderSessions(sessionRows) {
       sessionUi.editing = id;
       sessionUi.expanded.add(id);
       renderSessions(sessionRows);
-      await ensureSessionClips(id);
+      const session = sessionRows.find((r) => r.id === id);
+      await Promise.all([ensureSessionClips(id), ensureSessionGames(session)]);
       renderSessions(sessionRows);
     }));
   target.querySelectorAll(".session-cancel").forEach((btn) =>
@@ -1750,12 +1862,16 @@ function renderSessions(sessionRows) {
   target.querySelectorAll(".session-save").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const id = +btn.dataset.id;
+      const sessionTypes = [...document.querySelectorAll(
+        `.session-type-check[data-id="${id}"]:checked`)].map((c) => c.value);
       const response = await fetch(`/api/sessions/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: $(`#edit-title-${id}`).value,
           notes: $(`#edit-notes-${id}`).value,
+          coach_name: $(`#edit-coach-${id}`).value,
+          session_types: sessionTypes,
         }),
       });
       if (response.ok) {
@@ -1769,6 +1885,63 @@ function renderSessions(sessionRows) {
       await fetch(`/api/sessions/${btn.dataset.id}`, { method: "DELETE" });
       loadProgress();
       refreshCoachingNudge();
+    }));
+  target.querySelectorAll(".session-game-add-open").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const id = +btn.dataset.id;
+      const champions = await loadSessionGameChampions();
+      sessionUi.gameSearch.set(id, { champions });
+      renderSessions(sessionRows);
+    }));
+  target.querySelectorAll(".session-game-search-cancel").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const id = +btn.closest(".session-game-search").dataset.id;
+      sessionUi.gameSearch.delete(id);
+      renderSessions(sessionRows);
+    }));
+  target.querySelectorAll(".session-game-search-btn").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const panel = btn.closest(".session-game-search");
+      const id = +panel.dataset.id;
+      const champion = panel.querySelector(".session-game-champion").value;
+      const range = panel.querySelector(".session-game-range").value;
+      const params = accountParams();
+      if (champion) params.set("champion", champion);
+      params.set("range", range);
+      const results = await getJSON(`/api/stats/games?${params}`);
+      const prev = sessionUi.gameSearch.get(id) || {};
+      sessionUi.gameSearch.set(id, { ...prev, champion, range, results });
+      renderSessions(sessionRows);
+    }));
+  target.querySelectorAll(".session-game-attach").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const panel = btn.closest(".session-game-search");
+      const id = +panel.dataset.id;
+      const response = await fetch(`/api/sessions/${id}/games`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ match_id: btn.dataset.match, puuid: btn.dataset.puuid }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        alert(body.detail || `error ${response.status}`);
+        return;
+      }
+      sessionUi.games.delete(id);
+      const session = sessionRows.find((r) => r.id === id);
+      await ensureSessionGames(session);
+      renderSessions(sessionRows);
+    }));
+  target.querySelectorAll(".session-game-remove").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("Remove this game from the session?")) return;
+      await fetch(`/api/session-games/${btn.dataset.id}`, { method: "DELETE" });
+      const card = btn.closest(".session-card");
+      const id = +card.querySelector(".session-toggle").dataset.id;
+      sessionUi.games.delete(id);
+      const session = sessionRows.find((r) => r.id === id);
+      await ensureSessionGames(session);
+      renderSessions(sessionRows);
     }));
   wireClipsSection(target, async (ownerType, ownerId) => {
     sessionUi.clips.delete(+ownerId);
@@ -2448,10 +2621,17 @@ function wireProgress() {
     e.preventDefault();
     const errorEl = $("#session-error");
     errorEl.textContent = "";
+    const sessionTypes = [...document.querySelectorAll(
+      "#session-type-checks input:checked")].map((c) => c.value);
     const response = await fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: $("#session-date").value, title: $("#session-title").value }),
+      body: JSON.stringify({
+        date: $("#session-date").value,
+        title: $("#session-title").value,
+        coach_name: $("#session-coach").value,
+        session_types: sessionTypes,
+      }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -2460,6 +2640,8 @@ function wireProgress() {
     }
     $("#session-date").value = "";
     $("#session-title").value = "";
+    $("#session-coach").value = "";
+    $("#session-type-checks").querySelectorAll("input").forEach((c) => { c.checked = false; });
     loadProgress();
     refreshCoachingNudge();
   });

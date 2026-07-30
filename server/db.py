@@ -59,14 +59,39 @@ CREATE TABLE IF NOT EXISTS player_ranks (
     fetched_at_ms INTEGER NOT NULL
 );
 
+-- session_types is a JSON array of zero or more db.SESSION_TYPES keys: what
+-- kind(s) of session this was (theory / live coaching / VOD review /
+-- matchup training) — a session can be more than one at once (e.g. theory
+-- + live coaching), using the same general `notes` field for content
+-- rather than splitting notes per type. Superseded the earlier
+-- single-value `session_type` column (see db._migrate).
 CREATE TABLE IF NOT EXISTS coaching_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_date TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
+    coach_name TEXT NOT NULL DEFAULT '',
+    session_types TEXT NOT NULL DEFAULT '[]',
     start_ranks TEXT,
     created_at_ms INTEGER
 );
+
+-- Games explicitly attached to a Live coaching / VOD review session (not
+-- gated at the schema level — app.py only allows adding when one of those
+-- two types is among the session's session_types). A game may be attached
+-- to more than one session
+-- (e.g. reviewed again later), so no PK on (match_id, puuid) alone like
+-- block_games — just a UNIQUE guard against adding the same game twice to
+-- the same session.
+CREATE TABLE IF NOT EXISTS session_games (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    match_id TEXT NOT NULL,
+    puuid TEXT NOT NULL,
+    added_at_ms INTEGER,
+    UNIQUE(session_id, match_id, puuid)
+);
+CREATE INDEX IF NOT EXISTS idx_session_games_session ON session_games(session_id);
 
 CREATE TABLE IF NOT EXISTS participant_metrics (
     match_id TEXT NOT NULL,
@@ -322,6 +347,26 @@ def _migrate(conn):
                 "ALTER TABLE coaching_sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
     if session_columns and "start_ranks" not in session_columns:
         conn.execute("ALTER TABLE coaching_sessions ADD COLUMN start_ranks TEXT")
+    if session_columns and "coach_name" not in session_columns:
+        conn.execute(
+            "ALTER TABLE coaching_sessions ADD COLUMN coach_name TEXT NOT NULL DEFAULT ''")
+    if session_columns and "session_types" not in session_columns:
+        conn.execute(
+            "ALTER TABLE coaching_sessions ADD COLUMN session_types TEXT NOT NULL DEFAULT '[]'")
+        if "session_type" in session_columns:
+            # session_type (singular, one value) was an earlier unreleased
+            # iteration before a session could carry more than one type at
+            # once; fold any already-set value forward as a single-element list.
+            for row in conn.execute(
+                    "SELECT id, session_type FROM coaching_sessions WHERE session_type != ''"):
+                conn.execute(
+                    "UPDATE coaching_sessions SET session_types=? WHERE id=?",
+                    (json.dumps([row["session_type"]]), row["id"]))
+    # session_sections briefly existed in an unreleased iteration of this
+    # feature (typed sub-notes per session) before being replaced by the
+    # session_types field above; drop it if a dev build already created it —
+    # never shipped/tagged, so no user content to lose.
+    conn.execute("DROP TABLE IF EXISTS session_sections")
     block_columns = {r["name"] for r in conn.execute("PRAGMA table_info(blocks)")}
     if block_columns:
         if "pool_snapshot" not in block_columns:
@@ -1083,19 +1128,31 @@ def tracked_ranks(conn):
     ]
 
 
-def add_session(conn, session_date, title="", notes=""):
+SESSION_TYPES = {
+    "theory": "Theory",
+    "live_coaching": "Live coaching",
+    "vod_review": "VOD review",
+    "matchup_training": "Matchup training",
+}
+
+
+def add_session(conn, session_date, title="", notes="", coach_name="", session_types=None):
     with conn:
         cursor = conn.execute(
             """INSERT INTO coaching_sessions
-               (session_date, title, notes, start_ranks, created_at_ms)
-               VALUES (?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)""",
-            (session_date, title, notes, json.dumps(tracked_ranks(conn))),
+               (session_date, title, notes, coach_name, session_types, start_ranks, created_at_ms)
+               VALUES (?, ?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)""",
+            (session_date, title, notes, coach_name, json.dumps(session_types or []),
+             json.dumps(tracked_ranks(conn))),
         )
     return cursor.lastrowid
 
 
-def update_session(conn, session_id, title=None, notes=None):
-    """Update the given fields (None = leave unchanged). False if id missing."""
+def update_session(conn, session_id, title=None, notes=None, coach_name=None, session_types=None):
+    """Update the given fields (None = leave unchanged). False if id missing.
+    session_types, when given, fully replaces the stored list (not merged) —
+    a session's complete set of types is re-saved as one unit, same as a
+    checkbox group's current state."""
     sets, params = [], []
     if title is not None:
         sets.append("title=?")
@@ -1103,6 +1160,12 @@ def update_session(conn, session_id, title=None, notes=None):
     if notes is not None:
         sets.append("notes=?")
         params.append(notes)
+    if coach_name is not None:
+        sets.append("coach_name=?")
+        params.append(coach_name)
+    if session_types is not None:
+        sets.append("session_types=?")
+        params.append(json.dumps(session_types))
     if not sets:
         return False
     with conn:
@@ -1123,6 +1186,37 @@ def delete_session(conn, session_id):
     with conn:
         cursor = conn.execute("DELETE FROM coaching_sessions WHERE id=?", (session_id,))
     return cursor.rowcount > 0
+
+
+# games explicitly attached to a Live coaching / VOD review session
+
+SESSION_GAME_TYPES = {"live_coaching", "vod_review"}
+
+
+def add_game_to_session(conn, session_id, match_id, puuid):
+    with conn:
+        cursor = conn.execute(
+            f"""INSERT INTO session_games (session_id, match_id, puuid, added_at_ms)
+                VALUES (?, ?, ?, {_now_expr()})""",
+            (session_id, match_id, puuid))
+    return cursor.lastrowid
+
+
+def list_session_games(conn, session_id):
+    return conn.execute(
+        "SELECT * FROM session_games WHERE session_id=? ORDER BY id", (session_id,)
+    ).fetchall()
+
+
+def remove_game_from_session(conn, session_game_id):
+    with conn:
+        cursor = conn.execute("DELETE FROM session_games WHERE id=?", (session_game_id,))
+    return cursor.rowcount > 0
+
+
+def delete_games_for_session(conn, session_id):
+    with conn:
+        conn.execute("DELETE FROM session_games WHERE session_id=?", (session_id,))
 
 
 def last_coaching_session_date(conn):

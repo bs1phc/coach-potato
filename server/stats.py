@@ -663,62 +663,54 @@ def games_in_range(conn, puuids, from_ms=None, to_ms=None, champion=None, queues
     return [_decode_game_runes(r) for r in conn.execute(sql, params)]
 
 
-# "Review before queue" nudge: a matchup counts as stale once you've played
-# it more than this long after the guide notes were last touched. Kept as a
-# simple constant rather than a setting for v1 — see review_queue().
-REVIEW_STALE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000  # 14 days
+def session_games_detailed(conn, session_id):
+    """Games explicitly attached to a coaching session (session_games) — the
+    Live coaching / VOD review 'Add game' picker — newest first."""
+    sql = """
+        SELECT sg.id AS session_game_id, sg.match_id, sg.puuid, sg.added_at_ms,
+               m.game_creation_ms, m.game_duration_s, m.queue_id,
+               me.champion_name AS my_champion, me.win,
+               me.kills, me.deaths, me.assists, me.cs,
+               opp.champion_name AS opp_champion,
+               pl.game_name AS account,
+               myr.runes AS my_runes_json,
+               oppr.runes AS opp_runes_json
+        FROM session_games sg
+        JOIN participants me ON me.match_id = sg.match_id AND me.puuid = sg.puuid
+        JOIN matches m ON m.match_id = sg.match_id
+        LEFT JOIN participants opp ON opp.match_id = sg.match_id
+            AND opp.team_id != me.team_id AND opp.team_position = me.team_position
+            AND me.team_position != ''
+        LEFT JOIN players pl ON pl.puuid = sg.puuid
+        LEFT JOIN participant_runes myr ON myr.match_id = sg.match_id AND myr.puuid = sg.puuid
+        LEFT JOIN participant_runes oppr ON oppr.match_id = sg.match_id AND oppr.puuid = opp.puuid
+        WHERE sg.session_id = ?
+        ORDER BY m.game_creation_ms DESC
+    """
+    return [_decode_game_runes(r) for r in conn.execute(sql, (session_id,))]
 
 
-def review_queue(conn, puuid, limit=8, stale_window_ms=REVIEW_STALE_WINDOW_MS):
-    """Matchups you've put in your BLOCKS whose Matchup-guide notes are missing
-    or stale — a "review before you queue" nudge (like spaced repetition).
+def review_queue(conn, puuid, limit=8):
+    """Individual block games with no per-game notes yet — a lightweight
+    "you played this, you haven't written anything down" nudge, across
+    EVERY block (not just the current one).
 
-    Scoped to games you added to a block (block_games) — the matchups you're
-    actively practising — rather than every game ever played. Per (my_champion,
-    opp_champion) pair with at least one block game: last_played_ms (max
-    game_creation_ms) is compared against matchup_notes.updated_at_ms (NULL =
-    notes were never written for that pair, always flagged). A pair is included
-    when notes are missing, or when it's been played more than `stale_window_ms`
-    after the notes were last touched (a game played, then notes promptly
-    updated, doesn't count — only a gap bigger than the window does).
-
-    Ranked never-reviewed pairs first, then by games_since_review (most
-    game activity since the notes were last touched) descending, with
-    last_played_ms descending as a tiebreak. Returns the top `limit`."""
+    Scoped to games you added to a block (block_games) — the games you're
+    actively practising — rather than every game ever played. One row per
+    game where block_games.notes is still blank. Newest first."""
     base, params = _filtered_base(puuid)
     sql = f"""
-        SELECT b.my_champion, b.opp_champion,
-               MAX(b.game_creation_ms) AS last_played_ms,
-               mn.updated_at_ms AS notes_updated_ms,
-               SUM(CASE WHEN b.game_creation_ms > COALESCE(mn.updated_at_ms, 0)
-                        THEN 1 ELSE 0 END) AS games_since_review
+        SELECT bg.id AS entry_id, bg.block_id, blk.title AS block_title,
+               b.match_id, b.my_puuid AS puuid, b.my_champion, b.opp_champion,
+               b.win, b.game_creation_ms
         FROM ({base}) b
         JOIN block_games bg ON bg.match_id = b.match_id AND bg.puuid = b.my_puuid
-        LEFT JOIN matchup_notes mn
-            ON mn.my_champion = b.my_champion AND mn.opp_champion = b.opp_champion
-        GROUP BY b.my_champion, b.opp_champion
+        JOIN blocks blk ON blk.id = bg.block_id
+        WHERE bg.notes = ''
+        ORDER BY b.game_creation_ms DESC
     """
-    candidates = []
-    for r in conn.execute(sql, params):
-        row = dict(r)
-        notes_updated_ms = row["notes_updated_ms"]
-        never_reviewed = notes_updated_ms is None
-        stale = never_reviewed or (row["last_played_ms"] - notes_updated_ms > stale_window_ms)
-        if not stale:
-            continue
-        candidates.append({
-            "my_champion": row["my_champion"],
-            "opp_champion": row["opp_champion"],
-            "last_played_ms": row["last_played_ms"],
-            "notes_updated_ms": notes_updated_ms,
-            "games_since_review": row["games_since_review"],
-            "_never_reviewed": never_reviewed,
-        })
-    candidates.sort(key=lambda c: (
-        not c["_never_reviewed"], -c["games_since_review"], -c["last_played_ms"]))
-    for c in candidates:
-        del c["_never_reviewed"]
-    return candidates[:limit]
+    rows = [dict(r) for r in conn.execute(sql, params)]
+    return rows[:limit]
 
 
 def map_events(conn, puuids, from_ms=None, to_ms=None, champion=None, roles=None):
