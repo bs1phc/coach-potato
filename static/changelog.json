@@ -1,6 +1,18 @@
 {
   "entries": [
     {
+      "version": "1.50.0",
+      "date": "2026-08-02",
+      "items": [
+        "New 'Damage calc' tab: a build calculator that mixes items and runes and shows both the stat block they produce at a given level and what each of your abilities then hits for. Pick a target champion (its level, plus any bonus armour / MR / health it has bought) and every ability is listed raw and after that target's resistances, with penetration, lethality and damage amps applied",
+        "Champion ability numbers (per-rank base damage plus every AP/AD/armour/health/mana scaling) now ship with the app for all 173 champions — DDragon stopped publishing usable spell damage, so this is generated from the game's own data by scripts/refresh_spelldata.py",
+        "Item and rune passives are modelled, not just their raw stats: stat conversions (Manamune's AD from mana, Riftmaker's AP from bonus health, Rabadon's +30% total AP), damage amps (Riftmaker, Coup de Grace, Cut Down, Last Stand) and on-cast/on-hit procs (Muramana Shock, Lich Bane, Nashor's Tooth, Electrocute, Arcane Comet, Grasp). A 'Modelled passives' list shows exactly which ones are in play, and each can be toggled off",
+        "Tick abilities, procs or a basic attack to build a combo — the total after resistances is shown as a share of the target's health, and turns red when it's lethal",
+        "Load the item build and rune page you already saved for a champion in the Matchup guide straight into the calculator, and ability ranks follow the skill order saved from the cooldown popup",
+        "Hover any item — in a champion's Matchup guide item build or in the damage calculator — for a tooltip with its cost, full stat line and passive/active text, plus whether the calculator models that passive or is only counting its raw stats"
+      ]
+    },
+    {
       "version": "1.49.0",
       "date": "2026-07-27",
       "items": [

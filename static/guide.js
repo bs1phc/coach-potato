@@ -42,7 +42,10 @@ const MAX_ITEMS_PER_SECTION = 6;
 
 const RUNE_TREES = [];
 const SHARD_ROWS = [];
-const ITEMS = []; // [{name, icon}] — purchasable Summoner's Rift items, current patch
+// [{name, icon, stats}] — purchasable Summoner's Rift items, current patch.
+// `stats` is the parsed stat line (see parseItemStats in calc.js); the damage
+// calculator needs it, the guide's picker only ever looks at name/icon.
+const ITEMS = [];
 
 async function loadRuneTrees() {
   if (RUNE_TREES.length) return;
@@ -62,8 +65,10 @@ function dedupeItemsByName(items) {
 
 async function loadItemData() {
   if (ITEMS.length || !state.ddragonVersion) return;
-  // v2: earlier caches stored a list with duplicate names — the bump forces a refresh
-  const cacheKey = `item-data-v2-${state.ddragonVersion}`;
+  // v2: earlier caches stored a list with duplicate names — the bump forces a
+  // refresh. v3 adds the parsed stat line for the damage calculator, v4 the
+  // description markup behind the hover tooltip.
+  const cacheKey = `item-data-v4-${state.ddragonVersion}`;
   try {
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
@@ -74,7 +79,9 @@ async function loadItemData() {
       `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/data/en_US/item.json`);
     const items = dedupeItemsByName(Object.values(data.data || {})
       .filter((item) => item.gold && item.gold.purchasable && item.maps && item.maps["11"])
-      .map((item) => ({ name: item.name, icon: item.image.full }))
+      .map((item) => ({ name: item.name, icon: item.image.full,
+                        stats: parseItemStats(item.description),
+                        desc: item.description, gold: (item.gold || {}).total || 0 }))
       .sort((a, b) => a.name.localeCompare(b.name)));
     localStorage.setItem(cacheKey, JSON.stringify(items));
     ITEMS.push(...items);
@@ -85,6 +92,165 @@ async function loadItemData() {
 }
 
 function itemByName(name) { return ITEMS.find((i) => i.name === name); }
+
+/* ---------- item hover tooltip ----------
+
+   Shown for anything carrying data-item-name — item chips in the Matchup
+   guide's build, the damage calculator's build, and both pickers. One
+   delegated listener on document rather than per-render wiring, because both
+   views rebuild their markup constantly.
+
+   DDragon writes item text as pseudo-markup (<passive>, <attention>,
+   <magicDamage>, <br>...). Rather than trusting it as HTML, parse it and
+   rebuild only the tags we recognise, putting all text through textContent —
+   the source is a third-party CDN, so it is treated as untrusted. */
+
+const ITEM_TT_TAGS = {
+  attention: "item-tt-num", buffedstat: "item-tt-num", nerfedstat: "item-tt-num",
+  passive: "item-tt-label", active: "item-tt-label", raritymythic: "item-tt-label",
+  jadeunique: "item-tt-label", rarityLegendary: "item-tt-label",
+  magicdamage: "item-tt-magic", physicaldamage: "item-tt-physical",
+  truedamage: "item-tt-true", scaleap: "item-tt-magic", scalead: "item-tt-physical",
+  scalearmor: "item-tt-stat", scalemr: "item-tt-stat", scalehealth: "item-tt-stat",
+  healing: "item-tt-good", shield: "item-tt-good", lifesteal: "item-tt-good",
+  omnivamp: "item-tt-good", speed: "item-tt-good", status: "item-tt-stat",
+  onhit: "item-tt-stat", keywordmajor: "item-tt-stat", recast: "item-tt-label",
+  rules: "item-tt-rules", flavortext: "item-tt-rules",
+};
+
+function itemDescriptionNodes(markup, into) {
+  const parsed = new DOMParser().parseFromString(`<div>${markup || ""}</div>`, "text/html");
+  const walk = (source, target) => {
+    for (const node of source.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        target.appendChild(document.createTextNode(node.nodeValue));
+        continue;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) continue;
+      const tag = node.tagName.toLowerCase();
+      if (tag === "br") { target.appendChild(document.createElement("br")); continue; }
+      if (tag === "stats") {
+        const block = document.createElement("div");
+        block.className = "item-tt-stats";
+        walk(node, block);
+        target.appendChild(block);
+        continue;
+      }
+      const cls = ITEM_TT_TAGS[tag];
+      if (cls) {
+        const span = document.createElement("span");
+        span.className = cls;
+        walk(node, span);
+        target.appendChild(span);
+      } else {
+        walk(node, target); // unknown wrapper (mainText, ...) — keep the text
+      }
+    }
+  };
+  walk(parsed.body.firstChild, into);
+  return into;
+}
+
+function itemTooltipEl() {
+  let box = document.getElementById("item-tooltip");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "item-tooltip";
+    box.className = "item-tooltip hidden";
+    box.setAttribute("role", "tooltip");
+    document.body.appendChild(box);
+  }
+  return box;
+}
+
+function showItemTooltip(name, anchor) {
+  const item = itemByName(name);
+  const box = itemTooltipEl();
+  box.textContent = "";
+  const head = document.createElement("div");
+  head.className = "item-tt-head";
+  if (item && item.icon) {
+    const img = document.createElement("img");
+    img.src = itemIconUrl(item.icon);
+    img.width = 32;
+    img.height = 32;
+    img.alt = "";
+    head.appendChild(img);
+  }
+  const title = document.createElement("div");
+  const strong = document.createElement("strong");
+  strong.textContent = name;
+  title.appendChild(strong);
+  if (item && item.gold) {
+    const gold = document.createElement("span");
+    gold.className = "muted item-tt-gold";
+    gold.textContent = `${item.gold} g`;
+    title.appendChild(gold);
+  }
+  head.appendChild(title);
+  box.appendChild(head);
+
+  if (!item) {
+    const missing = document.createElement("p");
+    missing.className = "muted";
+    missing.textContent = "No item data (offline, or renamed in a later patch).";
+    box.appendChild(missing);
+  } else {
+    itemDescriptionNodes(item.desc, box);
+    // whether the calculator models this item's passive, so a gap is visible
+    // rather than silently assumed (calcdata.js loads after this file)
+    if (typeof ITEM_EFFECTS !== "undefined") {
+      const effect = ITEM_EFFECTS[name];
+      const note = document.createElement("div");
+      note.className = `item-tt-modelled ${effect ? "" : "item-tt-unmodelled"}`;
+      note.textContent = effect
+        ? `Calculator: ${effect.label || "passive"} modelled`
+        : "Calculator: stats only — passive not modelled";
+      box.appendChild(note);
+    }
+  }
+
+  box.classList.remove("hidden");
+  positionItemTooltip(box, anchor);
+}
+
+function positionItemTooltip(box, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const width = box.offsetWidth;
+  const height = box.offsetHeight;
+  const gap = 8;
+  let left = rect.left;
+  let top = rect.bottom + gap;
+  if (left + width > window.innerWidth - gap) left = window.innerWidth - width - gap;
+  if (left < gap) left = gap;
+  if (top + height > window.innerHeight - gap) top = Math.max(gap, rect.top - height - gap);
+  box.style.left = `${left}px`;
+  box.style.top = `${top}px`;
+}
+
+function hideItemTooltip() {
+  const box = document.getElementById("item-tooltip");
+  if (box) box.classList.add("hidden");
+}
+
+document.addEventListener("mouseover", (e) => {
+  const target = e.target.closest("[data-item-name]");
+  if (!target) return;
+  showItemTooltip(target.dataset.itemName, target);
+});
+document.addEventListener("mouseout", (e) => {
+  if (e.target.closest("[data-item-name]")) hideItemTooltip();
+});
+// keyboard users get the same information when tabbing through pickers
+document.addEventListener("focusin", (e) => {
+  const target = e.target.closest("[data-item-name]");
+  if (target) showItemTooltip(target.dataset.itemName, target);
+});
+document.addEventListener("focusout", (e) => {
+  if (e.target.closest("[data-item-name]")) hideItemTooltip();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideItemTooltip(); });
+window.addEventListener("scroll", hideItemTooltip, true);
 function itemIconUrl(icon) { return `https://ddragon.leagueoflegends.com/cdn/${state.ddragonVersion}/img/item/${icon}`; }
 
 // item icons for the comparison view come from raw match ids (item0..item6),
@@ -1389,9 +1555,10 @@ function renderGuideGeneral() {
 function itemChip(name, removable, dataAttrs) {
   const item = itemByName(name);
   const icon = item
-    ? `<img src="${itemIconUrl(item.icon)}" alt="${escapeHtml(name)}" title="${escapeHtml(name)}" width="24" height="24">`
+    ? `<img src="${itemIconUrl(item.icon)}" alt="${escapeHtml(name)}" width="24" height="24">`
     : "";
-  return `<span class="item-chip" ${dataAttrs || ""}>${icon}<span class="item-chip-name">${escapeHtml(name)}</span>${
+  // data-item-name drives the shared hover tooltip (no per-render wiring)
+  return `<span class="item-chip" data-item-name="${escapeHtml(name)}" tabindex="0" ${dataAttrs || ""}>${icon}<span class="item-chip-name">${escapeHtml(name)}</span>${
     removable ? `<button class="preset chip-x item-chip-remove" type="button" title="Remove">×</button>` : ""}</span>`;
 }
 
@@ -1412,7 +1579,8 @@ function itemPickerHtml() {
   const q = guideState.itemPickerQuery.toLowerCase();
   const results = (q ? ITEMS.filter((i) => i.name.toLowerCase().includes(q)) : ITEMS).slice(0, 30);
   const rows = results.length
-    ? results.map((i) => `<button class="preset item-picker-result" type="button" data-name="${escapeHtml(i.name)}">
+    ? results.map((i) => `<button class="preset item-picker-result" type="button"
+        data-name="${escapeHtml(i.name)}" data-item-name="${escapeHtml(i.name)}">
         <img src="${itemIconUrl(i.icon)}" alt="" width="20" height="20">${escapeHtml(i.name)}</button>`).join("")
     : `<p class="muted">${ITEMS.length ? "No matching items." : "Item list unavailable (offline?)."}</p>`;
   return `<div class="item-picker">

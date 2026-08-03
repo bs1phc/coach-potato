@@ -1830,10 +1830,10 @@ function setMainView(view) {
   if (history.replaceState) {
     const hash = { matchups: "#matchups", progress: "#progress", trends: "#trends",
                    blocks: "#blocks", guide: "#guide", research: "#research",
-                   macros: "#macros", tiers: "#tiers" }[view] || "#";
+                   macros: "#macros", tiers: "#tiers", calc: "#calc" }[view] || "#";
     history.replaceState(null, "", hash);
   }
-  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers", "settings"]) {
+  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers", "calc", "settings"]) {
     $(`#nav-${v}`).classList.toggle("active", view === v);
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
@@ -1845,6 +1845,7 @@ function setMainView(view) {
   if (view === "research") initResearch();
   if (view === "macros") initMacros();
   if (view === "tiers") initTiers();
+  if (view === "calc") initCalculator();
   if (view === "settings") initSettings();
 }
 
@@ -1933,11 +1934,11 @@ function applyAppearance(data) {
 
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
-  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers"]) {
+  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers", "calc"]) {
     $(`#nav-${view}`).classList.toggle("hidden", state.hiddenViews.includes(view));
   }
   if (state.hiddenViews.includes(state.mainView)) {
-    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers"]
+    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers", "calc"]
       .find((view) => !state.hiddenViews.includes(view));
     setMainView(fallback || "settings");
   }
@@ -2433,6 +2434,7 @@ function wireProgress() {
   $("#nav-research").addEventListener("click", () => setMainView("research"));
   $("#nav-macros").addEventListener("click", () => setMainView("macros"));
   $("#nav-tiers").addEventListener("click", () => setMainView("tiers"));
+  $("#nav-calc").addEventListener("click", () => setMainView("calc"));
   $("#nav-settings").addEventListener("click", () => setMainView("settings"));
   $("#coaching-nudge").addEventListener("click", () => setMainView("progress"));
   $("#progress-champion").addEventListener("change", (e) => {
@@ -2751,6 +2753,8 @@ async function init(firstLoad = true) {
   if (firstLoad && location.hash === "#guide") setMainView("guide");
   if (firstLoad && location.hash === "#research") setMainView("research");
   if (firstLoad && location.hash === "#macros") setMainView("macros");
+  if (firstLoad && location.hash === "#tiers") setMainView("tiers");
+  if (firstLoad && location.hash === "#calc") setMainView("calc");
   if (firstLoad && location.hash === "#settings") setMainView("settings");
 }
 

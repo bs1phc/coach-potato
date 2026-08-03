@@ -1592,3 +1592,138 @@ footer {
 .tier-compare-cell .tier-chip img { width: 30px; height: 30px; }
 .tier-compare-cell .tier-drop { min-height: 40px; gap: 3px; padding: 4px; }
 @media (max-width: 900px) { .tier-compare-grid { grid-template-columns: 1fr; } }
+
+/* ---------- damage calculator ---------- */
+.calc-intro { max-width: 720px; }
+.calc-champ-pick { display: flex; align-items: center; gap: 7px; }
+.calc-champ-pick img { width: 24px; height: 24px; border-radius: 5px; }
+.calc-champ-pick select { max-width: 16em; }
+#calc-level { width: 200px; }
+/* build inputs on the left, stats/target/damage on the right */
+.calc-grid {
+  display: grid; gap: 16px; margin-top: 14px; align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+}
+.calc-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.calc-card {
+  border: 1px solid var(--grid); border-radius: 8px;
+  padding: 10px 12px; background: var(--surface-1);
+}
+.calc-card-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px;
+}
+.calc-card-head h4 { margin: 0; font-size: 15px; font-weight: 600; }
+.calc-card-head .icon-btn-sm { margin-left: auto; }
+.calc-card-head .icon-btn-sm ~ .icon-btn-sm { margin-left: 0; }
+.calc-load-status:not(:empty) { display: block; margin-top: 6px; font-size: 12px; }
+
+/* stat block */
+.calc-stat-grid {
+  display: grid; gap: 2px 14px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+.calc-stat {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--grid);
+}
+.calc-stat-label { font-size: 12px; color: var(--text-secondary); }
+.calc-stat-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+.calc-stat-split { font-weight: 400; font-size: 11px; }
+
+/* runes / ranks / stacks */
+.calc-rune-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.calc-rune-summary img { border-radius: 50%; }
+.calc-shard-line { font-size: 12px; margin-left: 4px; }
+.calc-rune-editor { margin-top: 10px; }
+.calc-ranks { display: flex; flex-wrap: wrap; gap: 10px; }
+.calc-rank { display: flex; align-items: center; gap: 5px; }
+.calc-rank-key {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 4px; font-size: 12px; font-weight: 600;
+  background: var(--accent-wash); border: 1px solid var(--border);
+}
+.calc-rank-select { width: 4em; }
+.calc-stacks { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.calc-stack-row { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.calc-stack { width: 5em; }
+
+/* target */
+.calc-target-row { display: flex; flex-wrap: wrap; gap: 10px 14px; }
+.calc-field { display: flex; flex-direction: column; gap: 2px; }
+.calc-field input[type="number"] { width: 6em; }
+#calc-target-champion { max-width: 12em; }
+
+/* damage table */
+.calc-damage td, .calc-damage th { vertical-align: middle; }
+.calc-damage .num { text-align: right; font-variant-numeric: tabular-nums; }
+.calc-row-name label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.calc-spell-icon { border-radius: 4px; flex: none; }
+.calc-spell-head td {
+  background: var(--accent-wash); font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.calc-spell-head td strong { text-transform: none; letter-spacing: 0; }
+tr.calc-in-combo td { background: color-mix(in srgb, var(--series-1) 7%, transparent); }
+.dmg-type {
+  font-size: 11px; border-radius: 999px; padding: 1px 7px;
+  border: 1px solid var(--border); text-transform: capitalize;
+}
+.dmg-magic { color: var(--series-2); border-color: var(--series-2); }
+.dmg-physical { color: var(--critical); border-color: var(--critical); }
+.dmg-true { color: var(--text-secondary); }
+
+/* combo total */
+.calc-combo { margin-top: 12px; }
+.calc-combo-main { display: flex; align-items: baseline; gap: 8px; }
+.calc-combo-label { font-size: 12px; color: var(--text-secondary); }
+.calc-combo-total { font-size: 22px; font-variant-numeric: tabular-nums; }
+.calc-combo-bar {
+  height: 8px; border-radius: 999px; margin: 6px 0 4px;
+  background: var(--grid); overflow: hidden;
+}
+.calc-combo-fill { height: 100%; background: var(--series-1); border-radius: 999px; }
+.calc-combo-fill.calc-combo-lethal { background: var(--critical); }
+.calc-lethal { color: var(--critical); }
+.calc-combo-foot { font-size: 12px; }
+.calc-combo-empty { margin-top: 10px; }
+
+/* modelled passives */
+.calc-modelled { display: flex; flex-direction: column; gap: 2px; }
+.calc-modelled-row {
+  display: flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer;
+}
+.calc-modelled-row.calc-off .calc-modelled-name { text-decoration: line-through; opacity: 0.6; }
+.calc-note { cursor: help; }
+.calc-modelled-dot { margin-left: auto; color: var(--series-1); }
+
+@media (max-width: 900px) { .calc-grid { grid-template-columns: 1fr; } }
+
+/* ---------- item hover tooltip (Matchup guide + damage calculator) ---------- */
+.item-tooltip {
+  position: fixed; z-index: 60; max-width: 340px; pointer-events: none;
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+  background: var(--surface-1-solid); color: var(--text-primary);
+  font-size: 12.5px; line-height: 1.45;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+.item-tooltip.hidden { display: none; }
+.item-tt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.item-tt-head img { border-radius: 4px; flex: none; }
+.item-tt-head strong { font-size: 13.5px; }
+.item-tt-gold { display: block; font-size: 11px; }
+.item-tt-stats {
+  margin-bottom: 6px; padding-bottom: 5px; border-bottom: 1px solid var(--grid);
+}
+.item-tt-num { font-weight: 600; }
+.item-tt-label { display: inline-block; margin-top: 4px; font-weight: 600; color: var(--series-1); }
+.item-tt-magic { color: var(--series-2); }
+.item-tt-physical, .item-tt-true { color: var(--critical); }
+.item-tt-stat, .item-tt-good { color: var(--text-secondary); }
+.item-tt-rules { color: var(--muted); font-style: italic; }
+.item-tt-modelled {
+  margin-top: 7px; padding-top: 5px; border-top: 1px solid var(--grid);
+  font-size: 11px; color: var(--series-1);
+}
+.item-tt-modelled.item-tt-unmodelled { color: var(--text-secondary); }
+.item-chip[data-item-name] { cursor: help; }
+.item-chip[data-item-name]:focus-visible { outline: 2px solid var(--series-1); outline-offset: 1px; }
