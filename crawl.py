@@ -42,7 +42,11 @@ def main():
     parser.add_argument("--backfill-items", action="store_true",
                         help="only backfill summoner spells + items for stored matches, no crawl")
     parser.add_argument("--backfill-map-events", action="store_true",
-                        help="only backfill death map events (needs the match timeline), no crawl")
+                        help="only backfill map events (deaths/kills/towers/objectives, "
+                             "needs the match timeline), no crawl")
+    parser.add_argument("--recompute-map-events", action="store_true",
+                        help="re-derive map events for games already processed — needed after the "
+                             "event set widened beyond deaths; re-fetches every timeline")
     args = parser.parse_args()
 
     config = load_config()
@@ -89,9 +93,11 @@ def main():
             n = crawler.backfill_items(limit=args.limit)
             print(f"  -> {n} matches re-fetched")
             return
-        if args.backfill_map_events:
-            print("Backfilling death map events (timeline) for stored matches ...")
-            n = crawler.backfill_map_events(limit=args.limit)
+        if args.backfill_map_events or args.recompute_map_events:
+            what = "Recomputing" if args.recompute_map_events else "Backfilling"
+            print(f"{what} map events (deaths/kills/towers/objectives) for stored matches ...")
+            n = crawler.backfill_map_events(limit=args.limit,
+                                            recompute=args.recompute_map_events)
             print(f"  -> {n} matches re-fetched")
             return
         for game_name, tag_line in accounts:

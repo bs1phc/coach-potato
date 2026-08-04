@@ -422,6 +422,7 @@ function gameMetricsPanel(entryId, game) {
     game.opp_champion ? runesCompareCol(game.opp_champion, game.opp_runes, "opponent") : ""
   }</div>` : "";
   return `${weaksideControl(entryId, game)}${laneResultControl(entryId, game)}${metrics}${runes}${
+    recordingSection(game.match_id, game.puuid)}${
     reflectionSection(game.match_id, game.puuid)}${
     clipsSection("block_game", entryId, blockState.gameClipsCache.get(entryId))}`;
 }
@@ -441,8 +442,23 @@ async function toggleGameStats(entryId, matchId, puuid) {
         await getJSON(`/api/clips?owner_type=block_game&owner_id=${entryId}`));
     }
     await ensureReflection(matchId, puuid);
+    await ensureBlockRecording(matchId, puuid);
   }
   renderBlocks();
+}
+
+// lazily fetch this game's recordings (with its death markers) on first expand,
+// matching how clips and reflections load
+async function ensureBlockRecording(matchId, puuid) {
+  const key = recordingKey(matchId, puuid);
+  if (recordingUi.cache.has(key)) return;
+  try {
+    const data = await getJSON(
+      `/api/recordings?match_id=${encodeURIComponent(matchId)}&puuid=${encodeURIComponent(puuid)}`);
+    recordingUi.cache.set(key, data.recordings || []);
+  } catch {
+    recordingUi.cache.set(key, []);
+  }
 }
 
 // Graded lane verdict, computed from the game's own ΔCS/ΔGold/ΔLevel via the
@@ -844,6 +860,11 @@ function renderBlocks() {
     await ensureReflection(matchId, puuid);
     renderBlocks();
   }, () => renderBlocks());
+  wireRecordingSection(target, async (matchId, puuid) => {
+    recordingUi.cache.delete(recordingKey(matchId, puuid));
+    await ensureBlockRecording(matchId, puuid);
+    renderBlocks();
+  });
 }
 
 // ---------- picker ----------

@@ -4,8 +4,9 @@ import time
 
 from . import db, rune_data
 from .metrics import (parse_build_order, parse_death_events, parse_frame_series,
-                      parse_metrics, parse_skill_order, parse_starting_items,
-                      parse_timeline_deltas, parse_timeline_objectives)
+                      parse_map_events, parse_metrics, parse_skill_order,
+                      parse_starting_items, parse_timeline_deltas,
+                      parse_timeline_objectives)
 from .parsing import parse_match
 
 _NO_TIMELINE = object()  # _store_metrics sentinel: no timeline fetch was attempted
@@ -170,9 +171,8 @@ class Crawler:
                     parse_starting_items(timeline, puuid),
                     parse_build_order(timeline, puuid, final_items),
                     parse_skill_order(timeline, puuid))
-                deaths = parse_death_events(timeline, puuid) or []
-                events = [{"event_type": "death", **d} for d in deaths]
-                db.replace_map_events(self.conn, match_id, puuid, events)
+                db.replace_map_events(self.conn, match_id, puuid,
+                                      parse_map_events(timeline, puuid) or [])
 
     def backfill_metrics(self, limit=None):
         """Re-fetch details for stored matches whose tracked participants
@@ -434,14 +434,19 @@ class Crawler:
             self.status_cb(f"frame-series backfill: {count}/{len(rows)} matches")
         return count
 
-    def backfill_map_events(self, limit=None, block_games_only=False):
+    def backfill_map_events(self, limit=None, block_games_only=False, recompute=False):
         """Fetch the match timeline for tracked/comparison-participant metrics
         rows that don't have death-location map events yet (has_map_events=0)
         and store them. Mirrors backfill_lane_deltas exactly (same idle-column
         marker idiom, same tolerant-of-missing-timeline behavior — a missing/
         failed timeline still marks the row done with an empty event list so
         it isn't retried forever). block_games_only restricts to games sitting
-        in a block. Returns matches fetched."""
+        in a block. Returns matches fetched.
+
+        `recompute` also re-processes rows already marked done — needed after
+        the event set widened from deaths-only to kills/towers/objectives,
+        since those rows look complete but only hold deaths. It re-fetches
+        every timeline, so it costs real Riot API calls."""
         block_filter = ("AND EXISTS (SELECT 1 FROM block_games bg "
                         "WHERE bg.match_id = pm.match_id AND bg.puuid = pm.puuid)"
                         if block_games_only else "")
@@ -451,16 +456,20 @@ class Crawler:
                JOIN participants me ON me.match_id = pm.match_id AND me.puuid = pm.puuid
                JOIN players pl ON pl.puuid = me.puuid
                  AND (pl.is_tracked = 1 OR pl.puuid IN (SELECT puuid FROM comparison_players))
-               WHERE pm.has_map_events = 0 {block_filter}"""
+               WHERE (pm.has_map_events = 0 OR {recompute:d}) {block_filter}"""
         ).fetchall()
         count = 0
         for row in rows:
             if limit is not None and count >= limit:
                 break
             timeline = self._safe_timeline(row["match_id"])
-            deaths = parse_death_events(timeline, row["puuid"]) or []
-            events = [{"event_type": "death", **d} for d in deaths]
-            db.replace_map_events(self.conn, row["match_id"], row["puuid"], events)
+            # On recompute the row already holds good events; a failed fetch
+            # must not replace them with an empty list (same guard as
+            # backfill_lane_deltas).
+            if recompute and timeline is None:
+                continue
+            db.replace_map_events(self.conn, row["match_id"], row["puuid"],
+                                  parse_map_events(timeline, row["puuid"]) or [])
             count += 1
             self.status_cb(f"map-event backfill: {count}/{len(rows)} matches")
         return count

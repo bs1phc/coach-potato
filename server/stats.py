@@ -716,15 +716,20 @@ def review_queue(conn, puuid, limit=8):
 def map_events(conn, puuids, from_ms=None, to_ms=None, champion=None, roles=None):
     """Death-location map events (see player_map_events) for the tracked
     puuids, filtered the same way as the other Trends-style queries (period/
-    champion/role via _filtered_base). Deaths-only for now — match-v5's
-    WARD_PLACED events don't carry a position (see CLAUDE.md), so there's no
-    ward counterpart to join in here yet."""
+    champion/role via _filtered_base). Explicitly deaths-only: the table also
+    holds kills/towers/objectives for VOD chapters, and the heatmap must not
+    plot those. match-v5's WARD_PLACED events carry no position (see
+    CLAUDE.md), so there is still no ward counterpart."""
     base, params = _filtered_base(puuids, from_ms=from_ms, to_ms=to_ms,
                                   champion=champion, require_opponent=False, roles=roles)
     sql = f"""
         SELECT pme.event_type, pme.x, pme.y, pme.timestamp_ms
         FROM player_map_events pme
         JOIN ({base}) b ON b.match_id = pme.match_id AND b.my_puuid = pme.puuid
+        -- deaths only (the table also carries kills/towers for VOD chapters),
+        -- and only rows that actually have a position: log-derived events
+        -- carry timings but no coordinates
+        WHERE pme.event_type = 'death' AND pme.x IS NOT NULL AND pme.y IS NOT NULL
         ORDER BY pme.timestamp_ms
     """
     return [dict(r) for r in conn.execute(sql, params)]
