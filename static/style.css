@@ -439,6 +439,10 @@ tbody tr.games-row:hover td { background: var(--page); }
 }
 .weakside-row .muted { flex: 1; min-width: 220px; font-size: 12px; }
 .weakside-row select { padding: 3px 6px; }
+/* detected jungle starts — own line so the controls above stay on one row */
+.lane-side-hint { flex-basis: 100%; font-size: 12px; }
+/* detected rather than set by hand — same colour, dialled back */
+.side-chip.side-auto { opacity: .6; font-weight: 500; }
 
 /* 🎯 win-conditions editor modal */
 #winconditions-overlay {

@@ -42,24 +42,37 @@ def match_json(match_id, creation_ms, queue_id=420, tracked_pos="TOP",
     }
 
 
+# jungle camp positions by map half (see server/metrics.map_half)
+JUNGLE_POS = {"top": {"x": 3800, "y": 7900}, "bot": {"x": 11000, "y": 6900}}
+
+
 def timeline_json(match_id, me_puuid=TRACKED_PUUID, opp_puuid="opp-1", events=None,
-                  death_events=None):
-    """Minimal match-v5 timeline: participantIds 1 (me) and 2 (opp), frames
-    at 0/7/14 min where `me` leads the opponent. `events` (optional, e.g.
+                  death_events=None, jungle_halves=("top", "bot")):
+    """Minimal match-v5 timeline: participantIds 1 (me) and 2 (opp), frames at
+    0/1/7/14 min where `me` leads the opponent. `events` (optional, e.g.
     ELITE_MONSTER_KILL objective events) are attached to the 7-min frame;
     death_events (optional CHAMPION_KILL event dicts — victimId/position/
     timestamp, for the map-events crawler tests) are attached to the 14-min
-    frame."""
-    def frame(ts, mine, theirs, evs=None):
-        return {"timestamp": ts, "participantFrames": {
-            "1": dict(zip(("minionsKilled", "jungleMinionsKilled", "level", "totalGold"), mine)),
-            "2": dict(zip(("minionsKilled", "jungleMinionsKilled", "level", "totalGold"), theirs))},
-            "events": evs or []}
+    frame. participantIds 3/4 are the two junglers (ally-1 / enemy-1 in
+    match_json), standing in `jungle_halves` (blue, red) at the 1-min frame
+    with a camp cleared — that's what strong/weak-side detection reads."""
+    my_half, their_half = jungle_halves
+
+    def frame(ts, mine, theirs, evs=None, junglers=False):
+        keys = ("minionsKilled", "jungleMinionsKilled", "level", "totalGold")
+        pf = {"1": dict(zip(keys, mine)), "2": dict(zip(keys, theirs))}
+        if junglers:
+            pf["3"] = {"position": JUNGLE_POS[my_half], "jungleMinionsKilled": 4}
+            pf["4"] = {"position": JUNGLE_POS[their_half], "jungleMinionsKilled": 4}
+        return {"timestamp": ts, "participantFrames": pf, "events": evs or []}
     return {"metadata": {"matchId": match_id}, "info": {
         "participants": [{"participantId": 1, "puuid": me_puuid},
-                         {"participantId": 2, "puuid": opp_puuid}],
+                         {"participantId": 2, "puuid": opp_puuid},
+                         {"participantId": 3, "puuid": "ally-1"},
+                         {"participantId": 4, "puuid": "enemy-1"}],
         "frames": [
             frame(0, (0, 0, 1, 500), (0, 0, 1, 500)),
+            frame(60_000, (5, 0, 2, 700), (4, 0, 2, 700), junglers=True),
             frame(420_000, (50, 5, 6, 2600), (40, 0, 5, 2200), events),
             frame(840_000, (110, 10, 10, 5300), (90, 0, 9, 4500), death_events),
         ]}}
@@ -478,14 +491,15 @@ def test_crawl_stores_frame_series_inline_from_timeline(conn):
         """SELECT minute, cs, level, gold FROM participant_frame_series
            WHERE match_id='EUW1_1' AND puuid=? ORDER BY minute""",
         (TRACKED_PUUID,)).fetchall()
-    assert [r["minute"] for r in rows] == [0, 7, 14]
-    assert (rows[1]["cs"], rows[1]["level"], rows[1]["gold"]) == (55, 6, 2600)
+    # the 1-min frame is the one strong/weak-side detection reads
+    assert [r["minute"] for r in rows] == [0, 1, 7, 14]
+    assert (rows[2]["cs"], rows[2]["level"], rows[2]["gold"]) == (55, 6, 2600)
     # the lane opponent's series is stored too (both participantIds in the
     # fixture timeline), from the SAME timeline fetch — not a second one
     opp_rows = conn.execute(
         "SELECT COUNT(*) c FROM participant_frame_series WHERE match_id='EUW1_1' AND puuid='opp-1'"
     ).fetchone()["c"]
-    assert opp_rows == 3
+    assert opp_rows == 4
     assert client.timeline_calls == 1
 
 
@@ -514,7 +528,7 @@ def test_backfill_frame_series_fills_missing_only(conn):
     assert client.timeline_calls == 2
     assert conn.execute(
         "SELECT COUNT(*) c FROM participant_frame_series WHERE match_id='EUW1_1' AND puuid=?",
-        (TRACKED_PUUID,)).fetchone()["c"] == 3
+        (TRACKED_PUUID,)).fetchone()["c"] == 4  # 0/1/7/14-min frames
     # nothing left to backfill
     client.timeline_calls = 0
     assert crawler.backfill_frame_series() == 0
@@ -677,3 +691,64 @@ def test_comparison_player_stored_without_tracking(conn):
     runes = conn.execute("SELECT runes FROM participant_runes WHERE puuid=?",
                          (TRACKED_PUUID,)).fetchone()
     assert json.loads(runes["runes"])["primary_tree"] == "Precision"
+
+
+def test_crawl_stores_jungle_start_sides_inline(conn):
+    # blue jungler starts top half, red jungler bot half; the tracked player is
+    # TOP, so their own jungler shares their half -> weak side, while the enemy
+    # top laner's jungler started opposite -> strong side
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    client = FakeClient([match], timelines=[timeline_json("EUW1_1")])
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        "SELECT jungle_start_100, jungle_start_200 FROM matches WHERE match_id='EUW1_1'"
+    ).fetchone()
+    assert (row["jungle_start_100"], row["jungle_start_200"]) == ("top", "bot")
+
+
+def test_crawl_records_unknown_jungle_start_without_timeline(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    client = FakeClient([match])  # timeline fetch raises -> tolerated
+    make_crawler(client, conn).crawl_player("PlayerOne", "EUW", queues=(420,))
+    row = conn.execute(
+        "SELECT jungle_start_100 FROM matches WHERE match_id='EUW1_1'").fetchone()
+    # '' (looked at, undetermined), not NULL — otherwise the backfill retries forever
+    assert row["jungle_start_100"] == ""
+
+
+def test_backfill_jungle_starts_fills_only_never_looked_at_matches(conn):
+    m1 = match_json("EUW1_1", 1_700_000_000_000)
+    m2 = match_json("EUW1_2", 1_700_000_100_000)
+    client = FakeClient([m1, m2])  # crawl with no timelines available
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    # simulate rows stored before the feature existed: never looked at
+    conn.execute("UPDATE matches SET jungle_start_100=NULL, jungle_start_200=NULL")
+    conn.commit()
+    client.timelines = {t["metadata"]["matchId"]: t
+                        for t in (timeline_json("EUW1_1"), timeline_json("EUW1_2"))}
+    client.timeline_calls = 0
+    assert crawler.backfill_jungle_starts() == 2
+    assert client.timeline_calls == 2
+    assert crawler.backfill_jungle_starts() == 0  # nothing left with NULL
+    row = conn.execute(
+        "SELECT jungle_start_100, jungle_start_200 FROM matches WHERE match_id='EUW1_1'"
+    ).fetchone()
+    assert (row["jungle_start_100"], row["jungle_start_200"]) == ("top", "bot")
+
+
+def test_lane_delta_backfill_also_fills_jungle_sides_from_the_same_timeline(conn):
+    match = match_json("EUW1_1", 1_700_000_000_000)
+    client = FakeClient([match])
+    crawler = make_crawler(client, conn)
+    crawler.crawl_player("PlayerOne", "EUW", queues=(420,))
+    conn.execute("UPDATE participant_metrics SET has_timeline=0")
+    conn.execute("UPDATE matches SET jungle_start_100=NULL, jungle_start_200=NULL")
+    conn.commit()
+    client.timelines = {"EUW1_1": timeline_json("EUW1_1")}
+    client.timeline_calls = 0
+    assert crawler.backfill_lane_deltas() == 1
+    assert client.timeline_calls == 1  # one fetch, both features filled
+    row = conn.execute(
+        "SELECT jungle_start_100 FROM matches WHERE match_id='EUW1_1'").fetchone()
+    assert row["jungle_start_100"] == "top"

@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.51.0",
+      "date": "2026-08-08",
+      "items": [
+        "Strong side / weak side is now detected automatically: a block game's Side picker defaults to Auto and works it out from where your jungler started — you're strong side when they start on the map half opposite your lane. It also shows where both junglers began and what that made of your lane opponent, so a deficit can be read in context. You can still override it per game. New games get it automatically; run ./crawl.sh --backfill-jungle-sides to fill in older ones"
+      ]
+    },
+    {
       "version": "1.50.0",
       "date": "2026-07-30",
       "items": [
