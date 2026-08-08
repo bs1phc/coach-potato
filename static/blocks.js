@@ -372,10 +372,12 @@ function weaksideControl(entryId, game) {
   return `<div class="weakside-row">
     <span class="filter-label">Side played</span>
     <select class="game-weakside" data-entry="${entryId}">
-      ${opt("", "— not set")}${opt("0", "Strongside")}${opt("1", "Weakside")}
+      ${opt("", `Auto — ${sideWord(game.auto_strongside)}`)}
+      ${opt("0", "Strongside")}${opt("1", "Weakside")}
     </select>
     <span class="muted">Weakside = the sacrificial / scaling lane with less jungle help —
       records why a lane deficit was expected.</span>
+    <div class="lane-side-hint">${jungleSideHint(game)}</div>
   </div>`;
 }
 // Manual override for the graded lane verdict — same tier vocabulary/symbols/
@@ -456,12 +458,47 @@ function laneCell(game, mark) {
   return `<td class="muted" title="No lane opponent / data">–</td>`;
 }
 
-// manual weakside/strongside flag (set in the expanded per-game panel)
+// Strongside/weakside: a lane deficit reads differently when you were the
+// sacrificial lane rather than the jungle-prioritised one. Detected from where
+// your jungler started (opposite half to your lane = strong side), overridable
+// per game by the manual flag in the expanded panel.
+const SIDE_WORD = { true: "Strongside", false: "Weakside", null: "unknown" };
+const HALF_WORD = { top: "top side", bot: "bot side" };
+
+function sideWord(strong) {
+  return SIDE_WORD[strong == null ? null : Boolean(strong)];
+}
+
+// The manual flag wins; otherwise fall back to the detected side, rendered
+// faint so you can tell an inferred value from one you set yourself.
 function sideCell(g) {
   if (g.weakside === 1) return `<td><span class="side-chip side-weak" title="Weakside — sacrificial/scaling lane">Weak</span></td>`;
   if (g.weakside === 0) return `<td><span class="side-chip side-strong" title="Strongside — jungle-prioritised lane">Strong</span></td>`;
+  if (g.auto_strongside != null) {
+    const weak = !g.auto_strongside;
+    return `<td><span class="side-chip side-auto ${weak ? "side-weak" : "side-strong"}"
+      title="Detected from where your jungler started — set it yourself in the game's stats panel to override"
+      >${weak ? "Weak" : "Strong"}</span></td>`;
+  }
   return `<td class="muted" title="Set in the game's stats panel">–</td>`;
 }
+
+// where the two junglers started, and what that made of the enemy laner —
+// the context a manual flag can't give you
+function jungleSideHint(game) {
+  if (game.my_jungle_half == null && game.opp_jungle_half == null) {
+    return `<span class="muted">Jungle start not detected for this game.</span>`;
+  }
+  const mine = HALF_WORD[game.my_jungle_half];
+  const theirs = HALF_WORD[game.opp_jungle_half];
+  const parts = [];
+  if (mine) parts.push(`your jungler started ${mine}`);
+  if (theirs) {
+    parts.push(`theirs ${theirs} → enemy laner ${sideWord(game.opp_auto_strongside).toLowerCase()}`);
+  }
+  return `<span class="muted">${escapeHtml(parts.join(" · "))}</span>`;
+}
+
 
 // signed lane-delta cell. Until the game's timeline has been fetched
 // (has_timeline !== 1) the value is unknown, not zero — show a "crawling"

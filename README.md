@@ -104,8 +104,18 @@ the previous segment (color-aware: less time dead = green). A nested
 **Games (N)** expander lists the individual games — date, account, champion,
 lane opponent and their rank, result, K/D/A, CS/min, game length.
 
-Metrics for matches crawled before this feature exist need a one-time
-backfill: `./crawl.sh --backfill-metrics` (~2 min per 100 matches).
+Metrics for matches crawled before these features existed need a one-time,
+resumable backfill (~2 min per 100 matches each):
+
+```bash
+./crawl.sh --backfill-metrics        # challenges-based metrics
+./crawl.sh --backfill-lane-deltas    # timeline ΔCS/ΔLevel/ΔXP/ΔGold
+./crawl.sh --backfill-runes          # actual runes played
+./crawl.sh --backfill-items          # summoner spells + items
+./crawl.sh --backfill-frame-series   # full-game gold/CS curve
+./crawl.sh --backfill-map-events     # death locations (Trends death map)
+./crawl.sh --backfill-jungle-sides   # jungle start halves (strong/weak side)
+```
 
 Each session has a **title** and full **notes in Markdown** — expand a session
 (▸) to read the rendered notes, click *edit* to change title/notes, and use
