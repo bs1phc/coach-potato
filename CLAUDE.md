@@ -515,8 +515,9 @@ lookback_days, sort, added_at_ms, profile_id, champion)` — "research" players
 to compare yourself against in the Matchup guide, in their OWN table (separate
 from tracked `players`) so each can be enabled/disabled independently. Gated by
 the `enable_player_comparison` setting. **Scoped by `champion`** (`''` = shown
-for every matchup), NOT by profile: `db.MAX_COMPARISON_PLAYERS`=6 PER champion
-group; `list_comparison_players(conn, champion)` returns that champion's players
+for every matchup), NOT by profile — and unlimited per champion group (a
+`db.MAX_COMPARISON_PLAYERS`=6 cap existed up to v1.50 and was removed, client
+and server); `list_comparison_players(conn, champion)` returns that champion's players
 + the `''` ones (what `/api/matchups/comparison` loads for the viewed
 `my_champion`), `list_comparison_players(conn)` returns all (Settings groups
 them by champion). `add_comparison_player(..., champion='')`,

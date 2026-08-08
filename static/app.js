@@ -2008,7 +2008,6 @@ async function loadComparisonPlayers() {
   let data;
   try { data = await getJSON("/api/comparison-players"); }
   catch { list.innerHTML = ""; return; }
-  state.comparisonMax = data.max;
   renderComparisonPlayers(data.players || [], data.fetching || {});
   // a background fetch is running — poll until it finishes, updating counts
   const status = $("#comparison-status");
@@ -2034,7 +2033,6 @@ function champIdFromText(text) {
 function renderComparisonPlayers(players, fetching = {}) {
   const list = $("#comparison-players-list");
   if (!list) return;
-  const max = state.comparisonMax || 6;
   const busy = Boolean(fetching.running);
   const playerRow = (p) => `
       <div class="comparison-player" data-puuid="${p.puuid}">
@@ -2064,7 +2062,7 @@ function renderComparisonPlayers(players, fetching = {}) {
           : `Any champion <span class="muted">— shown for every matchup</span>`;
         const ps = groups.get(key);
         return `<div class="cmp-group">
-          <div class="cmp-group-head">${head} <span class="muted">(${ps.length}/${max})</span></div>
+          <div class="cmp-group-head">${head} <span class="muted">(${ps.length})</span></div>
           ${ps.map(playerRow).join("")}</div>`;
       }).join("")
     : `<p class="muted">No research players yet — add one below and pick which champion it's for
