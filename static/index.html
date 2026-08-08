@@ -21,6 +21,7 @@
     <button id="nav-research" role="tab">Research</button>
     <button id="nav-macros" role="tab">Macros</button>
     <button id="nav-tiers" role="tab">Tier list</button>
+    <button id="nav-calc" role="tab">Damage calc</button>
   </div>
   <select id="profile-select" class="preset" title="Active profile — a saved focus you switch between"
     aria-label="Active profile" style="max-width:13em"></select>
@@ -287,6 +288,7 @@
           <label><input type="checkbox" class="view-toggle-cb" value="research" checked> Research</label>
           <label><input type="checkbox" class="view-toggle-cb" value="macros" checked> Macros</label>
           <label><input type="checkbox" class="view-toggle-cb" value="tiers" checked> Tier list</label>
+          <label><input type="checkbox" class="view-toggle-cb" value="calc" checked> Damage calc</label>
         </div>
         <p class="muted">Untick tabs you don't use to hide them from the top bar (data
           collection is unaffected).</p>
@@ -780,6 +782,9 @@
   <div id="winconditions-box"></div>
 </div>
 
+<!-- Damage calculator: rendered entirely by calculator.js -->
+<div id="calc-view" class="hidden"></div>
+
 <div id="tier-compare-overlay" class="hidden" aria-modal="true" role="dialog"
   aria-label="Compare tier lists">
   <div class="tier-compare-head">
@@ -800,5 +805,8 @@
 <script src="research.js"></script>
 <script src="macros.js"></script>
 <script src="tierlist.js"></script>
+<script src="calcdata.js"></script>
+<script src="calc.js"></script>
+<script src="calculator.js"></script>
 </body>
 </html>

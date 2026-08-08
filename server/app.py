@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import config, crypto, db, pdf_export, rune_data, stats
+from . import auth, config, crypto, db, pdf_export, rune_data, stats
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING
@@ -151,7 +151,11 @@ def api_version():
     return {"version": config.app_version(), "repo": config.GITHUB_REPO}
 
 
-HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros"}
+# must stay in step with the .view-toggle-cb checkboxes in index.html — a view
+# offered there but missing here makes saving settings 400 ("tiers" was in that
+# state before "calc" was added)
+HIDEABLE_VIEWS = {"overview", "matchups", "progress", "trends", "blocks", "guide",
+                  "research", "macros", "tiers", "calc"}
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -1962,8 +1966,7 @@ def api_get_comparison_players():
         for p in players:
             p["enabled"] = bool(p["enabled"])
             p["games"] = _comparison_games(conn, p["puuid"])
-        return {"players": players, "max": db.MAX_COMPARISON_PLAYERS,
-                "fetching": dict(COMPARISON_CRAWL)}
+        return {"players": players, "fetching": dict(COMPARISON_CRAWL)}
     finally:
         conn.close()
 
@@ -1985,8 +1988,6 @@ def api_add_comparison_player(body: dict):
         settings = config.resolve_settings(conn)
         if not settings["configured"]:
             raise HTTPException(400, "not configured — set your API key in Settings")
-        # the cap is per champion group
-        existing = [p for p in db.list_comparison_players(conn) if p["champion"] == champion]
     finally:
         conn.close()
     # a comparison player can be on a different server than your own accounts;
@@ -2000,10 +2001,6 @@ def api_add_comparison_player(body: dict):
     except NotFoundError:
         raise HTTPException(404, f"no Riot account {riot_id!r}")
     puuid = account["puuid"]
-    if (puuid not in {p["puuid"] for p in existing}
-            and len(existing) >= db.MAX_COMPARISON_PLAYERS):
-        raise HTTPException(409, f"at most {db.MAX_COMPARISON_PLAYERS} research players per "
-                                 "champion — remove one first")
     game_name = account.get("gameName", name.strip())
     tag_line = account.get("tagLine", tag.strip())
     # Register as a comparison player FIRST: the crawler only stores per-match
@@ -2949,5 +2946,11 @@ def api_block_timeline_status():
 def api_crawl_status():
     return CRAWL_STATE
 
+
+# Must come before the catch-all static mount (which would otherwise swallow
+# /login) and after every other middleware, so the token gate is the outermost
+# layer — nothing else runs for an unauthenticated request. No-op unless a
+# token is configured; see server/auth.py.
+auth.install(app)
 
 app.mount("/", StaticFiles(directory=PROJECT_ROOT / "static", html=True), name="static")

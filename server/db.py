@@ -335,6 +335,11 @@ def connect(db_path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    # WAL lets readers run alongside a writer, but writers still serialise:
+    # without a timeout the second one fails instantly with "database is
+    # locked". Matters once more than one client (or a crawl thread plus a
+    # browser) can write at the same time — i.e. in self-host server mode.
+    conn.execute("PRAGMA busy_timeout=5000")
     _migrate(conn)
     metric_columns = ",\n    ".join(f"{k} REAL" for k in metric_keys())
     conn.executescript(SCHEMA.format(metric_columns=metric_columns))
@@ -580,14 +585,13 @@ def upsert_player(conn, puuid, game_name, tag_line, is_tracked=False):
         )
 
 
-# ---------- comparison ("research") players: up to 2 others to compare
+# ---------- comparison ("research") players: others to compare
 # yourself against in the Matchup guide. Stored in their own table (separate
 # from tracked `players`) so each can be enabled/disabled independently, on or
 # off as you see fit, without touching your own tracked stats. Their match
 # data still lands in matches/participants like anyone else; this table just
 # records who they are and whether each is currently active. ----------
 
-MAX_COMPARISON_PLAYERS = 6  # 3 + 3 in the comparison window's 3-per-row grid
 COMPARISON_LOOKBACK_DAYS = 60  # default fetch window; "Fetch more" extends by this
 
 
@@ -616,13 +620,8 @@ def comparison_puuids(conn, enabled_only=False):
 
 def add_comparison_player(conn, puuid, game_name, tag_line, platform="", champion=""):
     """Add a research player scoped to `champion` ('' = shown for all champions),
-    enabled by default. Returns False without inserting if that champion group is
-    already at MAX_COMPARISON_PLAYERS (unless this puuid is already in it — then
-    it's a no-op refresh of the display name / champion)."""
-    in_group = {r["puuid"] for r in conn.execute(
-        "SELECT puuid FROM comparison_players WHERE champion=?", (champion,))}
-    if puuid not in in_group and len(in_group) >= MAX_COMPARISON_PLAYERS:
-        return False
+    enabled by default. No cap on how many a champion group holds; adding a puuid
+    that's already there is a no-op refresh of the display name / champion."""
     nxt = conn.execute(
         "SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM comparison_players").fetchone()["n"]
     with conn:
@@ -634,7 +633,6 @@ def add_comparison_player(conn, puuid, game_name, tag_line, platform="", champio
                   game_name=excluded.game_name, tag_line=excluded.tag_line,
                   platform=excluded.platform, champion=excluded.champion""",
             (puuid, game_name, tag_line, platform, COMPARISON_LOOKBACK_DAYS, nxt, champion))
-    return True
 
 
 def set_comparison_champion(conn, puuid, champion):

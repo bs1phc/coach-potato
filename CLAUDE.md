@@ -16,6 +16,7 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
 ./crawl.sh --limit 5                        # SMALL live batch — always test crawler changes this way first
 ./crawl.sh                                  # full incremental crawl
 ./run.sh                                    # uvicorn on http://localhost:8321
+./serve.sh                                  # SELF-HOST: 0.0.0.0, token auth required
 ```
 
 ## Gotchas that matter here
@@ -67,6 +68,25 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   app.py). Refresh after new champion releases:
   fetch DDragon versions.json → cdn/<ver>/data/en_US/champion.json →
   regenerate the file (see git history of the file for the exact script).
+- `static/spelldata.json` is the Damage calculator's champion data: per-champion
+  base stats (+ per-level growth) and, per ability, the damage calculations
+  flattened to `{flat: [per rank], ratios: [{stat, of, coeff: [per rank]}],
+  flatByLevel?: [18]}`. **DDragon cannot supply this** — its `spells[].effectBurn`
+  is all zeros and `vars` is empty (that is why `cooldowns.js` only reads
+  `cooldown`), so the numbers come from CommunityDragon's
+  `game/data/characters/<alias>/<alias>.bin.json`, whose `DataValues` +
+  `mSpellCalculations` are the game's own formula trees. Regenerate with
+  `python scripts/refresh_spelldata.py` (`--report` shows what was dropped,
+  `--champion X --dry-run` prints readable per-rank values for spot-checking
+  against the wiki). Two things that bite: a data-value array is indexed by
+  spell RANK, so **index 0 is the rank-0 value** and must be sliced off (Malphite
+  E only reads 60/95/130/165/200 once it is); and health ratios are ambiguous in
+  the source — `% total health` means the TARGET's max HP (Vayne W, Nasus R)
+  while `% bonus health` means the CASTER's (Zac, Ornn), resolved by
+  `resolve_health` into distinct stat names. The generator **drops anything it
+  cannot resolve** (unknown `mStat` enum, unhandled node type) rather than
+  guessing, because a wrong ratio is worse than a missing one; `tests/
+  test_spelldata.py` covers the flattening and the generated file's shape.
 - `static/runes.json` is the static rune tree/row/shard roster (names, icon
   paths, and numeric match-v5 ids) that drives the Matchup guide rune-page
   picker (client + `server/rune_data.py`, the single loader both `app.py`
@@ -86,6 +106,24 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
 ## Architecture (one line each)
 
 - `server/config.py` — `.env` parser; `load_config()` → key, db path, accounts.
+- `server/auth.py` — OPTIONAL shared-secret gate for self-host mode, off unless
+  `COACH_POTATO_TOKEN` is set (env var, else a `.env` line; resolved once and
+  cached — `reset_cache()` for tests). `auth.install(app)` is called at the END
+  of app.py, deliberately: it must register `/login`+`/logout` **before** the
+  catch-all `app.mount("/", StaticFiles(...))` (a Mount at `/` matches first
+  and would 404 them) and **after** every other `@app.middleware`, since
+  last-registered runs outermost — the token gate must sit in front of
+  `redact_my_rank` and everything else. Browser sessions are an HttpOnly
+  `cp_auth` cookie holding `sha256(token)` (not the token), because `<img>`,
+  `<a download>`, `<video>` and the `window.open()` pop-outs can't send an
+  Authorization header; `Bearer`/`X-Auth-Token` headers are also accepted for
+  scripts. `SameSite=Lax` is the CSRF story. Unauthenticated `/api/*` → 401
+  JSON (app.js's `getJSON` bounces to `/login?next=`), anything else → the
+  self-contained login page (it can't link `/static`, that's behind the gate
+  too). `desktop.py` calls `auth.force_off()` at import — it's loopback-only
+  and single-user, so a token left in `.env` for `./serve.sh` must not put a
+  login screen in its own window. NOT multi-user: one shared secret, one
+  shared database.
 - `server/riot_client.py` — httpx client + sliding-window limiter; 429 retry,
   5xx backoff; injectable `transport`/`clock` for tests.
 - `server/parsing.py` — match-v5 JSON → `(match_row, participant_rows)`.
@@ -444,7 +482,35 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
   sections for game-macro notes — not tied to any champion, matchup, or
   session; sections append at the bottom in creation order, no drag-reorder;
   editing a section force-expands it and keeps it expanded after save) in
-  `macros.js`.
+  `macros.js`; Damage calculator (own nav tab, `#calc`) split across three
+  files — `calcdata.js` (hand-maintained reference data: DDragon stat-line
+  labels plus what each item/rune passive actually does, stamped with
+  `PASSIVE_DATA_PATCH`), `calc.js` (pure maths, no DOM: build → stat block →
+  per-ability damage → mitigation) and `calculator.js` (state/render/wiring).
+  **Entirely client-side — it adds no API endpoints**; it reads
+  `spelldata.json`, `runes.json` and guide.js's `ITEMS`, whose cache now
+  carries each item's parsed `stats`, raw `desc` and `gold` (hence the
+  `item-data-v4-` cache key). Anything rendered with a `data-item-name`
+  attribute gets the shared item hover tooltip (`showItemTooltip` in guide.js,
+  used by `itemChip` and both item pickers, so it covers the Matchup guide's
+  item build AND the calculator): cost, stat line, passive/active text, and
+  whether `ITEM_EFFECTS` models that item's passive or is only counting its raw
+  stats. One delegated listener on `document`, since both views re-render
+  constantly. DDragon's item text is pseudo-markup (`<passive>`, `<attention>`,
+  `<magicDamage>`) from a third-party CDN — `itemDescriptionNodes` parses it and
+  rebuilds only whitelisted tags with text going through text nodes, so it is
+  never injected as raw HTML.
+  Item stats are parsed from the DDragon description's `<stats>` block, NOT
+  from its `stats` object, which silently omits ability haste, lethality and
+  penetration. Reuses guide.js's rune picker (`treePicker`/
+  `primaryRunesPicker`/`secondaryRunesPicker`/`shardsPicker` all take a page
+  object) and cooldowns.js's `champGrid`/`ranksAtLevel`, so ability ranks
+  follow the skill order saved from the cooldown popup; a champion's saved
+  item build and rune pages can be loaded straight from the Matchup guide.
+  Mitigation is `resist * (1 - %pen) - flatPen`, floored at 0, then
+  `100/(100+resist)`; damage amps multiply pre-mitigation. There is no JS test
+  runner in this repo, so `calc.js` is NOT unit-tested — verify changes in a
+  browser (the Python tests cover only the data generator).
 
 ## Schema (data/lol.sqlite)
 
@@ -546,8 +612,9 @@ lookback_days, sort, added_at_ms, profile_id, champion)` — "research" players
 to compare yourself against in the Matchup guide, in their OWN table (separate
 from tracked `players`) so each can be enabled/disabled independently. Gated by
 the `enable_player_comparison` setting. **Scoped by `champion`** (`''` = shown
-for every matchup), NOT by profile: `db.MAX_COMPARISON_PLAYERS`=6 PER champion
-group; `list_comparison_players(conn, champion)` returns that champion's players
+for every matchup), NOT by profile — and unlimited per champion group (a
+`db.MAX_COMPARISON_PLAYERS`=6 cap existed up to v1.50 and was removed, client
+and server); `list_comparison_players(conn, champion)` returns that champion's players
 + the `''` ones (what `/api/matchups/comparison` loads for the viewed
 `my_champion`), `list_comparison_players(conn)` returns all (Settings groups
 them by champion). `add_comparison_player(..., champion='')`,

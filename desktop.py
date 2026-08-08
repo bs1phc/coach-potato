@@ -25,7 +25,13 @@ if sys.stderr is None:
 
 import uvicorn
 
+from server import auth
 from server.app import app
+
+# The desktop app is loopback-only and single-user, so it never asks for the
+# self-host access token — otherwise a COACH_POTATO_TOKEN left in .env for
+# ./serve.sh would greet you with a login screen in your own window.
+auth.force_off()
 
 WINDOW_TITLE = "Coach Potato"
 

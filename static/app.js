@@ -331,6 +331,13 @@ function queryString() {
 
 async function getJSON(url) {
   const response = await fetch(url);
+  // Self-host server mode: the session cookie expired (or the server was
+  // restarted with a new token). Bounce to the login page instead of letting
+  // every panel fail with an opaque error.
+  if (response.status === 401) {
+    window.location.href = `/login?next=${encodeURIComponent(location.pathname + location.hash)}`;
+    throw new Error("not authenticated");
+  }
   if (!response.ok) throw new Error(`${url} -> ${response.status}`);
   return response.json();
 }
@@ -2003,10 +2010,10 @@ function setMainView(view) {
   if (history.replaceState) {
     const hash = { matchups: "#matchups", progress: "#progress", trends: "#trends",
                    blocks: "#blocks", guide: "#guide", research: "#research",
-                   macros: "#macros", tiers: "#tiers" }[view] || "#";
+                   macros: "#macros", tiers: "#tiers", calc: "#calc" }[view] || "#";
     history.replaceState(null, "", hash);
   }
-  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers", "settings"]) {
+  for (const v of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers", "calc", "settings"]) {
     $(`#nav-${v}`).classList.toggle("active", view === v);
     $(`#${v}-view`).classList.toggle("hidden", view !== v);
   }
@@ -2018,6 +2025,7 @@ function setMainView(view) {
   if (view === "research") initResearch();
   if (view === "macros") initMacros();
   if (view === "tiers") initTiers();
+  if (view === "calc") initCalculator();
   if (view === "settings") initSettings();
 }
 
@@ -2106,11 +2114,11 @@ function applyAppearance(data) {
 
 function applyHiddenViews(hidden) {
   state.hiddenViews = hidden || [];
-  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers"]) {
+  for (const view of ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers", "calc"]) {
     $(`#nav-${view}`).classList.toggle("hidden", state.hiddenViews.includes(view));
   }
   if (state.hiddenViews.includes(state.mainView)) {
-    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers"]
+    const fallback = ["overview", "matchups", "progress", "trends", "blocks", "guide", "research", "macros", "tiers", "calc"]
       .find((view) => !state.hiddenViews.includes(view));
     setMainView(fallback || "settings");
   }
@@ -2180,7 +2188,6 @@ async function loadComparisonPlayers() {
   let data;
   try { data = await getJSON("/api/comparison-players"); }
   catch { list.innerHTML = ""; return; }
-  state.comparisonMax = data.max;
   renderComparisonPlayers(data.players || [], data.fetching || {});
   // a background fetch is running — poll until it finishes, updating counts
   const status = $("#comparison-status");
@@ -2206,7 +2213,6 @@ function champIdFromText(text) {
 function renderComparisonPlayers(players, fetching = {}) {
   const list = $("#comparison-players-list");
   if (!list) return;
-  const max = state.comparisonMax || 6;
   const busy = Boolean(fetching.running);
   const playerRow = (p) => `
       <div class="comparison-player" data-puuid="${p.puuid}">
@@ -2236,7 +2242,7 @@ function renderComparisonPlayers(players, fetching = {}) {
           : `Any champion <span class="muted">— shown for every matchup</span>`;
         const ps = groups.get(key);
         return `<div class="cmp-group">
-          <div class="cmp-group-head">${head} <span class="muted">(${ps.length}/${max})</span></div>
+          <div class="cmp-group-head">${head} <span class="muted">(${ps.length})</span></div>
           ${ps.map(playerRow).join("")}</div>`;
       }).join("")
     : `<p class="muted">No research players yet — add one below and pick which champion it's for
@@ -2606,6 +2612,7 @@ function wireProgress() {
   $("#nav-research").addEventListener("click", () => setMainView("research"));
   $("#nav-macros").addEventListener("click", () => setMainView("macros"));
   $("#nav-tiers").addEventListener("click", () => setMainView("tiers"));
+  $("#nav-calc").addEventListener("click", () => setMainView("calc"));
   $("#nav-settings").addEventListener("click", () => setMainView("settings"));
   $("#coaching-nudge").addEventListener("click", () => setMainView("progress"));
   $("#progress-champion").addEventListener("change", (e) => {
@@ -2933,6 +2940,8 @@ async function init(firstLoad = true) {
   if (firstLoad && location.hash === "#guide") setMainView("guide");
   if (firstLoad && location.hash === "#research") setMainView("research");
   if (firstLoad && location.hash === "#macros") setMainView("macros");
+  if (firstLoad && location.hash === "#tiers") setMainView("tiers");
+  if (firstLoad && location.hash === "#calc") setMainView("calc");
   if (firstLoad && location.hash === "#settings") setMainView("settings");
 }
 

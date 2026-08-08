@@ -56,6 +56,38 @@ games — the crawler is incremental and safe to interrupt/resume.
 (SEA). The regional routing hosts for match history and account lookup are
 derived from it automatically.
 
+## Self-hosting (one database, all your devices)
+
+Coach Potato is already a client/server app — `./run.sh` just keeps the server
+on loopback. Self-host mode serves the same UI to your laptop, desktop and
+phone off one machine that holds the database:
+
+```bash
+export COACH_POTATO_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+./serve.sh              # binds 0.0.0.0:8321 (Windows: .\serve.ps1)
+```
+
+Open `http://<server>:8321` from any device, enter the token once, and you're
+in — the session is a 30-day cookie. The token can also live in `.env` as
+`COACH_POTATO_TOKEN=`. Scripts and `curl` can send it as
+`Authorization: Bearer <token>` instead of logging in.
+
+`./serve.sh` refuses to start without a token, on purpose: unauthenticated,
+anyone who can reach the port could read your Riot API key out of Settings and
+write to your database. `./run.sh` and the desktop app are unaffected — with no
+token configured there's no login at all.
+
+Two things this is **not**:
+
+- **It isn't multi-user.** Everyone who logs in shares one database — the same
+  blocks, notes, profiles and tracked accounts. It's "my devices", not "my team".
+- **It isn't internet-facing.** The token crosses plain HTTP, so reach the
+  server over Tailscale, WireGuard or your LAN rather than a port forward. If it
+  must be public, put a TLS terminator (Caddy, nginx) in front.
+
+Per-device browser state (skill grids, table column pickers) stays in that
+browser's localStorage and doesn't sync; everything stored in the database does.
+
 ## Getting a Riot API key
 
 Two kinds of key work, both free from <https://developer.riotgames.com>:

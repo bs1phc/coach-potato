@@ -796,20 +796,18 @@ def test_champion_notes_gains_runes_column_on_upgrade(tmp_path):
     c.close()
 
 
-def test_comparison_players_crud_and_limit(tmp_path):
+def test_comparison_players_crud_and_no_limit(tmp_path):
     c = db.connect(tmp_path / "cp.sqlite")
-    for i in range(db.MAX_COMPARISON_PLAYERS):
-        assert db.add_comparison_player(c, f"p{i}", f"Name{i}", "EUW") is True
-    # one past the max is rejected
-    assert db.add_comparison_player(c, "over", "TooMany", "EUW") is False
-    assert len(db.list_comparison_players(c)) == db.MAX_COMPARISON_PLAYERS
+    for i in range(20):  # no cap on how many research players a group holds
+        db.add_comparison_player(c, f"p{i}", f"Name{i}", "EUW")
+    assert len(db.list_comparison_players(c)) == 20
     db.set_comparison_enabled(c, "p0", False)
     assert "p0" not in db.comparison_puuids(c, enabled_only=True)
     assert db.bump_comparison_lookback(c, "p1") == 2 * db.COMPARISON_LOOKBACK_DAYS
     db.remove_comparison_player(c, "p0")
-    assert len(db.list_comparison_players(c)) == db.MAX_COMPARISON_PLAYERS - 1
-    # a slot freed up — can add again
-    assert db.add_comparison_player(c, "again", "Again", "EUW") is True
+    assert len(db.list_comparison_players(c)) == 19
+    db.add_comparison_player(c, "again", "Again", "EUW")
+    assert len(db.list_comparison_players(c)) == 20
     c.close()
 
 
