@@ -16,6 +16,7 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
 ./crawl.sh --limit 5                        # SMALL live batch — always test crawler changes this way first
 ./crawl.sh                                  # full incremental crawl
 ./run.sh                                    # uvicorn on http://localhost:8321
+./serve.sh                                  # SELF-HOST: 0.0.0.0, token auth required
 ```
 
 ## Gotchas that matter here
@@ -105,6 +106,24 @@ opponent as the enemy in that SAME role (`opp.team_position = me.team_position`)
 ## Architecture (one line each)
 
 - `server/config.py` — `.env` parser; `load_config()` → key, db path, accounts.
+- `server/auth.py` — OPTIONAL shared-secret gate for self-host mode, off unless
+  `COACH_POTATO_TOKEN` is set (env var, else a `.env` line; resolved once and
+  cached — `reset_cache()` for tests). `auth.install(app)` is called at the END
+  of app.py, deliberately: it must register `/login`+`/logout` **before** the
+  catch-all `app.mount("/", StaticFiles(...))` (a Mount at `/` matches first
+  and would 404 them) and **after** every other `@app.middleware`, since
+  last-registered runs outermost — the token gate must sit in front of
+  `redact_my_rank` and everything else. Browser sessions are an HttpOnly
+  `cp_auth` cookie holding `sha256(token)` (not the token), because `<img>`,
+  `<a download>`, `<video>` and the `window.open()` pop-outs can't send an
+  Authorization header; `Bearer`/`X-Auth-Token` headers are also accepted for
+  scripts. `SameSite=Lax` is the CSRF story. Unauthenticated `/api/*` → 401
+  JSON (app.js's `getJSON` bounces to `/login?next=`), anything else → the
+  self-contained login page (it can't link `/static`, that's behind the gate
+  too). `desktop.py` calls `auth.force_off()` at import — it's loopback-only
+  and single-user, so a token left in `.env` for `./serve.sh` must not put a
+  login screen in its own window. NOT multi-user: one shared secret, one
+  shared database.
 - `server/riot_client.py` — httpx client + sliding-window limiter; 429 retry,
   5xx backoff; injectable `transport`/`clock` for tests.
 - `server/parsing.py` — match-v5 JSON → `(match_row, participant_rows)`.

@@ -331,6 +331,13 @@ function queryString() {
 
 async function getJSON(url) {
   const response = await fetch(url);
+  // Self-host server mode: the session cookie expired (or the server was
+  // restarted with a new token). Bounce to the login page instead of letting
+  // every panel fail with an opaque error.
+  if (response.status === 401) {
+    window.location.href = `/login?next=${encodeURIComponent(location.pathname + location.hash)}`;
+    throw new Error("not authenticated");
+  }
   if (!response.ok) throw new Error(`${url} -> ${response.status}`);
   return response.json();
 }

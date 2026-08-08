@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from . import config, crypto, db, pdf_export, rune_data, stats
+from . import auth, config, crypto, db, pdf_export, rune_data, stats
 from .config import PROJECT_ROOT
 from .metrics import METRICS
 from .riot_client import PLATFORM_ROUTING
@@ -2856,5 +2856,11 @@ def api_block_timeline_status():
 def api_crawl_status():
     return CRAWL_STATE
 
+
+# Must come before the catch-all static mount (which would otherwise swallow
+# /login) and after every other middleware, so the token gate is the outermost
+# layer — nothing else runs for an unauthenticated request. No-op unless a
+# token is configured; see server/auth.py.
+auth.install(app)
 
 app.mount("/", StaticFiles(directory=PROJECT_ROOT / "static", html=True), name="static")

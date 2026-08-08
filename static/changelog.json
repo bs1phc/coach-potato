@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.51.0",
+      "date": "2026-08-08",
+      "items": [
+        "Self-host mode: run Coach Potato on one machine (./serve.sh, or serve.ps1 on Windows) and reach the full app from your laptop, desktop or phone — one database, all your devices. It's protected by an access token you set once (COACH_POTATO_TOKEN); you sign in per device and stay signed in for 30 days. The desktop app and ./run.sh are unchanged — with no token set there's no login at all",
+        "Research players are no longer capped at 6 per champion — add as many as you want to compare yourself against"
+      ]
+    },
+    {
       "version": "1.50.0",
       "date": "2026-08-02",
       "items": [

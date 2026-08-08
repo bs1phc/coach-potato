@@ -303,6 +303,11 @@ def connect(db_path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    # WAL lets readers run alongside a writer, but writers still serialise:
+    # without a timeout the second one fails instantly with "database is
+    # locked". Matters once more than one client (or a crawl thread plus a
+    # browser) can write at the same time — i.e. in self-host server mode.
+    conn.execute("PRAGMA busy_timeout=5000")
     _migrate(conn)
     metric_columns = ",\n    ".join(f"{k} REAL" for k in metric_keys())
     conn.executescript(SCHEMA.format(metric_columns=metric_columns))
